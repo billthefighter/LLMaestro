@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional, Union, TypeVar, Generic, Callable, Protocol, cast
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from uuid import uuid4
 import asyncio
 from abc import ABC, abstractmethod
@@ -21,9 +21,28 @@ class OutputTransform(Protocol):
 @dataclass
 class ChainContext:
     """Context object passed between chain steps."""
-    artifacts: Dict[str, Any]  # Intermediate results
-    metadata: Dict[str, Any]   # Chain execution metadata
-    state: Dict[str, Any]      # Current chain state
+    artifacts: Dict[str, Any] = field(default_factory=dict)  # Intermediate results
+    metadata: Dict[str, Any] = field(default_factory=dict)   # Chain execution metadata
+    state: Dict[str, Any] = field(default_factory=dict)      # Current chain state
+    recursion_depth: int = 0                                 # Track recursion depth
+    recursion_path: List[str] = field(default_factory=list)  # Track chain execution path
+    max_recursion_depth: int = 10                           # Maximum allowed recursion depth
+
+    def increment_depth(self, chain_id: str) -> None:
+        """Increment recursion depth and update path."""
+        self.recursion_depth += 1
+        self.recursion_path.append(chain_id)
+        if self.recursion_depth > self.max_recursion_depth:
+            raise RecursionError(
+                f"Maximum recursion depth ({self.max_recursion_depth}) exceeded. "
+                f"Path: {' -> '.join(self.recursion_path)}"
+            )
+
+    def decrement_depth(self) -> None:
+        """Decrement recursion depth and update path."""
+        self.recursion_depth -= 1
+        if self.recursion_path:
+            self.recursion_path.pop()
 
 class ChainStep(Generic[T]):
     """Represents a single step in a prompt chain."""
@@ -400,4 +419,55 @@ class ReminderChain(AbstractChain[ChainResult]):
         if result is None:
             raise ValueError("Chain execution produced no result")
         return result
+
+class RecursiveChain(AbstractChain[ChainResult]):
+    """A chain that supports dynamic step generation and recursion."""
+    
+    def __init__(
+        self,
+        initial_step: ChainStep[ChainResult],
+        step_generator: Optional[Callable[[LLMResponse, ChainContext], List[ChainStep[ChainResult]]]] = None,
+        max_recursion_depth: int = 10,
+        *args,
+        **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.initial_step = initial_step
+        self.step_generator = step_generator
+        self.id = str(uuid4())
+        self.context.max_recursion_depth = max_recursion_depth
+
+    async def execute(self, **kwargs: Any) -> ChainResult:
+        """Execute chain with support for dynamic step generation."""
+        try:
+            # Track recursion
+            self.context.increment_depth(self.id)
+            
+            # Execute initial step
+            result = await self.initial_step.execute(
+                self.llm,
+                self.prompt_loader,
+                self.context,
+                **kwargs
+            )
+            self.store_artifact(f"step_{self.initial_step.id}", result)
+
+            # Generate and execute additional steps if needed
+            if self.step_generator and isinstance(result, LLMResponse):
+                next_steps = self.step_generator(result, self.context)
+                if next_steps:
+                    # Create and execute a sequential chain for the generated steps
+                    sub_chain = SequentialChain[ChainResult](
+                        steps=next_steps,
+                        llm=self.llm,
+                        storage=self.storage,
+                        prompt_loader=self.prompt_loader,
+                        context=self.context  # Pass the same context to maintain recursion tracking
+                    )
+                    result = await sub_chain.execute(**kwargs)
+
+            return result
+        finally:
+            # Always decrement depth when done
+            self.context.decrement_depth()
 

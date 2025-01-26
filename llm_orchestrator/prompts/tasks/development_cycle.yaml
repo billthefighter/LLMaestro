@@ -1,0 +1,167 @@
+name: "development_cycle"
+version: "1.0.0"
+description: "Manages a complete development cycle including feature implementation, testing, bug fixing, and documentation updates"
+author: "LLM Orchestrator Team"
+metadata:
+  type: "code_development"
+  model_requirements:
+    min_tokens: 4000
+    preferred_models: ["gpt-4", "claude-2"]
+  expected_response:
+    format: "json"
+    schema: {
+      "type": "object",
+      "properties": {
+        "implementation": {
+          "type": "object",
+          "properties": {
+            "files_to_modify": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": { "type": "string" },
+                  "changes": { "type": "string" },
+                  "explanation": { "type": "string" }
+                }
+              }
+            },
+            "new_files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": { "type": "string" },
+                  "content": { "type": "string" },
+                  "explanation": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "tests": {
+          "type": "object",
+          "properties": {
+            "test_files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": { "type": "string" },
+                  "content": { "type": "string" },
+                  "test_cases": {
+                    "type": "array",
+                    "items": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "needs_clarification": {
+          "type": "boolean"
+        },
+        "clarification_questions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  decomposition:
+    strategy: "custom"
+    max_parallel: 1
+    aggregation: "custom"
+
+system_prompt: |
+  You are an expert software developer responsible for implementing new features, writing tests, fixing bugs, and updating documentation. Follow these guidelines:
+
+  1. Implementation:
+     - Write clean, maintainable code following project conventions
+     - Consider edge cases and error handling
+     - Add appropriate type hints and docstrings
+     - Follow SOLID principles and best practices
+
+  2. Testing:
+     - Write comprehensive unit tests
+     - Include edge cases and error conditions
+     - Use appropriate test fixtures and mocks
+     - Follow testing best practices for the project
+
+  3. Bug Fixing:
+     - Analyze test failures carefully
+     - Consider root causes, not just symptoms
+     - Verify fixes don't introduce new issues
+     - Add regression tests for fixed bugs
+
+  4. Documentation:
+     - Update relevant documentation
+     - Include usage examples
+     - Document any breaking changes
+     - Keep documentation consistent with code
+
+  If you need any clarification about requirements or existing code, include questions in your response.
+
+user_prompt: |
+  Task: {task_description}
+
+  Current codebase context:
+  {codebase_context}
+
+  Requirements:
+  {requirements}
+
+  Please provide a detailed plan for implementing this feature, including:
+  1. Code changes and new files needed
+  2. Test cases to verify functionality
+  3. Any clarification questions about requirements or existing code
+
+examples:
+  - input:
+      task_description: "Add retry functionality to the LLM client"
+      codebase_context: |
+        Current LLM client implementation:
+        - Basic error handling
+        - No retry mechanism
+        - Uses async/await pattern
+      requirements: |
+        - Add configurable retry mechanism
+        - Support exponential backoff
+        - Maximum retry attempts
+        - Customizable retry conditions
+    expected_output: |
+      {
+        "implementation": {
+          "files_to_modify": [
+            {
+              "path": "llm_client.py",
+              "changes": "Add RetryConfig class and retry logic...",
+              "explanation": "Adding retry mechanism with exponential backoff"
+            }
+          ],
+          "new_files": [
+            {
+              "path": "tests/test_retry.py",
+              "content": "Test suite for retry functionality...",
+              "explanation": "Comprehensive tests for retry mechanism"
+            }
+          ]
+        },
+        "tests": {
+          "test_files": [
+            {
+              "path": "tests/test_retry.py",
+              "content": "...",
+              "test_cases": [
+                "Test basic retry success",
+                "Test max retries exceeded",
+                "Test exponential backoff timing"
+              ]
+            }
+          ]
+        },
+        "needs_clarification": true,
+        "clarification_questions": [
+          "Should we retry on all error types or only specific ones?",
+          "What should be the default max retry attempts?"
+        ]
+      } 

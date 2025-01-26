@@ -1,17 +1,35 @@
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Protocol, cast, TypeVar
 from ..core.models import SubTask, AgentConfig
 from ..llm.base import create_llm_interface, LLMResponse
-from ..llm.chains import TaskProcessor
+from ..llm.chains import SequentialChain, ChainStep, OutputTransform
 from ..prompts.loader import PromptLoader
+
+T = TypeVar('T')
+
+class JsonOutputTransform(OutputTransform, Protocol):
+    """Protocol for JSON output transformation."""
+    def __call__(self, response: LLMResponse) -> Dict[str, Any]: ...
 
 class Agent:
     def __init__(self, config: AgentConfig, prompt_loader: Optional[PromptLoader] = None):
         self.config = config
         self.busy = False
         self.llm_interface = create_llm_interface(config)
-        self.task_processor = TaskProcessor(self.llm_interface, prompt_loader)
+        self.prompt_loader = prompt_loader or PromptLoader()
+        
+    def _create_json_parser(self) -> JsonOutputTransform:
+        """Create a JSON parser that conforms to OutputTransform protocol."""
+        def parse_json(response: LLMResponse) -> Dict[str, Any]:
+            try:
+                return response.json()
+            except Exception as e:
+                return {
+                    "error": f"Failed to parse JSON response: {str(e)}",
+                    "raw_content": response.content
+                }
+        return cast(JsonOutputTransform, parse_json)
         
     async def process_task(self, subtask: SubTask) -> Any:
         """Process a single subtask using the configured LLM."""
@@ -38,34 +56,30 @@ class Agent:
                 "error": str(e),
                 "task_id": subtask.id
             }
-    
+            
     async def _process_typed_task(self, subtask: SubTask) -> Dict[str, Any]:
-        """Process a task using the task processor and prompt templates."""
+        """Process a task using chains and prompt templates."""
         if not isinstance(subtask.input_data, dict):
             raise ValueError("Typed tasks require dictionary input data")
             
         # Get the prompt template for this task type
-        prompt = self.task_processor.prompt_loader.get_prompt(subtask.type)
+        prompt = self.prompt_loader.get_prompt(subtask.type)
         if not prompt:
             raise ValueError(f"No prompt template found for task type: {subtask.type}")
             
-        # Format the prompt with input data
-        system_prompt, user_prompt = self.task_processor.prompt_loader.format_prompt(
-            subtask.type,
-            **subtask.input_data
+        # Create a chain for this task
+        chain = SequentialChain[Dict[str, Any]](
+            steps=[ChainStep[Dict[str, Any]](
+                task_type=subtask.type,
+                output_transform=self._create_json_parser() if prompt.metadata.expected_response.format == "json" else None
+            )],
+            llm=self.llm_interface,
+            prompt_loader=self.prompt_loader
         )
         
-        if not system_prompt or not user_prompt:
-            raise ValueError(f"Failed to format prompt for task type: {subtask.type}")
-            
-        # Process with LLM
-        response = await self.llm_interface.process(user_prompt, system_prompt=system_prompt)
-        
-        # Parse response according to expected format
-        if prompt.metadata.expected_response.format == "json":
-            return self.task_processor._parse_json_response(response)
-        else:
-            return response.content
+        # Execute the chain
+        result = await chain.execute(**subtask.input_data)
+        return result
 
 class AgentPool:
     def __init__(self, max_agents: int = 5):

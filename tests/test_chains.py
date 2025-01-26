@@ -4,7 +4,7 @@ from typing import Dict, List, Any
 
 from llm_orchestrator.llm.chains import (
     ChainContext, ChainStep, SequentialChain, ParallelChain,
-    ChordChain, GroupChain, MapChain, ReminderChain
+    ChordChain, GroupChain, MapChain, ReminderChain, RecursiveChain
 )
 from llm_orchestrator.llm.base import BaseLLMInterface, LLMResponse
 from llm_orchestrator.prompts.loader import PromptLoader
@@ -411,3 +411,124 @@ async def test_reminder_chain_context_pruning():
         prompt = call[1]["prompt"]
         assert "Second step completed" not in prompt  # Completed step should be pruned
         assert "First step: Analysis started" in prompt  # Non-completed step should remain 
+
+@pytest.mark.asyncio
+async def test_recursive_chain():
+    """Test recursive chain execution with dynamic step generation."""
+    # Setup mocks
+    llm = AsyncMock(spec=BaseLLMInterface)
+    llm.process.side_effect = [
+        LLMResponse(content="initial response", metadata={"needs_followup": True}),
+        LLMResponse(content="followup response 1", metadata={}),
+        LLMResponse(content="followup response 2", metadata={})
+    ]
+    
+    loader = Mock(spec=PromptLoader)
+    loader.format_prompt.return_value = ("system prompt", "user prompt")
+    
+    # Create step generator
+    def step_generator(response: LLMResponse, context: ChainContext) -> List[ChainStep[LLMResponse]]:
+        if response.metadata.get("needs_followup"):
+            return [
+                ChainStep[LLMResponse]("followup_1"),
+                ChainStep[LLMResponse]("followup_2")
+            ]
+        return []
+    
+    # Create chain
+    initial_step = ChainStep[LLMResponse]("initial_task")
+    chain = RecursiveChain[LLMResponse](
+        initial_step=initial_step,
+        step_generator=step_generator,
+        max_recursion_depth=3,
+        llm=llm,
+        prompt_loader=loader
+    )
+    
+    # Execute chain
+    result = await chain.execute(input="test")
+    
+    # Verify execution
+    assert isinstance(result, LLMResponse)
+    assert result.content == "followup response 2"  # Last response
+    assert len(chain.context.artifacts) == 3  # Initial + 2 followup steps
+    assert chain.context.recursion_depth == 0  # Should be reset after execution
+    assert not chain.context.recursion_path  # Should be empty after execution
+
+@pytest.mark.asyncio
+async def test_recursive_chain_depth_limit():
+    """Test recursive chain depth limit enforcement."""
+    # Setup mocks
+    llm = AsyncMock(spec=BaseLLMInterface)
+    llm.process.return_value = LLMResponse(content="response", metadata={"needs_followup": True})
+    
+    loader = Mock(spec=PromptLoader)
+    loader.format_prompt.return_value = ("system prompt", "user prompt")
+    
+    # Create step generator that always generates new steps
+    def infinite_generator(response: LLMResponse, context: ChainContext) -> List[ChainStep[LLMResponse]]:
+        return [ChainStep[LLMResponse]("infinite_task")]
+    
+    # Create chain with low depth limit
+    initial_step = ChainStep[LLMResponse]("initial_task")
+    chain = RecursiveChain[LLMResponse](
+        initial_step=initial_step,
+        step_generator=infinite_generator,
+        max_recursion_depth=2,  # Set low limit
+        llm=llm,
+        prompt_loader=loader
+    )
+    
+    # Execute chain and expect RecursionError
+    with pytest.raises(RecursionError) as exc_info:
+        await chain.execute(input="test")
+    
+    # Verify error message contains path
+    assert "Maximum recursion depth (2) exceeded" in str(exc_info.value)
+    assert "->" in str(exc_info.value)  # Should show chain path
+
+@pytest.mark.asyncio
+async def test_recursive_chain_context_tracking():
+    """Test recursive chain context maintenance."""
+    # Setup mocks
+    llm = AsyncMock(spec=BaseLLMInterface)
+    llm.process.side_effect = [
+        LLMResponse(content="level 1", metadata={"level": 1}),
+        LLMResponse(content="level 2", metadata={"level": 2}),
+        LLMResponse(content="level 3", metadata={})
+    ]
+    
+    loader = Mock(spec=PromptLoader)
+    loader.format_prompt.return_value = ("system prompt", "user prompt")
+    
+    # Create step generator that tracks depth in context
+    def depth_tracking_generator(response: LLMResponse, context: ChainContext) -> List[ChainStep[LLMResponse]]:
+        level = response.metadata.get("level", 0)
+        if level < 3:
+            return [ChainStep[LLMResponse](f"level_{level + 1}_task")]
+        return []
+    
+    # Create chain
+    initial_step = ChainStep[LLMResponse]("level_1_task")
+    chain = RecursiveChain[LLMResponse](
+        initial_step=initial_step,
+        step_generator=depth_tracking_generator,
+        max_recursion_depth=5,
+        llm=llm,
+        prompt_loader=loader
+    )
+    
+    # Execute chain
+    result = await chain.execute(input="test")
+    
+    # Verify execution and context tracking
+    assert isinstance(result, LLMResponse)
+    assert result.content == "level 3"
+    assert chain.context.recursion_depth == 0  # Should be reset
+    assert not chain.context.recursion_path  # Should be empty
+    assert len(chain.context.artifacts) == 3  # One artifact per level
+    
+    # Verify artifacts contain the expected results
+    assert any(v.content == "level 1" for v in chain.context.artifacts.values())
+    assert any(v.content == "level 2" for v in chain.context.artifacts.values())
+    assert any(v.content == "level 3" for v in chain.context.artifacts.values()) 
