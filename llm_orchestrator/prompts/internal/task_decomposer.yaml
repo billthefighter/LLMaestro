@@ -1,0 +1,164 @@
+name: "task_decomposer"
+version: "1.0.0"
+description: "Analyzes a task and generates a decomposition strategy"
+author: "LLM Orchestrator Team"
+git_metadata:
+  created:
+    commit: "initial"
+    author: "system"
+  last_modified:
+    commit: "initial"
+    author: "system"
+
+metadata:
+  type: "task_decomposer"
+  model_requirements:
+    min_tokens: 4000
+    preferred_models: ["gpt-4", "claude-2"]
+  expected_response:
+    format: "json"
+    schema: |
+      {
+        "strategy": {
+          "name": "string - unique identifier for this strategy",
+          "description": "string - explanation of the decomposition approach",
+          "max_parallel": "integer - recommended number of parallel subtasks"
+        },
+        "decomposition": {
+          "method": "string - python function that implements the decomposition",
+          "aggregation": "string - python function that implements result aggregation"
+        },
+        "validation": {
+          "input_requirements": ["array of strings - requirements for input data"],
+          "output_format": "string - description of expected output format"
+        }
+      }
+  decomposition:
+    strategy: "custom"
+    max_parallel: 1
+    aggregation: "custom"
+
+system_prompt: |
+  You are an expert system architect specializing in task decomposition. Your role is to analyze tasks and design strategies to break them down into manageable subtasks.
+
+  When designing a decomposition strategy:
+  1. Consider the nature of the input data and task requirements
+  2. Design a strategy that maximizes parallel processing while maintaining coherence
+  3. Ensure the aggregation method can properly combine subtask results
+  4. Provide clear validation requirements for input and output
+
+  Your response should include:
+  1. A clear strategy description with a unique name and parallel processing recommendations
+  2. Python functions for decomposition and aggregation that can be dynamically executed
+  3. Validation requirements for input data and output format
+
+  The decomposition method should:
+  - Take a Task object and return List[SubTask]
+  - Handle various input data types appropriately
+  - Include error handling and validation
+
+  The aggregation method should:
+  - Take List[Any] and return the combined result
+  - Handle partial or failed results gracefully
+  - Maintain the expected output format
+
+user_prompt: |
+  Task to analyze:
+  Type: {task_type}
+  Description: {description}
+  Input Format: {input_format}
+  Expected Output: {expected_output}
+  Additional Requirements: {requirements}
+
+examples:
+  - input:
+      task_type: "document_clustering"
+      description: "Group a large collection of documents by topic and create summaries for each cluster"
+      input_format: "List of dictionaries with 'text' and 'metadata' keys"
+      expected_output: "Dictionary mapping cluster IDs to summaries and document lists"
+      requirements: "Must handle variable-length documents and maintain document relationships"
+    expected_output: |
+      {
+        "strategy": {
+          "name": "hierarchical_clustering",
+          "description": "Two-phase approach: first cluster documents using embeddings, then summarize clusters",
+          "max_parallel": 10
+        },
+        "decomposition": {
+          "method": """
+def decompose_clustering(task: Task) -> List[SubTask]:
+    documents = task.input_data
+    if not isinstance(documents, list):
+        raise ValueError("Input must be a list of documents")
+        
+    # Phase 1: Generate embeddings and initial clusters
+    embedding_tasks = []
+    batch_size = 20
+    for i in range(0, len(documents), batch_size):
+        batch = documents[i:i+batch_size]
+        embedding_tasks.append(
+            SubTask(
+                id=str(uuid.uuid4()),
+                type="embedding_generation",
+                input_data={"documents": batch},
+                parent_task_id=task.id
+            )
+        )
+    
+    # Phase 2: Create cluster summaries
+    cluster_tasks = []
+    for cluster_id, docs in clusters.items():
+        cluster_tasks.append(
+            SubTask(
+                id=str(uuid.uuid4()),
+                type="cluster_summarization",
+                input_data={
+                    "cluster_id": cluster_id,
+                    "documents": docs
+                },
+                parent_task_id=task.id
+            )
+        )
+    
+    return embedding_tasks + cluster_tasks
+""",
+          "aggregation": """
+def aggregate_clustering_results(results: List[Any]) -> Dict[str, Any]:
+    # Separate embedding results from summaries
+    embedding_results = [r for r in results if "embeddings" in r]
+    summary_results = [r for r in results if "summary" in r]
+    
+    # Combine all embeddings and cluster documents
+    all_embeddings = []
+    for r in embedding_results:
+        all_embeddings.extend(r["embeddings"])
+    
+    # Create final clustering result
+    clusters = {}
+    for r in summary_results:
+        cluster_id = r["cluster_id"]
+        clusters[cluster_id] = {
+            "summary": r["summary"],
+            "documents": r["documents"],
+            "keywords": r.get("keywords", [])
+        }
+    
+    return {
+        "clusters": clusters,
+        "statistics": {
+            "num_clusters": len(clusters),
+            "total_documents": sum(len(c["documents"]) for c in clusters.values())
+        }
+    }
+"""
+        },
+        "validation": {
+          "input_requirements": [
+            "Input must be a list of dictionaries",
+            "Each dictionary must have 'text' and 'metadata' keys",
+            "Text must be non-empty strings",
+            "Collection must have at least 2 documents"
+          ],
+          "output_format": "Dictionary with 'clusters' mapping cluster IDs to cluster information and 'statistics' with clustering metrics"
+        }
+      } 

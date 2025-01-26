@@ -2,8 +2,13 @@ name: "pdf_content_analyzer"
 version: "1.0.0"
 description: "Analyzes PDF content to identify topics, themes, and key information"
 author: "LLM Orchestrator Team"
-created_at: "2024-03-19"
-updated_at: "2024-03-19"
+git_metadata:
+  created:
+    commit: "initial"
+    author: "system"
+  last_modified:
+    commit: "initial"
+    author: "system"
 
 metadata:
   type: "pdf_analysis"
@@ -19,6 +24,11 @@ metadata:
         "key_points": ["array of strings - main points from the document"],
         "summary": "string - brief summary of the content"
       }
+  decomposition:
+    strategy: "chunk"
+    chunk_size: 1000
+    max_parallel: 5
+    aggregation: "merge"
 
 system_prompt: |
   You are an expert document analyzer. Your task is to analyze PDF content and categorize it.
@@ -37,25 +47,21 @@ user_prompt: |
 examples:
   - input:
       content: |
-        Machine Learning in Healthcare
-        
-        Abstract: This paper explores the applications of machine learning in healthcare,
-        focusing on diagnostic assistance and patient outcome prediction. We review
-        recent developments in deep learning models applied to medical imaging and
-        electronic health records analysis.
+        This is a research paper on machine learning applications in healthcare.
+        The paper discusses several key points about using neural networks for
+        medical diagnosis and treatment planning.
     expected_output: |
       {
         "category": "Healthcare Technology",
         "subcategories": [
-          "Machine Learning Applications",
-          "Medical Diagnostics",
-          "Patient Care"
+          "Machine Learning",
+          "Medical Diagnosis",
+          "Treatment Planning"
         ],
         "key_points": [
-          "ML applications in healthcare diagnostics",
-          "Deep learning for medical imaging",
-          "Analysis of electronic health records",
-          "Patient outcome prediction"
+          "Neural networks can improve diagnostic accuracy",
+          "ML models help optimize treatment plans",
+          "Healthcare data requires special privacy considerations"
         ],
-        "summary": "Academic paper discussing the integration of machine learning in healthcare, specifically focusing on diagnostic tools and patient outcome prediction through medical imaging and health records analysis."
+        "summary": "Research paper exploring the application of machine learning, specifically neural networks, in healthcare for improving medical diagnosis and treatment planning."
       } 

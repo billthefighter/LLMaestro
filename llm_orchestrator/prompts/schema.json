@@ -67,7 +67,7 @@
     },
     "metadata": {
       "type": "object",
-      "required": ["type", "expected_response"],
+      "required": ["type", "expected_response", "decomposition"],
       "properties": {
         "type": {
           "type": "string",
@@ -103,6 +103,30 @@
             "schema": {
               "type": "string",
               "description": "JSON schema for structured responses"
+            }
+          }
+        },
+        "decomposition": {
+          "type": "object",
+          "required": ["strategy", "aggregation"],
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": ["chunk", "file", "error", "custom"],
+              "description": "How to break down the task"
+            },
+            "chunk_size": {
+              "type": "integer",
+              "description": "Size of chunks for chunk strategy"
+            },
+            "max_parallel": {
+              "type": "integer",
+              "description": "Maximum number of subtasks to run in parallel"
+            },
+            "aggregation": {
+              "type": "string",
+              "enum": ["concatenate", "merge", "custom"],
+              "description": "How to combine subtask results"
             }
           }
         }
