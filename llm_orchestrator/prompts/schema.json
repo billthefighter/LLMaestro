@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "LLM Prompt Template",
+  "description": "Schema for LLM Orchestrator prompt templates",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "description",
+    "metadata",
+    "system_prompt",
+    "user_prompt"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique identifier for the prompt",
+      "pattern": "^[a-z0-9_-]+$"
+    },
+    "version": {
+      "type": "string",
+      "description": "Semantic version of the prompt (automatically managed)",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "description": {
+      "type": "string",
+      "description": "Brief explanation of what this prompt does"
+    },
+    "author": {
+      "type": "string",
+      "description": "Creator of the prompt"
+    },
+    "git_metadata": {
+      "type": "object",
+      "description": "Git commit information (automatically managed)",
+      "properties": {
+        "created": {
+          "type": "object",
+          "required": ["commit", "author"],
+          "properties": {
+            "commit": {
+              "type": "string",
+              "description": "Git commit hash when file was created"
+            },
+            "author": {
+              "type": "string",
+              "description": "Git user who created the file"
+            }
+          }
+        },
+        "last_modified": {
+          "type": "object",
+          "required": ["commit", "author"],
+          "properties": {
+            "commit": {
+              "type": "string",
+              "description": "Git commit hash of last modification"
+            },
+            "author": {
+              "type": "string",
+              "description": "Git user who last modified the file"
+            }
+          }
+        }
+      },
+      "required": ["created", "last_modified"]
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["type", "expected_response"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Type of task this prompt is designed for",
+          "enum": ["pdf_analysis", "code_refactor", "lint_fix"]
+        },
+        "model_requirements": {
+          "type": "object",
+          "properties": {
+            "min_tokens": {
+              "type": "integer",
+              "description": "Minimum number of tokens required",
+              "minimum": 0
+            },
+            "preferred_models": {
+              "type": "array",
+              "description": "List of preferred LLM models",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "expected_response": {
+          "type": "object",
+          "required": ["format"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "description": "Expected format of the LLM's response",
+              "enum": ["json", "text", "markdown"]
+            },
+            "schema": {
+              "type": "string",
+              "description": "JSON schema for structured responses"
+            }
+          }
+        }
+      }
+    },
+    "system_prompt": {
+      "type": "string",
+      "description": "System-level instructions for the LLM"
+    },
+    "user_prompt": {
+      "type": "string",
+      "description": "Template for formatting user input"
+    },
+    "examples": {
+      "type": "array",
+      "description": "Sample inputs and outputs for testing",
+      "items": {
+        "type": "object",
+        "required": ["input", "expected_output"],
+        "properties": {
+          "input": {
+            "type": "object",
+            "description": "Example input values"
+          },
+          "expected_output": {
+            "type": "string",
+            "description": "Expected output in the specified format"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+} 
