@@ -12,7 +12,7 @@ You can use the following tools to help you accomplish the task:
 - 100gb of swap space to store in-process results
 - the ability to spawn new LLM agents with the same context window as yourself
 - the ability to execute python code in a linux environment
-- Orchestration tools such as langchain 
+
 
 I would prefer that you use the following tooling:
 - poetry for package management
@@ -22,3 +22,12 @@ I would prefer that you use the following tooling:
 
 
 Given these conditions, how would you design a system that can orchestrate the execution of a task that vastly exceeds your token limit?
+
+Open questions:
+
+How are you going to handle keeping track of the state of the task?
+How are you going to encode the input data small enough to fit in your context window while still being able to process it?
+
+Later functionality:
+- Docker image to run the code in
+- React or Angular frontend to interact with the system
