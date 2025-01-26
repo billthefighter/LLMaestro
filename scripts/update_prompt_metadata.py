@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 import yaml
 from typing import Optional, Dict, Any
+import json
+from jsonschema import validate
 
 def get_git_info(file_path: str) -> tuple[str, str]:
     """Get the Git commit hash and author for a file."""
@@ -71,6 +73,17 @@ def is_new_file(file_path: str) -> bool:
     except subprocess.CalledProcessError:
         return True
 
+def load_schema():
+    """Load the JSON schema for prompt validation."""
+    schema_path = Path(__file__).parent.parent / "llm_orchestrator" / "prompts" / "schema.json"
+    with open(schema_path) as f:
+        return json.load(f)
+
+def validate_prompt(content):
+    """Validate the prompt content against the JSON schema."""
+    schema = load_schema()
+    validate(instance=content, schema=schema)
+
 def update_prompt_metadata(file_path: str) -> None:
     """Update the Git metadata and version in a prompt template."""
     try:
@@ -78,6 +91,14 @@ def update_prompt_metadata(file_path: str) -> None:
         with open(file_path) as f:
             current_data = yaml.safe_load(f)
             
+        # Validate the prompt against schema before proceeding
+        try:
+            validate_prompt(current_data)
+        except Exception as e:
+            print(f"Error: {file_path} failed schema validation:")
+            print(str(e))
+            return
+        
         # Get previous version from Git
         previous_data = get_previous_version(file_path)
         

@@ -1,16 +1,17 @@
 from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from typing import Any, Dict, Optional
-from ..core.models import SubTask, AgentConfig, TaskType
+from ..core.models import SubTask, AgentConfig
 from ..llm.base import create_llm_interface, LLMResponse
 from ..llm.chains import TaskProcessor
+from ..prompts.loader import PromptLoader
 
 class Agent:
-    def __init__(self, config: AgentConfig):
+    def __init__(self, config: AgentConfig, prompt_loader: Optional[PromptLoader] = None):
         self.config = config
         self.busy = False
         self.llm_interface = create_llm_interface(config)
-        self.task_processor = TaskProcessor(self.llm_interface)
+        self.task_processor = TaskProcessor(self.llm_interface, prompt_loader)
         
     async def process_task(self, subtask: SubTask) -> Any:
         """Process a single subtask using the configured LLM."""
@@ -39,23 +40,32 @@ class Agent:
             }
     
     async def _process_typed_task(self, subtask: SubTask) -> Dict[str, Any]:
-        """Process a task with specific type handling."""
-        data = subtask.input_data
+        """Process a task using the task processor and prompt templates."""
+        if not isinstance(subtask.input_data, dict):
+            raise ValueError("Typed tasks require dictionary input data")
+            
+        # Get the prompt template for this task type
+        prompt = self.task_processor.prompt_loader.get_prompt(subtask.type)
+        if not prompt:
+            raise ValueError(f"No prompt template found for task type: {subtask.type}")
+            
+        # Format the prompt with input data
+        system_prompt, user_prompt = self.task_processor.prompt_loader.format_prompt(
+            subtask.type,
+            **subtask.input_data
+        )
         
-        if subtask.type == TaskType.PDF_ANALYSIS:
-            return await self.task_processor.process_pdf_analysis(data["content"])
-        elif subtask.type == TaskType.CODE_REFACTOR:
-            return await self.task_processor.process_code_refactor(
-                data["code"],
-                data.get("context")
-            )
-        elif subtask.type == TaskType.LINT_FIX:
-            return await self.task_processor.process_lint_fix(
-                data["code"],
-                data["errors"]
-            )
+        if not system_prompt or not user_prompt:
+            raise ValueError(f"Failed to format prompt for task type: {subtask.type}")
+            
+        # Process with LLM
+        response = await self.llm_interface.process(user_prompt, system_prompt=system_prompt)
+        
+        # Parse response according to expected format
+        if prompt.metadata.expected_response.format == "json":
+            return self.task_processor._parse_json_response(response)
         else:
-            raise ValueError(f"Unsupported task type: {subtask.type}")
+            return response.content
 
 class AgentPool:
     def __init__(self, max_agents: int = 5):

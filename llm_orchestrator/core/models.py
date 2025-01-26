@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 class TaskType(str, Enum):
@@ -14,9 +14,11 @@ class TaskStatus(str, Enum):
     FAILED = "failed"
 
 class SubTask(BaseModel):
+    """A subtask to be processed by an agent."""
     id: str
-    parent_task_id: str
-    input_data: Any
+    type: str  # Task type from prompt loader
+    input_data: Union[str, Dict[str, Any]]
+    parent_task_id: Optional[str] = None
     status: TaskStatus = TaskStatus.PENDING
     result: Optional[Any] = None
     error: Optional[str] = None
@@ -31,10 +33,11 @@ class Task(BaseModel):
     result: Optional[Any] = None
 
 class AgentConfig(BaseModel):
+    """Configuration for an LLM agent."""
     model_name: str
-    api_key: Optional[str] = None
     max_tokens: int
     temperature: float = 0.7
+    top_p: float = 1.0
 
 class StorageConfig(BaseModel):
     base_path: str

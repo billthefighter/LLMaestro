@@ -11,6 +11,7 @@ pydantic = "^2.10.6"
 pytest = "^8.3.4"
 ruff = "^0.9.3"
 litellm = "^1.59.8"
+jsonschema = "^4.23.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.3.4"

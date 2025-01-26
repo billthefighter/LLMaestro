@@ -1,7 +1,16 @@
 from pathlib import Path
 from typing import Dict, Optional
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+class ResponseFormat(BaseModel):
+    format: str
+    schema: Optional[str] = None
+
+class PromptMetadata(BaseModel):
+    type: str
+    expected_response: ResponseFormat
+    model_requirements: Optional[Dict] = None
 
 class GitCommitInfo(BaseModel):
     """Git commit information."""
@@ -13,14 +22,8 @@ class GitMetadata(BaseModel):
     created: GitCommitInfo
     last_modified: GitCommitInfo
 
-class PromptMetadata(BaseModel):
-    """Metadata for a prompt template."""
-    type: str
-    model_requirements: Dict = Field(default_factory=dict)
-    expected_response: Dict = Field(default_factory=dict)
-
 class PromptTemplate(BaseModel):
-    """Full prompt template with metadata."""
+    """A prompt template with metadata."""
     name: str
     version: str
     description: str
@@ -29,7 +32,7 @@ class PromptTemplate(BaseModel):
     metadata: PromptMetadata
     system_prompt: str
     user_prompt: str
-    examples: list = Field(default_factory=list)
+    examples: Optional[list] = None
 
 class PromptLoader:
     """Loads and manages prompt templates from YAML files."""
@@ -70,5 +73,9 @@ class PromptLoader:
     
     def validate_response(self, task_type: str, response: Dict) -> bool:
         """Validate that a response matches the expected schema."""
+        prompt = self.get_prompt(task_type)
+        if not prompt or not prompt.metadata.expected_response.schema:
+            return True
+            
         # TODO: Implement JSON schema validation
         return True 
