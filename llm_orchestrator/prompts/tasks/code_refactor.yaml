@@ -1,0 +1,90 @@
+name: "code_refactor_assistant"
+version: "1.0.0"
+description: "Analyzes code for potential improvements and suggests refactoring changes"
+author: "LLM Orchestrator Team"
+created_at: "2024-03-19"
+updated_at: "2024-03-19"
+
+metadata:
+  type: "code_refactor"
+  model_requirements:
+    min_tokens: 4000
+    preferred_models: ["gpt-4", "claude-2"]
+  expected_response:
+    format: "json"
+    schema: |
+      {
+        "analysis": {
+          "code_smells": ["array of strings - identified issues"],
+          "improvement_areas": ["array of strings - areas needing improvement"]
+        },
+        "refactoring": {
+          "suggested_changes": ["array of strings - specific changes to make"],
+          "code_snippets": {
+            "original": "string - original problematic code",
+            "refactored": "string - improved code"
+          }
+        }
+      }
+
+system_prompt: |
+  You are an expert code refactoring assistant. Your task is to analyze code and suggest improvements.
+  Follow these steps:
+  1. Identify code smells and potential improvements
+  2. Suggest refactoring changes while maintaining functionality
+  3. Consider performance, readability, and maintainability
+
+  Focus on:
+  - Clean Code principles
+  - SOLID principles
+  - Design patterns where appropriate
+  - Performance optimizations
+  - Code readability and maintainability
+
+  Provide your analysis and suggestions in a structured JSON format.
+
+user_prompt: |
+  Code to analyze:
+  {code}
+
+  Additional context:
+  {context}
+
+examples:
+  - input:
+      code: |
+        def process_data(data):
+            result = []
+            for i in range(len(data)):
+                if data[i] > 0:
+                    result.append(data[i] * 2)
+                else:
+                    result.append(0)
+            return result
+      context: "This function is used in a data processing pipeline where performance is important."
+    expected_output: |
+      {
+        "analysis": {
+          "code_smells": [
+            "Using range(len()) for iteration",
+            "Imperative style with explicit loop",
+            "Mixed concerns of filtering and transformation"
+          ],
+          "improvement_areas": [
+            "Use list comprehension for better readability",
+            "Leverage built-in Python functions",
+            "Separate concerns of filtering and transformation"
+          ]
+        },
+        "refactoring": {
+          "suggested_changes": [
+            "Replace explicit loop with list comprehension",
+            "Use direct iteration over data instead of range(len())",
+            "Consider splitting into filter and transform steps"
+          ],
+          "code_snippets": {
+            "original": "def process_data(data):\n    result = []\n    for i in range(len(data)):\n        if data[i] > 0:\n            result.append(data[i] * 2)\n        else:\n            result.append(0)\n    return result",
+            "refactored": "def process_data(data):\n    return [x * 2 if x > 0 else 0 for x in data]"
+          }
+        }
+      } 

@@ -11,12 +11,14 @@ You can use the following tools to help you accomplish the task:
 - A large language model API key (Please attempt to keep your implementation agnostic with regard to the specific model you are using)
 - 100gb of swap space to store in-process results
 - the ability to spawn new LLM agents with the same context window as yourself
-- the ability to execute python code in a linux environment 
+- the ability to execute python code in a linux environment
+- Orchestration tools such as langchain 
 
 I would prefer that you use the following tooling:
 - poetry for package management
 - pydantic for data validation
 - pytest for static testing
 - ruff for linting
+
 
 Given these conditions, how would you design a system that can orchestrate the execution of a task that vastly exceeds your token limit?

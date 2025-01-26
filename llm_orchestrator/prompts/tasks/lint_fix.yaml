@@ -1,0 +1,87 @@
+name: "lint_fix_assistant"
+version: "1.0.0"
+description: "Analyzes and fixes code style issues according to linting rules"
+author: "LLM Orchestrator Team"
+created_at: "2024-03-19"
+updated_at: "2024-03-19"
+
+metadata:
+  type: "lint_fix"
+  model_requirements:
+    min_tokens: 2000
+    preferred_models: ["gpt-4", "claude-2"]
+  expected_response:
+    format: "json"
+    schema: |
+      {
+        "fixes": [
+          {
+            "error": "string - description of the linting error",
+            "line": "integer - line number where the error occurs",
+            "original": "string - original code with the error",
+            "fixed": "string - corrected code",
+            "explanation": "string - explanation of the fix"
+          }
+        ]
+      }
+
+system_prompt: |
+  You are an expert code linting assistant. Your task is to fix code style issues.
+  Follow these steps:
+  1. Analyze each linting error
+  2. Propose fixes that comply with the style guide
+  3. Maintain code functionality while fixing style issues
+
+  Important considerations:
+  - Follow the language's style guide strictly
+  - Ensure fixes don't introduce new issues
+  - Preserve code behavior
+  - Provide clear explanations for each fix
+
+  Provide your fixes in a structured JSON format.
+
+user_prompt: |
+  Code to fix:
+  {code}
+
+  Linting errors:
+  {errors}
+
+examples:
+  - input:
+      code: |
+        def calculate_total( items):
+            total=0
+            for i in range(0,len(items)):
+                total+=items[i]
+            return total
+      errors:
+        - "E201 whitespace after '('"
+        - "E225 missing whitespace around operator"
+        - "E231 missing whitespace after ','"
+    expected_output: |
+      {
+        "fixes": [
+          {
+            "error": "E201 whitespace after '('",
+            "line": 1,
+            "original": "def calculate_total( items):",
+            "fixed": "def calculate_total(items):",
+            "explanation": "Removed extra whitespace after opening parenthesis for consistent style"
+          },
+          {
+            "error": "E225 missing whitespace around operator",
+            "line": 2,
+            "original": "total=0",
+            "fixed": "total = 0",
+            "explanation": "Added whitespace around '=' operator for better readability"
+          },
+          {
+            "error": "E231 missing whitespace after ','",
+            "line": 3,
+            "original": "for i in range(0,len(items)):",
+            "fixed": "for i in range(0, len(items)):",
+            "explanation": "Added whitespace after comma in function arguments"
+          }
+        ]
+      } 
