@@ -1,0 +1,40 @@
+# Example configuration file for LLM Orchestrator
+# Copy this file to config.yaml and replace the placeholder values
+# See config/schema.json for full schema documentation
+
+llm:
+  # Provider can be 'anthropic' for Claude models
+  provider: anthropic
+  
+  # Available models:
+  # - claude-3-opus-20240229    (most capable)
+  # - claude-3-sonnet-20240229  (balanced)
+  # - claude-3-haiku-20240229   (fastest)
+  model: claude-3-sonnet-20240229
+  
+  # Your API key from Anthropic
+  # Get one at: https://console.anthropic.com/
+  # You can also set this via ANTHROPIC_API_KEY environment variable
+  api_key: sk-ant-xxxx...  # Replace with your actual API key
+  
+  # Optional LLM settings
+  max_tokens: 1024  # Maximum tokens in responses
+  temperature: 0.7  # Response randomness (0-1)
+
+# Storage configuration for intermediate results
+storage:
+  path: chain_storage  # Directory to store results
+  format: json        # Can be json, pickle, or yaml
+
+# Visualization server settings
+visualization:
+  host: localhost     # Server host
+  port: 8765         # Server port
+
+# Logging configuration
+logging:
+  level: INFO        # DEBUG, INFO, WARNING, ERROR, or CRITICAL
+  file: orchestrator.log  # Optional log file path
+
+# Note: Never commit your actual API keys to version control!
+# The config.yaml file is already added to .gitignore 

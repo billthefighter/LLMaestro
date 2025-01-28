@@ -3,8 +3,8 @@ import asyncio
 import os
 from pathlib import Path
 
-from llm_orchestrator.visualization.examples import create_example_chains
-from llm_orchestrator.visualization.visualize import ChainVisualizationManager
+from src.visualization.examples import create_example_chains
+from src.visualization.visualize import ChainVisualizationManager
 
 async def main():
     # Create output directory

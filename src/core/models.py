@@ -65,17 +65,33 @@ class SummarizationConfig(BaseModel):
         description="Number of messages between reminders of the initial task (0 to disable)"
     )
     reminder_template: str = Field(
-        default="Initial Task Context: {initial_task}",
-        description="Template for formatting the reminder message"
+        default="Remember, your initial task was: {task}",
+        description="Template for task reminder messages"
     )
 
 class AgentConfig(BaseModel):
     """Configuration for an LLM agent."""
-    model_name: str
-    max_tokens: int
-    temperature: float = 0.7
-    top_p: float = 1.0
-    api_key: Optional[str] = None
+    provider: str = Field(
+        description="The LLM provider (e.g., 'openai', 'anthropic')"
+    )
+    model_name: str = Field(
+        description="The specific model to use (e.g., 'gpt-4', 'claude-2')"
+    )
+    max_tokens: int = Field(
+        description="Maximum tokens to generate in responses"
+    )
+    temperature: float = Field(
+        default=0.7,
+        description="Temperature for response generation (0.0-1.0)"
+    )
+    top_p: float = Field(
+        default=1.0,
+        description="Top-p sampling parameter (0.0-1.0)"
+    )
+    api_key: Optional[str] = Field(
+        default=None,
+        description="API key for the LLM provider"
+    )
     max_context_tokens: int = Field(
         default=8192,
         description="Maximum tokens allowed in context window"
@@ -90,7 +106,7 @@ class AgentConfig(BaseModel):
     )
     summarization: SummarizationConfig = Field(
         default_factory=SummarizationConfig,
-        description="Configuration for automatic context summarization"
+        description="Configuration for context summarization"
     )
 
 class StorageConfig(BaseModel):

@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from litellm import completion
 from pydantic import BaseModel
 
-from ..core.models import AgentConfig, TokenUsage, ContextMetrics
+from src.core.models import AgentConfig, TokenUsage, ContextMetrics
+from .interfaces.base import BaseLLMInterface
+from .interfaces import OpenAIInterface, AnthropicLLM
 
 @dataclass
 class ConversationContext:
@@ -205,73 +207,78 @@ class BaseLLMInterface(ABC):
             
         return token_usage, context_metrics
 
-    @abstractmethod
-    async def process(self, input_data: Any, system_prompt: Optional[str] = None) -> LLMResponse:
-        """Process input data and return a response."""
-        pass
-
-class OpenAIInterface(BaseLLMInterface):
-    """OpenAI-specific implementation of the LLM interface."""
-    
-    async def process(self, input_data: Any, system_prompt: Optional[str] = None) -> LLMResponse:
-        """Process input using OpenAI's API via LiteLLM."""
-        messages = [*self._context.messages]  # Start with current context
+    def _format_messages(self, input_data: Any, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
+        """Format input data and system prompt into messages."""
+        messages = []
         
         # Add system prompt if provided
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
             
-        # Format input data
+        # Add conversation history
+        messages.extend(self._context.messages)
+        
+        # Add the current input
         if isinstance(input_data, str):
             messages.append({"role": "user", "content": input_data})
-        elif isinstance(input_data, dict):
-            messages.append({"role": "user", "content": json.dumps(input_data, indent=2)})
+        elif isinstance(input_data, dict) and "task" in input_data:
+            messages.append({"role": "user", "content": input_data["task"]})
         else:
             messages.append({"role": "user", "content": str(input_data)})
             
-        # Increment message count and maybe add reminder
-        self._context.message_count += 1
-        await self._maybe_add_reminder()
-            
-        try:
-            response = await completion(
-                model=self.config.model_name,
-                messages=messages,
-                max_tokens=self.config.max_tokens,
-                temperature=self.config.temperature,
-                api_key=self.config.api_key
-            )
-            
+        return messages
+
+    async def _handle_response(self, response: Any, messages: List[Dict[str, str]]) -> LLMResponse:
+        """Process the LLM response and update context."""
+        # Extract token usage and context metrics
+        token_usage, context_metrics = self._update_metrics(response)
+        
+        # Update conversation context
+        self._context.messages.append({
+            "role": "user",
+            "content": messages[-1]["content"]
+        })
+        self._context.messages.append({
+            "role": "assistant",
+            "content": response.choices[0].message.content
+        })
+        self._context.message_count += 2
+        
+        # Check if we need to summarize the context
+        if context_metrics and await self._maybe_summarize_context(context_metrics):
+            # Context was summarized, metrics need to be updated
             token_usage, context_metrics = self._update_metrics(response)
-            
-            # Store the exchange in context
-            self._context.messages.append(messages[-1])  # Add user message
-            self._context.messages.append({
-                "role": "assistant",
-                "content": response.choices[0].message.content
-            })
-            
-            # Check if we need to summarize
-            if context_metrics:
-                await self._maybe_summarize_context(context_metrics)
-            
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                metadata={
-                    "model": response.model,
-                    "usage": response.usage._asdict() if hasattr(response, 'usage') and response.usage else {},
-                    "context_summary": self._context.summary,
-                    "message_count": self._context.message_count
-                },
-                token_usage=token_usage,
-                context_metrics=context_metrics
-            )
-        except Exception as e:
-            raise RuntimeError(f"LLM processing failed: {str(e)}")
+        
+        return LLMResponse(
+            content=response.choices[0].message.content,
+            metadata={
+                "model": response.model,
+                "finish_reason": response.choices[0].finish_reason
+            },
+            token_usage=token_usage,
+            context_metrics=context_metrics
+        )
+
+    def _handle_error(self, e: Exception) -> LLMResponse:
+        """Standardized error handling for LLM requests."""
+        error_msg = f"Error processing request: {str(e)}"
+        return LLMResponse(
+            content=error_msg,
+            metadata={"error": str(e)},
+            token_usage=None,
+            context_metrics=None
+        )
+
+    @abstractmethod
+    async def process(self, input_data: Any, system_prompt: Optional[str] = None) -> LLMResponse:
+        """Process input data and return a response. Must be implemented by subclasses."""
+        pass
 
 def create_llm_interface(config: AgentConfig) -> BaseLLMInterface:
-    """Factory function to create appropriate LLM interface."""
-    if "gpt" in config.model_name.lower() or "openai" in config.model_name.lower():
+    """Create an LLM interface based on the configuration."""
+    if config.provider.lower() == "openai":
         return OpenAIInterface(config)
+    elif config.provider.lower() == "anthropic":
+        return AnthropicLLM(config)
     else:
-        raise ValueError(f"Unsupported model: {config.model_name}") 
+        raise ValueError(f"Unsupported LLM provider: {config.provider}") 

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "A system for orchestrating LLM tasks that exceed context limits"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
-packages = [{include = "llm_orchestrator"}]
+packages = [{include = "src", from = "."}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -20,6 +20,7 @@ pandas = "^2.0.0"           # Required by py4cytoscape
 networkx = "^3.0"           # For graph operations
 click = "^8.1.0"           # For CLI interface
 pyyaml = "^6.0.1"          # For configuration management
+websockets = "^14.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0.0"
@@ -38,4 +39,8 @@ select = ["E", "F", "B", "I"]
 ignore = []
 
 [tool.poetry.scripts]
-llm-orchestrator = "llm_orchestrator.cli:main"
+llm-orchestrator = "src.cli:main"
+
+[tool.pydantic]
+warn_field_name_shadows = false
+warn_config_key_change = false

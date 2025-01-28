@@ -3,21 +3,30 @@ from pathlib import Path
 import json
 from typing import Optional, Dict, Any
 import os
+import asyncio
+import functools
 
-from llm_orchestrator.core.config import Config, get_config, set_config, APICredentials
-from llm_orchestrator.llm.chains import SequentialChain, ChainStep
-from llm_orchestrator.core.task_manager import TaskManager
-from llm_orchestrator.llm.base import create_llm_interface, OpenAIInterface
-from llm_orchestrator.utils.storage import StorageManager
-from llm_orchestrator.prompts.loader import PromptLoader
-from llm_orchestrator.core.models import AgentConfig
+from src.core.config import Config, get_config, set_config, APICredentials
+from src.llm.chains import SequentialChain, ChainStep
+from src.core.task_manager import TaskManager
+from src.llm.base import create_llm_interface, OpenAIInterface
+from src.utils.storage import StorageManager
+from src.prompts.loader import PromptLoader
+from src.core.models import AgentConfig
+
+def coro(f):
+    """Turn an async function into a regular function."""
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        return asyncio.run(f(*args, **kwargs))
+    return wrapper
 
 @click.group()
-def main():
+def cli():
     """LLM Orchestrator CLI - Manage and run LLM chains"""
     pass
 
-@main.group()
+@cli.group()
 def config():
     """Manage configuration settings"""
     pass
@@ -63,10 +72,11 @@ def show():
             creds[key] = '*' * 8 + creds[key][-4:]
     click.echo(json.dumps(config_dict, indent=2))
 
-@main.command()
+@cli.command()
 @click.argument('chain_name')
 @click.option('--input', '-i', multiple=True, help='Input in the format key=value')
 @click.option('--model', help='Override default model')
+@coro
 async def run(chain_name: str, input: tuple[str, ...], model: Optional[str]):
     """Run a chain with the given inputs"""
     # Parse input parameters
@@ -104,20 +114,18 @@ async def run(chain_name: str, input: tuple[str, ...], model: Optional[str]):
     except Exception as e:
         click.echo(f"Error running chain: {str(e)}", err=True)
 
-@main.command()
+@cli.command()
 def list_chains():
     """List available chains"""
     prompt_loader = PromptLoader()
-    prompts_dir = Path(prompt_loader.prompts_dir) / "tasks"
     
-    if not prompts_dir.exists():
+    if not prompt_loader.prompts:
         click.echo("No prompt templates found")
         return
         
     click.echo("Available chains:")
-    for yaml_file in prompts_dir.glob("*.yaml"):
-        chain_name = yaml_file.stem
-        click.echo(f"  - {chain_name}")
+    for prompt_type, prompt in prompt_loader.prompts.items():
+        click.echo(f"  - {prompt_type} ({prompt.description})")
 
 if __name__ == '__main__':
-    main() 
+    cli() 

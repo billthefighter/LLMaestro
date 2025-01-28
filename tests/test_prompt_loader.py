@@ -1,12 +1,12 @@
 import pytest
 from unittest.mock import patch, Mock, ANY
 from pathlib import Path
-from llm_orchestrator.prompts.loader import PromptLoader
+from src.prompts.loader import PromptLoader
 import subprocess
 import json
 from datetime import datetime, timedelta
 import tempfile
-from llm_orchestrator.prompts.loader import (
+from src.prompts.loader import (
     PromptSource,
     AuthConfig,
     CacheEntry

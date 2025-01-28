@@ -6,9 +6,9 @@ from abc import ABC, abstractmethod
 import json
 import os
 
-from .base import BaseLLMInterface, LLMResponse
-from ..prompts.loader import PromptLoader
-from ..utils.storage import StorageManager
+from src.llm.base import BaseLLMInterface, LLMResponse
+from src.prompts.loader import PromptLoader
+from src.utils.storage import StorageManager
 
 T = TypeVar('T')
 ChainResult = TypeVar('ChainResult')

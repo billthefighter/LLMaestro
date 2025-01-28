@@ -2,9 +2,9 @@ import pytest
 from unittest.mock import Mock, patch
 from typing import Dict, List, Any
 
-from llm_orchestrator.core.models import Task, SubTask, TaskStatus
-from llm_orchestrator.core.task_manager import TaskManager
-from llm_orchestrator.prompts.loader import PromptLoader
+from src.core.models import Task, SubTask, TaskStatus
+from src.core.task_manager import TaskManager
+from src.prompts.loader import PromptLoader
 
 @pytest.fixture
 def task_manager():

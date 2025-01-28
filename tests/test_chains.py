@@ -2,13 +2,13 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from typing import Dict, List, Any
 
-from llm_orchestrator.llm.chains import (
+from src.llm.chains import (
     ChainContext, ChainStep, SequentialChain, ParallelChain,
     ChordChain, GroupChain, MapChain, ReminderChain, RecursiveChain
 )
-from llm_orchestrator.llm.base import BaseLLMInterface, LLMResponse
-from llm_orchestrator.prompts.loader import PromptLoader
-from llm_orchestrator.utils.storage import StorageManager
+from src.llm.base import BaseLLMInterface, LLMResponse
+from src.prompts.loader import PromptLoader
+from src.utils.storage import StorageManager
 
 @pytest.fixture
 def mock_llm():

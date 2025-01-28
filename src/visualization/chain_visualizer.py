@@ -2,7 +2,7 @@ from typing import Dict, List, Any, Optional, Set
 from dataclasses import dataclass
 from uuid import UUID
 
-from ..llm.chains import (
+from src.llm.chains import (
     AbstractChain, SequentialChain, ParallelChain, ChordChain,
     GroupChain, MapChain, ReminderChain, RecursiveChain,
     ChainStep

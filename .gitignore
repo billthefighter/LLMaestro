@@ -101,4 +101,6 @@ db.sqlite3-journal
 
 # Project specific
 test_storage/
-chain_storage/ 
+chain_storage/
+config.yaml
+api_keys.yaml 

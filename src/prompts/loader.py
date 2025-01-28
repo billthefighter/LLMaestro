@@ -165,7 +165,7 @@ class PromptLoader:
     def _load_prompts(self) -> None:
         """Load all prompt templates from local files and remote sources."""
         # Load local prompts
-        for yaml_file in self.prompts_dir.glob("*.yaml"):
+        for yaml_file in self.prompts_dir.rglob("*.yaml"):
             self._load_local_prompt(yaml_file)
         
         # Load remote prompts
