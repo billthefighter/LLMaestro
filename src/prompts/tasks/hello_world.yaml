@@ -1,0 +1,34 @@
+name: "hello_world"
+version: "1.0.0"
+description: "A simple hello world prompt to test the system"
+author: "LLM Orchestrator Team"
+metadata:
+  type: "hello_world"
+  expected_response:
+    format: "json"
+    schema: |
+      {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "The greeting message"
+          },
+          "timestamp": {
+            "type": "string",
+            "description": "The current time"
+          }
+        },
+        "required": ["message", "timestamp"]
+      }
+  model_requirements:
+    min_tokens: 100
+    max_tokens: 1000
+  decomposition:
+    strategy: "none"
+    aggregation: "none"
+system_prompt: |
+  You are a friendly assistant that generates personalized greetings.
+  Always respond in JSON format with a message and timestamp.
+user_prompt: |
+  Generate a friendly greeting for {name}. 
