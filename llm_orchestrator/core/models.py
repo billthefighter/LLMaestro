@@ -28,12 +28,70 @@ class Task(BaseModel):
     subtasks: List[SubTask] = Field(default_factory=list)
     result: Optional[Any] = None
 
+class TokenUsage(BaseModel):
+    """Tracks token usage for a single LLM request."""
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    estimated_cost: Optional[float] = None
+
+class ContextMetrics(BaseModel):
+    """Tracks context window usage and limits."""
+    max_context_tokens: int
+    current_context_tokens: int
+    available_tokens: int
+    context_utilization: float  # percentage of context window used
+
+class SummarizationConfig(BaseModel):
+    """Configuration for context summarization."""
+    enabled: bool = Field(
+        default=True,
+        description="Whether to enable automatic context summarization"
+    )
+    target_utilization: float = Field(
+        default=0.8,
+        description="Target context window utilization before summarizing (0.0-1.0)"
+    )
+    min_tokens_for_summary: int = Field(
+        default=1000,
+        description="Minimum number of tokens before considering summarization"
+    )
+    preserve_last_n_messages: int = Field(
+        default=3,
+        description="Number of most recent messages to preserve without summarization"
+    )
+    reminder_frequency: int = Field(
+        default=5,
+        description="Number of messages between reminders of the initial task (0 to disable)"
+    )
+    reminder_template: str = Field(
+        default="Initial Task Context: {initial_task}",
+        description="Template for formatting the reminder message"
+    )
+
 class AgentConfig(BaseModel):
     """Configuration for an LLM agent."""
     model_name: str
     max_tokens: int
     temperature: float = 0.7
     top_p: float = 1.0
+    api_key: Optional[str] = None
+    max_context_tokens: int = Field(
+        default=8192,
+        description="Maximum tokens allowed in context window"
+    )
+    token_tracking: bool = Field(
+        default=True,
+        description="Whether to track token usage and costs"
+    )
+    cost_per_1k_tokens: Optional[float] = Field(
+        default=None,
+        description="Cost per 1000 tokens (if tracking costs)"
+    )
+    summarization: SummarizationConfig = Field(
+        default_factory=SummarizationConfig,
+        description="Configuration for automatic context summarization"
+    )
 
 class StorageConfig(BaseModel):
     """Configuration for storage manager."""

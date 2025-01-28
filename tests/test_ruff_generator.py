@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 import tempfile
 import responses
+import requests
 import json
 from unittest.mock import patch, Mock
 from bs4 import BeautifulSoup
@@ -50,6 +51,15 @@ def example_builder():
         builder = RuffExampleBuilder()
         builder.cache_dir = Path(tmpdir)
         yield builder
+
+@pytest.fixture
+def ruff_examples(example_builder, tmp_path):
+    """Create example files for multiple Ruff rules."""
+    examples = {}
+    rule_codes = ['E711', 'F401', 'E501']
+    for rule_code in rule_codes:
+        examples[rule_code] = example_builder.build_example(tmp_path, rule_code)
+    return examples
 
 @responses.activate
 def test_fetch_rule_page(example_builder):
@@ -193,16 +203,18 @@ def test_build_example_without_cache(example_builder, tmp_path):
     ['F401'],  # Unused import
     ['E501'],  # Line too long
 ])
-def test_end_to_end(ruff_examples):
+def test_end_to_end(rule_codes, tmp_path, ruff_example_builder):
     """Test end-to-end functionality with real rules."""
-    for rule_code in ruff_examples:
-        examples = ruff_examples[rule_code]
-        assert 'bad' in examples
-        assert 'good' in examples
-        assert examples['bad'].exists()
-        assert examples['good'].exists()
+    examples = {}
+    for rule_code in rule_codes:
+        examples[rule_code] = ruff_example_builder.build_example(tmp_path, rule_code)
+        
+        assert 'bad' in examples[rule_code]
+        assert 'good' in examples[rule_code]
+        assert examples[rule_code]['bad'].exists()
+        assert examples[rule_code]['good'].exists()
         
         # Validate file contents
-        bad_content = examples['bad'].read_text()
-        good_content = examples['good'].read_text()
+        bad_content = examples[rule_code]['bad'].read_text()
+        good_content = examples[rule_code]['good'].read_text()
         assert bad_content != good_content  # Examples should be different 

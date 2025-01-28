@@ -99,7 +99,7 @@ def aggregate_test_strategy_results(results: List[Any]) -> Dict[str, Any]:
             "first_half": ["a", "b"],
             "second_half": ["c", "d"]
         },
-        {}
+        {"max_retries": 3}
     )
     
     subtasks = task_manager.decompose_task(task)
@@ -133,11 +133,11 @@ def aggregate_cached_strategy_results(results: List[Any]) -> Dict[str, Any]:
     task_manager.agent_pool.wait_for_result = Mock(return_value=mock_strategy)
     
     # Create and decompose first task
-    task1 = task_manager.create_task("test_task", {}, {})
+    task1 = task_manager.create_task("test_task", {}, {"max_retries": 3})
     task_manager.decompose_task(task1)
     
     # Create and decompose second task
-    task2 = task_manager.create_task("test_task", {}, {})
+    task2 = task_manager.create_task("test_task", {}, {"max_retries": 3})
     task_manager.decompose_task(task2)
     
     # Verify strategy was cached
@@ -160,7 +160,7 @@ def test_dynamic_decomposition_error_handling(task_manager, mock_prompt_loader):
     task_manager.agent_pool.wait_for_result = Mock(return_value=mock_strategy)
     
     # Create task and attempt decomposition
-    task = task_manager.create_task("test_task", {}, {})
+    task = task_manager.create_task("test_task", {}, {"max_retries": 3})
     
     with pytest.raises(ValueError) as exc_info:
         task_manager.decompose_task(task)
@@ -189,7 +189,7 @@ def aggregate_test_strategy_results(results: List[Any]) -> Dict[str, Any]:
     
     # Test aggregation
     results = [{"value": 1}, {"value": 2}, {"value": 3}]
-    task = task_manager.create_task("test_task", {}, {})
+    task = task_manager.create_task("test_task", {}, {"max_retries": 3})
     
     aggregated = task_manager._aggregate_dynamic("test_task", results)
     assert aggregated == {"combined": 6} 

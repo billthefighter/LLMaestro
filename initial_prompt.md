@@ -31,6 +31,7 @@ How are you going to encode the input data small enough to fit in your context w
 Later functionality:
 - Docker image to run the code in
 - React or Angular frontend to interact with the system
+- Automatic summarization when context window is too large
 
 General thoughts:
 - it is terrifying that LLMs will rarely tell you when your ideas are stupid

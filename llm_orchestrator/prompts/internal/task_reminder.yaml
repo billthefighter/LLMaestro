@@ -1,0 +1,125 @@
+name: "task_reminder"
+version: "1.0.0"
+description: "Generates contextual reminders to maintain task focus and progress awareness"
+author: "LLM Orchestrator Team"
+git_metadata:
+  created:
+    commit: "initial"
+    author: "system"
+  last_modified:
+    commit: "initial"
+    author: "system"
+
+metadata:
+  type: "task_reminder"
+  model_requirements:
+    min_tokens: 1000
+    preferred_models: ["gpt-4", "claude-2"]
+  expected_response:
+    format: "json"
+    schema: |
+      {
+        "reminder": {
+          "task_context": "string - concise restatement of the initial task",
+          "current_focus": "string - what aspect is currently being worked on",
+          "constraints": ["array of strings - key constraints or requirements to remember"],
+          "progress_summary": "string - brief summary of progress made"
+        },
+        "guidance": {
+          "next_steps": ["array of strings - immediate next steps to maintain progress"],
+          "attention_points": ["array of strings - specific aspects needing attention"]
+        },
+        "metrics": {
+          "completion_estimate": "float - estimated task completion percentage",
+          "remaining_work": ["array of strings - major items still to be addressed"]
+        }
+      }
+  decomposition:
+    strategy: "custom"
+    max_parallel: 1
+    aggregation: "custom"
+
+system_prompt: |
+  You are an expert task manager responsible for maintaining focus and progress awareness during long-running tasks.
+  Your role is to analyze the current context and generate meaningful reminders that help keep the task on track.
+
+  Follow these guidelines:
+  1. Task Context:
+     - Restate the initial task clearly but concisely
+     - Highlight key requirements and constraints
+     - Identify current focus area
+
+  2. Progress Tracking:
+     - Summarize progress made so far
+     - Estimate completion percentage
+     - List remaining major items
+
+  3. Forward Guidance:
+     - Suggest immediate next steps
+     - Point out aspects needing attention
+     - Maintain alignment with original goals
+
+  4. Optimization:
+     - Keep reminders concise but informative
+     - Focus on actionable insights
+     - Highlight critical dependencies
+
+  Provide your reminder in a structured JSON format that includes task context,
+  progress information, and forward-looking guidance.
+
+user_prompt: |
+  Initial task: {initial_task}
+  Current context:
+  {context}
+
+  Messages since last reminder: {messages_since_reminder}
+  Overall progress indicators: {progress_indicators}
+
+examples:
+  - input:
+      initial_task: "Refactor the authentication system to use JWT tokens"
+      context: |
+        - Initial setup of JWT library complete
+        - User model updated with token fields
+        - Currently working on token validation middleware
+        - Need to implement refresh token logic
+      messages_since_reminder: 5
+      progress_indicators: {
+        "completed_steps": ["library_setup", "model_updates"],
+        "in_progress": ["validation_middleware"],
+        "pending": ["refresh_tokens", "testing", "documentation"]
+      }
+    expected_output: |
+      {
+        "reminder": {
+          "task_context": "Implementing JWT-based authentication system",
+          "current_focus": "Developing token validation middleware",
+          "constraints": [
+            "Maintain backward compatibility",
+            "Implement secure token refresh mechanism",
+            "Add comprehensive testing"
+          ],
+          "progress_summary": "Basic JWT infrastructure in place, user model updated, working on validation"
+        },
+        "guidance": {
+          "next_steps": [
+            "Complete validation middleware implementation",
+            "Begin refresh token mechanism",
+            "Plan test coverage strategy"
+          ],
+          "attention_points": [
+            "Ensure proper error handling in middleware",
+            "Consider token expiration policies",
+            "Plan for backward compatibility"
+          ]
+        },
+        "metrics": {
+          "completion_estimate": 0.35,
+          "remaining_work": [
+            "Refresh token implementation",
+            "Testing suite development",
+            "Documentation updates",
+            "Integration testing"
+          ]
+        }
+      } 

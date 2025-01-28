@@ -1,0 +1,118 @@
+name: "context_summarizer"
+version: "1.0.0"
+description: "Summarizes conversation context when approaching token limits"
+author: "LLM Orchestrator Team"
+git_metadata:
+  created:
+    commit: "initial"
+    author: "system"
+  last_modified:
+    commit: "initial"
+    author: "system"
+
+metadata:
+  type: "context_summarizer"
+  model_requirements:
+    min_tokens: 2000
+    preferred_models: ["gpt-4", "claude-2"]
+  expected_response:
+    format: "json"
+    schema: |
+      {
+        "summary": "string - concise summary of key points and context",
+        "key_decisions": ["array of strings - important decisions or conclusions"],
+        "state": {
+          "variables": {"key-value pairs of important state to preserve"},
+          "progress": "string - current progress in the task",
+          "next_steps": ["array of strings - planned next steps"]
+        },
+        "metrics": {
+          "original_tokens": "integer - tokens in original context",
+          "summary_tokens": "integer - tokens in summary"
+        }
+      }
+  decomposition:
+    strategy: "custom"
+    max_parallel: 1
+    aggregation: "custom"
+
+system_prompt: |
+  You are an expert context summarizer. Your task is to analyze the current conversation and task state,
+  creating a concise summary that preserves essential information while significantly reducing token usage.
+
+  Follow these guidelines:
+  1. Identify and preserve key information:
+     - Important decisions and their rationale
+     - Current task progress and state
+     - Critical variables and their values
+     - Planned next steps
+
+  2. Optimize for token efficiency:
+     - Remove redundant information
+     - Combine related points
+     - Use concise language
+     - Preserve exact values, names, and technical details
+
+  3. Ensure continuity:
+     - Maintain enough context for task continuation
+     - Preserve dependencies and relationships
+     - Keep track of any ongoing processes
+
+  Provide your summary in a structured JSON format that includes the main summary,
+  key decisions, state information, and token metrics.
+
+user_prompt: |
+  Current context to summarize:
+  {context}
+
+  Token limit target: {target_tokens}
+  Current utilization: {current_utilization}
+
+examples:
+  - input:
+      context: |
+        The task involves refactoring a large codebase to improve performance.
+        Initial analysis identified three bottlenecks:
+        1. Inefficient database queries in user_service.py
+        2. Redundant API calls in data_processor.py
+        3. Memory leaks in cache_manager.py
+        
+        We've completed optimizing the database queries by:
+        - Adding proper indexing
+        - Implementing query batching
+        - Caching frequent queries
+        
+        Currently working on the API calls issue. Progress:
+        - Analyzed current API usage patterns
+        - Identified 5 redundant calls
+        - Planning to implement request batching
+        - Need to maintain backward compatibility
+        
+        Next steps will focus on memory leak investigation.
+      target_tokens: 200
+      current_utilization: 0.85
+    expected_output: |
+      {
+        "summary": "Refactoring project addressing three bottlenecks: DB queries, API calls, and memory leaks. DB optimization complete with indexing and caching. Currently optimizing API calls.",
+        "key_decisions": [
+          "Implemented query batching and caching for DB optimization",
+          "Planning API request batching with backward compatibility"
+        ],
+        "state": {
+          "variables": {
+            "completed_areas": ["database_optimization"],
+            "current_focus": "api_calls",
+            "remaining_tasks": ["memory_leaks"]
+          },
+          "progress": "DB optimization complete, API optimization in progress",
+          "next_steps": [
+            "Implement API request batching",
+            "Verify backward compatibility",
+            "Begin memory leak investigation"
+          ]
+        },
+        "metrics": {
+          "original_tokens": 156,
+          "summary_tokens": 89
+        }
+      } 

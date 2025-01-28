@@ -1,4 +1,4 @@
-from typing import Dict, List, Any, Optional, cast, Protocol
+from typing import Dict, List, Any, Optional, cast, Protocol, TypeVar, Generic, Callable
 from dataclasses import dataclass
 import json
 
@@ -7,16 +7,12 @@ from ..llm.chains import (
     ChainStep,
     ChainContext,
     LLMResponse,
-    InputTransform
+    InputTransform,
+    OutputTransform
 )
 from ..llm.base import BaseLLMInterface
 from ..prompts.loader import PromptLoader
 from ..utils.storage import StorageManager
-
-class DevelopmentOutputTransform(Protocol):
-    """Protocol for development output transformation."""
-    def __call__(self, response: LLMResponse) -> 'DevelopmentResult':
-        ...
 
 @dataclass
 class DevelopmentResult:
@@ -53,6 +49,10 @@ class DevelopmentResult:
         except json.JSONDecodeError:
             raise ValueError("Invalid JSON response from LLM")
 
+def development_transform(response: LLMResponse) -> Any:
+    """Transform LLM responses into DevelopmentResult objects."""
+    return DevelopmentResult.from_llm_response(response)
+
 class DevelopmentCycleChain(RecursiveChain[DevelopmentResult]):
     """Chain for managing a complete development cycle."""
 
@@ -63,11 +63,14 @@ class DevelopmentCycleChain(RecursiveChain[DevelopmentResult]):
         prompt_loader: Optional[PromptLoader] = None,
         max_iterations: int = 3
     ):
+        # Create output transform instance using the function
+        output_transform = development_transform
+        
         # Initial step is the feature implementation
         initial_step = ChainStep[DevelopmentResult](
             task_type="development_cycle",
             input_transform=self._prepare_implementation_input,
-            output_transform=cast(DevelopmentOutputTransform, DevelopmentResult.from_llm_response)
+            output_transform=output_transform
         )
 
         super().__init__(
@@ -101,6 +104,7 @@ class DevelopmentCycleChain(RecursiveChain[DevelopmentResult]):
     ) -> List[ChainStep[DevelopmentResult]]:
         """Generate next steps based on implementation results."""
         next_steps: List[ChainStep[DevelopmentResult]] = []
+        output_transform = development_transform
 
         # Add test execution step if there are test changes
         if response.test_changes:
@@ -111,7 +115,7 @@ class DevelopmentCycleChain(RecursiveChain[DevelopmentResult]):
                         "test_files": response.test_changes,
                         "implementation_changes": response.implementation_changes
                     },
-                    output_transform=cast(DevelopmentOutputTransform, DevelopmentResult.from_llm_response)
+                    output_transform=output_transform
                 )
             )
 
@@ -124,7 +128,7 @@ class DevelopmentCycleChain(RecursiveChain[DevelopmentResult]):
                     "test_changes": response.test_changes,
                     "existing_docs": kwargs.get("existing_docs", "")
                 },
-                output_transform=cast(DevelopmentOutputTransform, DevelopmentResult.from_llm_response)
+                output_transform=output_transform
             )
         )
 

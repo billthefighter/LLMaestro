@@ -93,7 +93,8 @@ class TaskManager:
                 input_data={
                     "system_prompt": system_prompt,
                     "user_prompt": user_prompt
-                }
+                },
+                config={"max_retries": 3}  # Add default config
             )
             self.agent_pool.submit_task(decomposer_task)
             result = self.agent_pool.wait_for_result(decomposer_task.id)

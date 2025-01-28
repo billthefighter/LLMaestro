@@ -11,6 +11,12 @@ VALID_PROMPT = {
         "type": "pdf_analysis",
         "expected_response": {
             "format": "json"
+        },
+        "decomposition": {
+            "strategy": "chunk",
+            "aggregation": "concatenate",
+            "chunk_size": 1000,
+            "max_parallel": 5
         }
     },
     "system_prompt": "You are a test assistant",
@@ -25,7 +31,11 @@ INVALID_PROMPTS = [
             "description": "Test prompt",
             "metadata": {
                 "type": "pdf_analysis",
-                "expected_response": {"format": "json"}
+                "expected_response": {"format": "json"},
+                "decomposition": {
+                    "strategy": "chunk",
+                    "aggregation": "concatenate"
+                }
             },
             "system_prompt": "Test",
             "user_prompt": "Test"
@@ -39,7 +49,11 @@ INVALID_PROMPTS = [
             "description": "Test prompt",
             "metadata": {
                 "type": "pdf_analysis",
-                "expected_response": {"format": "json"}
+                "expected_response": {"format": "json"},
+                "decomposition": {
+                    "strategy": "chunk",
+                    "aggregation": "concatenate"
+                }
             },
             "system_prompt": "Test",
             "user_prompt": "Test"
@@ -53,7 +67,11 @@ INVALID_PROMPTS = [
             "description": "Test prompt",
             "metadata": {
                 "type": "invalid_type",
-                "expected_response": {"format": "json"}
+                "expected_response": {"format": "json"},
+                "decomposition": {
+                    "strategy": "chunk",
+                    "aggregation": "concatenate"
+                }
             },
             "system_prompt": "Test",
             "user_prompt": "Test"
@@ -67,7 +85,11 @@ INVALID_PROMPTS = [
             "description": "Test prompt",
             "metadata": {
                 "type": "pdf_analysis",
-                "expected_response": {"format": "invalid_format"}
+                "expected_response": {"format": "invalid_format"},
+                "decomposition": {
+                    "strategy": "chunk",
+                    "aggregation": "concatenate"
+                }
             },
             "system_prompt": "Test",
             "user_prompt": "Test"
@@ -114,6 +136,12 @@ def test_valid_prompt_with_optional_fields():
             "model_requirements": {
                 "min_tokens": 1000,
                 "preferred_models": ["gpt-4", "claude-2"]
+            },
+            "decomposition": {
+                "strategy": "chunk",
+                "aggregation": "concatenate",
+                "chunk_size": 1000,
+                "max_parallel": 5
             }
         },
         "examples": [
