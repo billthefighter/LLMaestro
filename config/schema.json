@@ -29,7 +29,7 @@
         "api_key": {
           "type": "string",
           "description": "API key for authentication with the provider",
-          "pattern": "^sk-[a-zA-Z0-9-]+$",
+          "pattern": "^sk-ant-[a-zA-Z0-9._-]+$",
           "examples": ["sk-ant-xxxx..."]
         },
         "max_tokens": {

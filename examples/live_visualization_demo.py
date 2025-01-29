@@ -13,10 +13,10 @@ sys.path.append(str(src_path))
 from src.core.logging_config import configure_logging
 from src.core.config import Config
 from src.llm.chains import ChainStep, SequentialChain, ChainContext
-from src.llm.base import BaseLLMInterface, LLMResponse
+from src.llm.interfaces.base import BaseLLMInterface, LLMResponse
 from src.core.models import AgentConfig
 from src.visualization.live_visualizer import LiveChainVisualizer
-from src.llm.anthropic import AnthropicLLM
+from src.llm.interfaces import AnthropicLLM
 
 # Configure module logger
 logger = configure_logging(module_name=__name__)
@@ -76,8 +76,11 @@ async def main():
         logger.info("Creating Claude LLM client...")
         llm = AnthropicLLM(
             config=AgentConfig(
+                provider="anthropic",
                 model_name=config.llm.model,
-                api_key=config.llm.api_key
+                api_key=config.llm.api_key,
+                max_tokens=1024,  # Default max tokens
+                max_context_tokens=8192  # Default context window for Claude
             )
         )
 
@@ -94,13 +97,13 @@ async def main():
                 ChainStep(
                     task_type="data_processing",
                     input_transform=lambda context, **kwargs: {
-                        "task": f"Based on the initial analysis: {context.get_step_output('initial_analysis')}, identify the main stakeholders and their perspectives."
+                        "task": f"Based on the initial analysis: {context.artifacts.get('step_initial_analysis', 'No previous analysis')}, identify the main stakeholders and their perspectives."
                     }
                 ),
                 ChainStep(
                     task_type="result_generation",
                     input_transform=lambda context, **kwargs: {
-                        "task": f"Synthesize the findings from both analyses: {context.get_step_output('initial_analysis')} and {context.get_step_output('data_processing')} into a coherent summary."
+                        "task": f"Synthesize the findings from both analyses: {context.artifacts.get('step_initial_analysis', 'No initial analysis')} and {context.artifacts.get('step_data_processing', 'No data processing')}, into a coherent summary."
                     }
                 )
             ],

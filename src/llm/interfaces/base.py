@@ -4,7 +4,7 @@ import json
 from dataclasses import dataclass
 from pydantic import BaseModel
 from litellm import acompletion
-from litellm.utils import ModelResponse, Message, Usage, Choices, Delta
+from litellm.types.utils import ModelResponse, Message, Usage, Choices, Delta
 
 from src.core.models import AgentConfig, TokenUsage, ContextMetrics
 
@@ -92,7 +92,7 @@ class BaseLLMInterface(ABC):
         summary_messages = [summary_prompt] + messages_for_summary[-self.config.summarization.preserve_last_n_messages:]
         
         try:
-            response = await acompletion(
+            stream = await acompletion(
                 model=self.config.model_name,
                 messages=summary_messages,
                 max_tokens=self.config.max_tokens,
@@ -102,9 +102,11 @@ class BaseLLMInterface(ABC):
             # Collect all chunks from the stream
             content = ""
             last_chunk = None
-            async for chunk in response:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                    content += chunk.choices[0].delta.content
+            async for chunk in stream:
+                if hasattr(chunk, 'choices') and chunk.choices and hasattr(chunk.choices[0], 'delta'):
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        content += delta.content
                 last_chunk = chunk
             
             # Update context with summary
@@ -132,25 +134,27 @@ class BaseLLMInterface(ABC):
     def _update_metrics(self, response: ModelResponse) -> Tuple[Optional[TokenUsage], Optional[ContextMetrics]]:
         """Update token usage and context metrics."""
         try:
-            usage = response.usage
-            token_usage = TokenUsage(
-                completion_tokens=usage.completion_tokens,
-                prompt_tokens=usage.prompt_tokens,
-                total_tokens=usage.total_tokens
-            )
-            self._total_tokens += token_usage.total_tokens
+            if hasattr(response, 'usage'):
+                usage = response.usage
+                token_usage = TokenUsage(
+                    completion_tokens=usage.completion_tokens,
+                    prompt_tokens=usage.prompt_tokens,
+                    total_tokens=usage.total_tokens
+                )
+                self._total_tokens += token_usage.total_tokens
 
-            # Calculate context metrics
-            total_context_tokens = sum(len(msg.get("content", "")) for msg in self.context.messages)
-            
-            context_metrics = ContextMetrics(
-                max_context_tokens=self.config.max_context_tokens,
-                current_context_tokens=total_context_tokens,
-                available_tokens=self.config.max_context_tokens - total_context_tokens,
-                context_utilization=total_context_tokens / self.config.max_context_tokens
-            )
-            
-            return token_usage, context_metrics
+                # Calculate context metrics
+                total_context_tokens = sum(len(msg.get("content", "")) for msg in self.context.messages)
+                
+                context_metrics = ContextMetrics(
+                    max_context_tokens=self.config.max_context_tokens,
+                    current_context_tokens=total_context_tokens,
+                    available_tokens=self.config.max_context_tokens - total_context_tokens,
+                    context_utilization=total_context_tokens / self.config.max_context_tokens
+                )
+                
+                return token_usage, context_metrics
+            return None, None
         except Exception as e:
             print(f"Failed to update metrics: {str(e)}")
             return None, None
@@ -173,15 +177,17 @@ class BaseLLMInterface(ABC):
             
         return messages
 
-    async def _handle_response(self, response: AsyncGenerator[ModelResponse, None], messages: List[Dict[str, str]]) -> LLMResponse:
+    async def _handle_response(self, stream: AsyncGenerator[ModelResponse, None], messages: List[Dict[str, str]]) -> LLMResponse:
         """Process the LLM response and update context."""
         try:
             # Collect all chunks from the stream
             content = ""
             last_chunk = None
-            async for chunk in response:
-                if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
-                    content += chunk.choices[0].delta.content
+            async for chunk in stream:
+                if hasattr(chunk, 'choices') and chunk.choices and hasattr(chunk.choices[0], 'delta'):
+                    delta = chunk.choices[0].delta
+                    if hasattr(delta, 'content') and delta.content:
+                        content += delta.content
                 last_chunk = chunk
             
             # Get the last chunk for usage information

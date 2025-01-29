@@ -2,11 +2,11 @@ import pytest
 from unittest.mock import Mock, AsyncMock
 from typing import Dict, List, Any
 
+from src.llm.interfaces import BaseLLMInterface, LLMResponse
 from src.llm.chains import (
     ChainContext, ChainStep, SequentialChain, ParallelChain,
     ChordChain, GroupChain, MapChain, ReminderChain, RecursiveChain
 )
-from src.llm.base import BaseLLMInterface, LLMResponse
 from src.prompts.loader import PromptLoader
 from src.utils.storage import StorageManager
 

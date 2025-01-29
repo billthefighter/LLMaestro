@@ -1,10 +1,10 @@
 from typing import Dict, Any, List
+from ..llm.interfaces import BaseLLMInterface, LLMResponse
 from ..llm.chains import (
     ChainStep, SequentialChain, ParallelChain, ChordChain,
     GroupChain, MapChain, ReminderChain, RecursiveChain,
-    ChainContext, LLMResponse
+    ChainContext
 )
-from ..llm.base import BaseLLMInterface
 
 class MockLLM(BaseLLMInterface):
     """Mock LLM for testing visualizations."""

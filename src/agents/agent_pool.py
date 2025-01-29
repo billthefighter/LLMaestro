@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from typing import Any, Dict, Optional, Protocol, cast, TypeVar
 from ..core.models import SubTask, AgentConfig
-from ..llm.base import create_llm_interface, LLMResponse
+from ..llm.interfaces import create_llm_interface, LLMResponse
 from ..llm.chains import SequentialChain, ChainStep, OutputTransform
 from ..prompts.loader import PromptLoader
 

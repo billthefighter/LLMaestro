@@ -2,6 +2,7 @@ from typing import Dict, List, Any, Optional, cast, Protocol, TypeVar, Generic, 
 from dataclasses import dataclass
 import json
 
+from ..llm.interfaces import BaseLLMInterface
 from ..llm.chains import (
     RecursiveChain,
     ChainStep,
@@ -10,7 +11,6 @@ from ..llm.chains import (
     InputTransform,
     OutputTransform
 )
-from ..llm.base import BaseLLMInterface
 from ..prompts.loader import PromptLoader
 from ..utils.storage import StorageManager
 

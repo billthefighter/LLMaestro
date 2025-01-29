@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 import json
 import os
 
-from src.llm.base import BaseLLMInterface, LLMResponse
+from src.llm.interfaces import BaseLLMInterface, LLMResponse
 from src.prompts.loader import PromptLoader
 from src.utils.storage import StorageManager
 

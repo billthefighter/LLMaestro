@@ -9,7 +9,7 @@ import functools
 from src.core.config import Config, get_config, set_config, APICredentials
 from src.llm.chains import SequentialChain, ChainStep
 from src.core.task_manager import TaskManager
-from src.llm.base import create_llm_interface, OpenAIInterface
+from src.llm.interfaces import create_llm_interface, OpenAIInterface
 from src.utils.storage import StorageManager
 from src.prompts.loader import PromptLoader
 from src.core.models import AgentConfig
