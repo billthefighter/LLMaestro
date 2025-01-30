@@ -1,23 +1,28 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Tuple, Union, AsyncGenerator
 import json
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from pydantic import BaseModel
-from litellm import acompletion
-from litellm.types.utils import ModelResponse, Message, Usage, Choices, Delta
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
-from src.core.models import AgentConfig, TokenUsage, ContextMetrics
+from litellm import acompletion
+from litellm.types.utils import ModelResponse
+from pydantic import BaseModel
+
+from src.core.models import AgentConfig, ContextMetrics, TokenUsage
+
 
 @dataclass
 class ConversationContext:
     """Represents the current conversation context."""
+
     messages: List[Dict[str, str]]
     summary: Optional[Dict[str, Any]] = None
     initial_task: Optional[str] = None
     message_count: int = 0
 
+
 class LLMResponse(BaseModel):
     """Standardized response from LLM processing."""
+
     content: str
     metadata: Dict[str, Any] = {}
     token_usage: Optional[TokenUsage] = None
@@ -28,11 +33,12 @@ class LLMResponse(BaseModel):
             "content": self.content,
             "metadata": self.metadata,
             "token_usage": self.token_usage.model_dump() if self.token_usage else None,
-            "context_metrics": self.context_metrics.model_dump() if self.context_metrics else None
+            "context_metrics": self.context_metrics.model_dump() if self.context_metrics else None,
         }
 
     def model_dump_json(self) -> str:
         return json.dumps(self.model_dump())
+
 
 class BaseLLMInterface(ABC):
     """Base interface for LLM interactions."""
@@ -54,14 +60,16 @@ class BaseLLMInterface(ABC):
         """Add a reminder of the initial task if needed."""
         if not self.context.initial_task:
             return False
-        
+
         # Add reminder every N messages
-        if (self.context.message_count > 0 and 
-            self.config.summarization.reminder_frequency > 0 and 
-            self.context.message_count % self.config.summarization.reminder_frequency == 0):
+        if (
+            self.context.message_count > 0
+            and self.config.summarization.reminder_frequency > 0
+            and self.context.message_count % self.config.summarization.reminder_frequency == 0
+        ):
             reminder_message = {
                 "role": "system",
-                "content": self.config.summarization.reminder_template.format(task=self.context.initial_task)
+                "content": self.config.summarization.reminder_template.format(task=self.context.initial_task),
             }
             self.context.messages.append(reminder_message)
             return True
@@ -73,60 +81,62 @@ class BaseLLMInterface(ABC):
             return False
 
         # Check if we need to summarize based on token count or message count
-        if (current_metrics.current_context_tokens < self.config.max_context_tokens and 
-            len(self.context.messages) < self.config.summarization.preserve_last_n_messages):
+        if (
+            current_metrics.current_context_tokens < self.config.max_context_tokens
+            and len(self.context.messages) < self.config.summarization.preserve_last_n_messages
+        ):
             return False
 
         # Prepare summarization prompt
         summary_prompt = {
             "role": "system",
-            "content": "Please provide a brief summary of the conversation so far, focusing on the key points and decisions made."
+            "content": "Please provide a brief summary of the conversation so far, focusing on the key points and decisions made.",
         }
-        
+
         # Get summary from LLM
         messages_for_summary = [
-            msg for msg in self.context.messages 
+            msg
+            for msg in self.context.messages
             if msg.get("role") != "system" or "Remember, your initial task was" not in msg.get("content", "")
         ]
-        
-        summary_messages = [summary_prompt] + messages_for_summary[-self.config.summarization.preserve_last_n_messages:]
-        
+
+        summary_messages = [summary_prompt] + messages_for_summary[
+            -self.config.summarization.preserve_last_n_messages :
+        ]
+
         try:
             stream = await acompletion(
                 model=self.config.model_name,
                 messages=summary_messages,
                 max_tokens=self.config.max_tokens,
-                stream=True
+                stream=True,
             )
-            
+
             # Collect all chunks from the stream
             content = ""
             last_chunk = None
             async for chunk in stream:
-                if hasattr(chunk, 'choices') and chunk.choices and hasattr(chunk.choices[0], 'delta'):
+                if hasattr(chunk, "choices") and chunk.choices and hasattr(chunk.choices[0], "delta"):
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if hasattr(delta, "content") and delta.content:
                         content += delta.content
                 last_chunk = chunk
-            
+
             # Update context with summary
-            self.context.summary = {
-                "content": content,
-                "message_count": len(self.context.messages)
-            }
-            
+            self.context.summary = {"content": content, "message_count": len(self.context.messages)}
+
             # Clear old messages except system prompts and recent ones
             system_messages = [msg for msg in self.context.messages if msg["role"] == "system"]
-            recent_messages = self.context.messages[-self.config.summarization.preserve_last_n_messages:]
-            
+            recent_messages = self.context.messages[-self.config.summarization.preserve_last_n_messages :]
+
             summary_message = {
                 "role": "system",
-                "content": f"Previous conversation summary: {content}"
+                "content": f"Previous conversation summary: {content}",
             }
-            
+
             self.context.messages = system_messages + [summary_message] + recent_messages
             return True
-            
+
         except Exception as e:
             print(f"Failed to generate summary: {str(e)}")
             return False
@@ -134,25 +144,25 @@ class BaseLLMInterface(ABC):
     def _update_metrics(self, response: ModelResponse) -> Tuple[Optional[TokenUsage], Optional[ContextMetrics]]:
         """Update token usage and context metrics."""
         try:
-            if hasattr(response, 'usage'):
+            if hasattr(response, "usage"):
                 usage = response.usage
                 token_usage = TokenUsage(
                     completion_tokens=usage.completion_tokens,
                     prompt_tokens=usage.prompt_tokens,
-                    total_tokens=usage.total_tokens
+                    total_tokens=usage.total_tokens,
                 )
                 self._total_tokens += token_usage.total_tokens
 
                 # Calculate context metrics
                 total_context_tokens = sum(len(msg.get("content", "")) for msg in self.context.messages)
-                
+
                 context_metrics = ContextMetrics(
                     max_context_tokens=self.config.max_context_tokens,
                     current_context_tokens=total_context_tokens,
                     available_tokens=self.config.max_context_tokens - total_context_tokens,
-                    context_utilization=total_context_tokens / self.config.max_context_tokens
+                    context_utilization=total_context_tokens / self.config.max_context_tokens,
                 )
-                
+
                 return token_usage, context_metrics
             return None, None
         except Exception as e:
@@ -162,10 +172,10 @@ class BaseLLMInterface(ABC):
     def _format_messages(self, input_data: Any, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
         """Format input data and context into messages for the LLM."""
         messages = self.context.messages.copy()
-        
+
         if system_prompt:
             messages.insert(0, {"role": "system", "content": system_prompt})
-            
+
         if isinstance(input_data, str):
             messages.append({"role": "user", "content": input_data})
         elif isinstance(input_data, dict) and "role" in input_data and "content" in input_data:
@@ -174,44 +184,39 @@ class BaseLLMInterface(ABC):
             messages.extend(input_data)
         else:
             raise ValueError(f"Unsupported input type: {type(input_data)}")
-            
+
         return messages
 
-    async def _handle_response(self, stream: AsyncGenerator[ModelResponse, None], messages: List[Dict[str, str]]) -> LLMResponse:
+    async def _handle_response(
+        self, stream: AsyncGenerator[ModelResponse, None], messages: List[Dict[str, str]]
+    ) -> LLMResponse:
         """Process the LLM response and update context."""
         try:
             # Collect all chunks from the stream
             content = ""
             last_chunk = None
             async for chunk in stream:
-                if hasattr(chunk, 'choices') and chunk.choices and hasattr(chunk.choices[0], 'delta'):
+                if hasattr(chunk, "choices") and chunk.choices and hasattr(chunk.choices[0], "delta"):
                     delta = chunk.choices[0].delta
-                    if hasattr(delta, 'content') and delta.content:
+                    if hasattr(delta, "content") and delta.content:
                         content += delta.content
                 last_chunk = chunk
-            
+
             # Get the last chunk for usage information
             token_usage, context_metrics = self._update_metrics(last_chunk) if last_chunk else (None, None)
-            
+
             # Update conversation context
             self.context.messages = messages
-            self.context.messages.append({
-                "role": "assistant",
-                "content": content
-            })
+            self.context.messages.append({"role": "assistant", "content": content})
             self.context.message_count += 1
-            
+
             # Handle context management
             if context_metrics:
                 await self._maybe_summarize_context(context_metrics)
             await self._maybe_add_reminder()
-            
-            return LLMResponse(
-                content=content,
-                token_usage=token_usage,
-                context_metrics=context_metrics
-            )
-            
+
+            return LLMResponse(content=content, token_usage=token_usage, context_metrics=context_metrics)
+
         except Exception as e:
             return self._handle_error(e)
 
@@ -219,12 +224,9 @@ class BaseLLMInterface(ABC):
         """Handle errors in LLM processing."""
         error_message = f"Error processing LLM request: {str(e)}"
         print(error_message)  # Log the error
-        return LLMResponse(
-            content=error_message,
-            metadata={"error": str(e)}
-        )
+        return LLMResponse(content=error_message, metadata={"error": str(e)})
 
     @abstractmethod
     async def process(self, input_data: Any, system_prompt: Optional[str] = None) -> LLMResponse:
         """Process input data and return a response."""
-        pass 
+        pass

@@ -21,6 +21,7 @@ networkx = "^3.0"           # For graph operations
 click = "^8.1.0"           # For CLI interface
 pyyaml = "^6.0.1"          # For configuration management
 websockets = "^14.2"
+pre-commit = "^4.1.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0.0"
@@ -33,10 +34,19 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py311"
 select = ["E", "F", "B", "I"]
 ignore = []
+# Exclude test files and directories
+exclude = [
+    "tests/*",
+    "test_*.py",
+    "**/tests/*",
+    "**/*_test.py",
+    "examples/*",
+    "**/examples/*",
+]
 
 [tool.poetry.scripts]
 llm-orchestrator = "src.cli:main"

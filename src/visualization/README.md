@@ -75,7 +75,7 @@ Example visualizations for each chain type can be found in `examples/visualizati
 - `recursive_chain.html`
 - `nested_chain.html`
 
-These examples demonstrate different task decomposition patterns and can serve as references for understanding the visualization capabilities. 
+These examples demonstrate different task decomposition patterns and can serve as references for understanding the visualization capabilities.
 
 ## Live Visualization
 
@@ -169,4 +169,4 @@ chain = SequentialChain(
 4. **Security**:
    - Optional authentication for visualization endpoint
    - Rate limiting
-   - Configurable CORS policies 
+   - Configurable CORS policies

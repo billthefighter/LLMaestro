@@ -76,18 +76,18 @@ examples:
         1. Inefficient database queries in user_service.py
         2. Redundant API calls in data_processor.py
         3. Memory leaks in cache_manager.py
-        
+
         We've completed optimizing the database queries by:
         - Adding proper indexing
         - Implementing query batching
         - Caching frequent queries
-        
+
         Currently working on the API calls issue. Progress:
         - Analyzed current API usage patterns
         - Identified 5 redundant calls
         - Planning to implement request batching
         - Need to maintain backward compatibility
-        
+
         Next steps will focus on memory leak investigation.
       target_tokens: 200
       current_utilization: 0.85
@@ -115,4 +115,4 @@ examples:
           "original_tokens": 156,
           "summary_tokens": 89
         }
-      } 
+      }

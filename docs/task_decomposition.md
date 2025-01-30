@@ -115,7 +115,7 @@ The system includes robust error handling for:
 4. **Monitor and Optimize**
    - Track strategy performance
    - Adjust chunk sizes and parallel limits
-   - Cache frequently used strategies 
+   - Cache frequently used strategies
 
 ## Examples of Custom Strategies
 
@@ -127,7 +127,7 @@ def decompose_document_clustering(task: Task) -> List[SubTask]:
     documents = task.input_data
     if not isinstance(documents, list):
         raise ValueError("Input must be a list of documents")
-        
+
     # Phase 1: Generate embeddings in batches
     embedding_tasks = []
     batch_size = 20
@@ -141,7 +141,7 @@ def decompose_document_clustering(task: Task) -> List[SubTask]:
                 parent_task_id=task.id
             )
         )
-    
+
     return embedding_tasks
 
 def aggregate_document_clustering_results(results: List[Any]) -> Dict[str, Any]:
@@ -150,7 +150,7 @@ def aggregate_document_clustering_results(results: List[Any]) -> Dict[str, Any]:
     for result in results:
         if isinstance(result, dict) and "embeddings" in result:
             all_embeddings.extend(result["embeddings"])
-    
+
     # Perform clustering and create summaries
     clusters = {
         "clusters": [
@@ -178,12 +178,12 @@ def decompose_code_review(task: Task) -> List[SubTask]:
     code_files = task.input_data
     if not isinstance(code_files, dict):
         raise ValueError("Input must be a dictionary of file paths to content")
-    
+
     subtasks = []
-    
+
     # Group related files
     file_groups = group_related_files(code_files)
-    
+
     for group_name, files in file_groups.items():
         subtasks.append(
             SubTask(
@@ -197,7 +197,7 @@ def decompose_code_review(task: Task) -> List[SubTask]:
                 parent_task_id=task.id
             )
         )
-    
+
     return subtasks
 
 def aggregate_code_review_results(results: List[Any]) -> Dict[str, Any]:
@@ -214,7 +214,7 @@ def aggregate_code_review_results(results: List[Any]) -> Dict[str, Any]:
             "lines_analyzed": 0
         }
     }
-    
+
     for result in results:
         if isinstance(result, dict):
             # Add component review
@@ -223,19 +223,19 @@ def aggregate_code_review_results(results: List[Any]) -> Dict[str, Any]:
                 "summary": result.get("summary", ""),
                 "issues": result.get("issues", [])
             })
-            
+
             # Categorize issues
             for issue in result.get("issues", []):
                 severity = issue.get("severity", "minor")
                 aggregated["issues"][severity].append(issue)
-            
+
             # Add suggestions
             aggregated["suggestions"].extend(result.get("suggestions", []))
-            
+
             # Update metrics
             aggregated["metrics"]["files_reviewed"] += result.get("files_reviewed", 0)
             aggregated["metrics"]["lines_analyzed"] += result.get("lines_analyzed", 0)
-    
+
     return aggregated
 ```
 
@@ -247,9 +247,9 @@ def decompose_pipeline_validation(task: Task) -> List[SubTask]:
     pipeline_config = task.input_data
     if not isinstance(pipeline_config, dict):
         raise ValueError("Input must be a pipeline configuration dictionary")
-    
+
     subtasks = []
-    
+
     # Test data sources
     for source in pipeline_config.get("sources", []):
         subtasks.append(
@@ -263,7 +263,7 @@ def decompose_pipeline_validation(task: Task) -> List[SubTask]:
                 parent_task_id=task.id
             )
         )
-    
+
     # Test transformations
     for transform in pipeline_config.get("transformations", []):
         subtasks.append(
@@ -278,7 +278,7 @@ def decompose_pipeline_validation(task: Task) -> List[SubTask]:
                 parent_task_id=task.id
             )
         )
-    
+
     # Test outputs
     for output in pipeline_config.get("outputs", []):
         subtasks.append(
@@ -292,7 +292,7 @@ def decompose_pipeline_validation(task: Task) -> List[SubTask]:
                 parent_task_id=task.id
             )
         )
-    
+
     return subtasks
 
 def aggregate_pipeline_validation_results(results: List[Any]) -> Dict[str, Any]:
@@ -310,7 +310,7 @@ def aggregate_pipeline_validation_results(results: List[Any]) -> Dict[str, Any]:
             "failed_tests": 0
         }
     }
-    
+
     for result in results:
         if isinstance(result, dict):
             component_type = result.get("type")
@@ -321,19 +321,19 @@ def aggregate_pipeline_validation_results(results: List[Any]) -> Dict[str, Any]:
                     "tests": result.get("tests", []),
                     "issues": result.get("issues", [])
                 })
-            
+
             # Update metrics
             validation_report["metrics"]["total_tests"] += result.get("total_tests", 0)
             validation_report["metrics"]["passed_tests"] += result.get("passed_tests", 0)
             validation_report["metrics"]["failed_tests"] += result.get("failed_tests", 0)
-            
+
             # Collect issues
             validation_report["issues"].extend(result.get("issues", []))
-    
+
     # Update overall status
     if validation_report["metrics"]["failed_tests"] > 0:
         validation_report["status"] = "failed"
-    
+
     return validation_report
 ```
 
@@ -358,4 +358,4 @@ These examples can be adapted and combined to create strategies for other comple
 - Include proper error handling
 - Validate input data
 - Track progress and metrics
-- Structure results consistently 
+- Structure results consistently

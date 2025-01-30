@@ -70,4 +70,4 @@ The configuration is automatically validated against the schema when loaded. Thi
 - Never commit `config.yaml` to version control
 - Use environment variables in production
 - Rotate API keys regularly
-- Keep your API keys secure 
+- Keep your API keys secure

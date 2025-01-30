@@ -26,7 +26,7 @@ class YourProviderLLM(BaseLLMInterface):
         try:
             # 1. Format messages using base class method
             messages = self._format_messages(input_data, system_prompt)
-            
+
             # 2. Handle task reminders if needed
             if await self._maybe_add_reminder():
                 messages.append({
@@ -42,10 +42,10 @@ class YourProviderLLM(BaseLLMInterface):
                 temperature=self.config.temperature,
                 api_key=self.config.api_key
             )
-            
+
             # 4. Process response using base class method
             return await self._handle_response(response, messages)
-            
+
         except Exception as e:
             return self._handle_error(e)
 ```
@@ -90,4 +90,4 @@ When adding a new provider:
 2. Test with both sync and async calls
 3. Verify error handling
 4. Check token tracking and context management
-5. Validate response format standardization 
+5. Validate response format standardization

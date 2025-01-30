@@ -144,11 +144,11 @@ poetry run pre-commit install
 
 ## Best Practices
 
-1. **Versioning**: 
+1. **Versioning**:
    - Let the hook manage MINOR and PATCH versions
    - Only manually update MAJOR version for breaking changes
    - Document significant changes in commit messages
 2. **Documentation**: Include clear descriptions and examples
 3. **Schema**: Define clear response schemas for structured outputs
 4. **Testing**: Include example inputs and expected outputs
-5. **Git History**: Use meaningful commit messages when updating prompts 
+5. **Git History**: Use meaningful commit messages when updating prompts

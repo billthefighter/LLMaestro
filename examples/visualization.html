@@ -96,10 +96,10 @@
             if (data.type === 'graph_update') {
                 // Clear existing graph
                 cy.elements().remove();
-                
+
                 // Add nodes and edges from the update
                 const graphData = data.data;
-                
+
                 // Add nodes
                 if (graphData.nodes) {
                     graphData.nodes.forEach(node => {
@@ -113,7 +113,7 @@
                         });
                     });
                 }
-                
+
                 // Add edges
                 if (graphData.edges) {
                     graphData.edges.forEach(edge => {
@@ -127,7 +127,7 @@
                         });
                     });
                 }
-                
+
                 // Apply layout
                 cy.layout({
                     name: 'dagre',
@@ -140,4 +140,4 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
 </body>
-</html> 
+</html>

@@ -157,4 +157,4 @@ The agent system now uses the chain system for task processing, providing:
 3. **Monitoring**:
    - Task execution metrics
    - Agent performance tracking
-   - Resource utilization stats 
+   - Resource utilization stats

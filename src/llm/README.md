@@ -202,10 +202,10 @@ async def analyze_document():
                "focusing on key concepts, relationships, and providing a summary. "
                "Maintain consistent terminology throughout the analysis."
     )
-    
+
     # Access results
     print(f"Final Summary: {result.content}")
-    
+
     # Access intermediate results if needed
     for i, step_result in enumerate(chain.context_history):
         print(f"Step {i+1}: {step_result.content}")
@@ -287,7 +287,7 @@ async def analyze_with_followup():
         topic="Complex topic that might need clarification"
     )
     print(f"Final result: {result.content}")
-    
+
     # Access intermediate results if needed
     for step_id, step_result in chain.context.artifacts.items():
         print(f"Step {step_id}: {step_result.content}")
@@ -336,4 +336,4 @@ async def analyze_with_followup():
    - Execution monitoring and logging
    - Performance profiling tools
    - Testing utilities and fixtures
-   - Chain composition helpers 
+   - Chain composition helpers

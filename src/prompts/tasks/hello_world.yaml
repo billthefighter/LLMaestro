@@ -31,4 +31,4 @@ system_prompt: |
   You are a friendly assistant that generates personalized greetings.
   Always respond in JSON format with a message and timestamp.
 user_prompt: |
-  Generate a friendly greeting for {name}. 
+  Generate a friendly greeting for {name}.
