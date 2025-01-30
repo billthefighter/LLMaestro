@@ -114,13 +114,11 @@ class BaseLLMInterface(ABC):
 
             # Collect all chunks from the stream
             content = ""
-            last_chunk = None
             async for chunk in stream:
                 if hasattr(chunk, "choices") and chunk.choices and hasattr(chunk.choices[0], "delta"):
                     delta = chunk.choices[0].delta
                     if hasattr(delta, "content") and delta.content:
                         content += delta.content
-                last_chunk = chunk
 
             # Update context with summary
             self.context.summary = {"content": content, "message_count": len(self.context.messages)}
@@ -194,13 +192,11 @@ class BaseLLMInterface(ABC):
         try:
             # Collect all chunks from the stream
             content = ""
-            last_chunk = None
             async for chunk in stream:
                 if hasattr(chunk, "choices") and chunk.choices and hasattr(chunk.choices[0], "delta"):
                     delta = chunk.choices[0].delta
                     if hasattr(delta, "content") and delta.content:
                         content += delta.content
-                last_chunk = chunk
 
             # Get the last chunk for usage information
             token_usage, context_metrics = self._update_metrics(last_chunk) if last_chunk else (None, None)

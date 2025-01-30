@@ -317,7 +317,7 @@ class PromptLoader:
             user_prompt = prompt.user_prompt.format(**kwargs)
             return system_prompt, user_prompt
         except KeyError as e:
-            raise ValueError(f"Missing required variable for prompt: {e}")
+            raise ValueError(f"Missing required variable for prompt: {e}") from e
 
     def validate_response(self, task_type: str, response: Dict) -> bool:
         """Validate that a response matches the expected schema."""

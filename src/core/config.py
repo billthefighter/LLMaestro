@@ -111,7 +111,7 @@ class Config:
         try:
             validate(instance=config_data, schema=schema)
         except ValidationError as e:
-            raise ValidationError(f"Configuration validation failed: {e.message}")
+            raise ValidationError(f"Configuration validation failed: {e.message}") from e
 
         # Create config object
         return cls(

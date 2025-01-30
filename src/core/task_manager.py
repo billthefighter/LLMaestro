@@ -114,7 +114,7 @@ class TaskManager:
 
             return decompose_func(task)
         except Exception as e:
-            raise ValueError(f"Failed to execute dynamic decomposition: {e}")
+            raise ValueError(f"Failed to execute dynamic decomposition: {e}") from e
 
     def execute(self, task: Task) -> Any:
         """Execute a task by breaking it down and processing subtasks in parallel."""
@@ -123,9 +123,8 @@ class TaskManager:
         if not prompt:
             raise ValueError(f"No prompt template found for task type: {task.type}")
 
-        # Get max parallel subtasks from metadata
+        # Get decomposition config from metadata
         decomp_config = cast(DecompositionConfig, prompt.metadata.decomposition)
-        max_parallel = decomp_config.get("max_parallel")
 
         # Decompose task into subtasks
         subtasks = self.decompose_task(task)

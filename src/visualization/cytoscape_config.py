@@ -19,11 +19,11 @@ class CytoscapeConfig:
         """
         try:
             return p4c.cytoscape_ping()
-        except Exception:
+        except Exception as e:
             raise RuntimeError(
                 "Cytoscape is not running. Please start Cytoscape desktop application "
                 "before attempting to visualize chains."
-            )
+            ) from e
 
     def create_visual_style(self) -> None:
         """Create or update the default visual style for chain visualization."""

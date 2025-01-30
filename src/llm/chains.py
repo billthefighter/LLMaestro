@@ -101,7 +101,7 @@ class ChainStep(Generic[T]):
                 if retry < max_retries:
                     await asyncio.sleep(delay)
                     continue
-                raise last_error
+                raise last_error from e
 
 
 class AbstractChain(ABC, Generic[ChainResult]):
