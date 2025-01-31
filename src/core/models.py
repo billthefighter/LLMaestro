@@ -76,6 +76,16 @@ class SummarizationConfig(BaseModel):
     )
 
 
+class RateLimitConfig(BaseModel):
+    """Configuration for rate limiting."""
+
+    enabled: bool = Field(default=True, description="Whether to enable rate limiting")
+    requests_per_minute: int = Field(default=60, description="Maximum requests per minute")
+    requests_per_hour: int = Field(default=3500, description="Maximum requests per hour")
+    max_daily_tokens: int = Field(default=1000000, description="Maximum tokens per day")
+    alert_threshold: float = Field(default=0.8, description="Alert threshold for quota usage (0.0-1.0)")
+
+
 class AgentConfig(BaseModel):
     """Configuration for an LLM agent."""
 
@@ -91,6 +101,7 @@ class AgentConfig(BaseModel):
     summarization: SummarizationConfig = Field(
         default_factory=SummarizationConfig, description="Configuration for context summarization"
     )
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig, description="Configuration for rate limiting")
 
 
 class StorageConfig(BaseModel):

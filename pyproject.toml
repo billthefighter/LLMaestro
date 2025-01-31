@@ -22,6 +22,8 @@ click = "^8.1.0"           # For CLI interface
 pyyaml = "^6.0.1"          # For configuration management
 websockets = "^14.2"
 pre-commit = "^4.1.0"
+transformers = "^4.36.0"    # Required for token estimation
+anthropic = "^0.8.0"        # Required for Anthropic API integration
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0.0"
@@ -32,6 +34,7 @@ ruff = "^0.1.0"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["src"]
 
 [tool.ruff]
 line-length = 120

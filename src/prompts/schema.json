@@ -5,11 +5,11 @@
   "type": "object",
   "required": [
     "name",
-    "version",
     "description",
     "metadata",
     "system_prompt",
-    "user_prompt"
+    "user_prompt",
+    "current_version"
   ],
   "properties": {
     "name": {
@@ -17,62 +17,41 @@
       "description": "Unique identifier for the prompt",
       "pattern": "^[a-z0-9_-]+$"
     },
-    "version": {
-      "type": "string",
-      "description": "Semantic version of the prompt (automatically managed)",
-      "pattern": "^\\d+\\.\\d+\\.\\d+$"
-    },
     "description": {
       "type": "string",
       "description": "Brief explanation of what this prompt does"
     },
-    "author": {
+    "system_prompt": {
       "type": "string",
-      "description": "Creator of the prompt"
+      "description": "System-level instructions for the LLM"
     },
-    "git_metadata": {
-      "type": "object",
-      "description": "Git commit information (automatically managed)",
-      "properties": {
-        "created": {
-          "type": "object",
-          "required": ["commit", "author"],
-          "properties": {
-            "commit": {
-              "type": "string",
-              "description": "Git commit hash when file was created"
-            },
-            "author": {
-              "type": "string",
-              "description": "Git user who created the file"
-            }
-          }
-        },
-        "last_modified": {
-          "type": "object",
-          "required": ["commit", "author"],
-          "properties": {
-            "commit": {
-              "type": "string",
-              "description": "Git commit hash of last modification"
-            },
-            "author": {
-              "type": "string",
-              "description": "Git user who last modified the file"
-            }
-          }
-        }
-      },
-      "required": ["created", "last_modified"]
+    "user_prompt": {
+      "type": "string",
+      "description": "Template for formatting user input"
     },
     "metadata": {
       "type": "object",
-      "required": ["type", "expected_response", "decomposition"],
+      "required": ["type", "expected_response"],
       "properties": {
         "type": {
           "type": "string",
           "description": "Type of task this prompt is designed for",
           "enum": ["pdf_analysis", "code_refactor", "lint_fix"]
+        },
+        "expected_response": {
+          "type": "object",
+          "required": ["format"],
+          "properties": {
+            "format": {
+              "type": "string",
+              "description": "Expected format of the LLM's response",
+              "enum": ["json", "text", "markdown"]
+            },
+            "schema": {
+              "type": "string",
+              "description": "JSON schema for structured responses"
+            }
+          }
         },
         "model_requirements": {
           "type": "object",
@@ -91,54 +70,60 @@
             }
           }
         },
-        "expected_response": {
-          "type": "object",
-          "required": ["format"],
-          "properties": {
-            "format": {
-              "type": "string",
-              "description": "Expected format of the LLM's response",
-              "enum": ["json", "text", "markdown"]
-            },
-            "schema": {
-              "type": "string",
-              "description": "JSON schema for structured responses"
-            }
+        "tags": {
+          "type": "array",
+          "description": "List of tags for categorizing and searching prompts",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9_-]+$"
           }
         },
-        "decomposition": {
-          "type": "object",
-          "required": ["strategy", "aggregation"],
-          "properties": {
-            "strategy": {
-              "type": "string",
-              "enum": ["chunk", "file", "error", "custom"],
-              "description": "How to break down the task"
-            },
-            "chunk_size": {
-              "type": "integer",
-              "description": "Size of chunks for chunk strategy"
-            },
-            "max_parallel": {
-              "type": "integer",
-              "description": "Maximum number of subtasks to run in parallel"
-            },
-            "aggregation": {
-              "type": "string",
-              "enum": ["concatenate", "merge", "custom"],
-              "description": "How to combine subtask results"
-            }
-          }
+        "is_active": {
+          "type": "boolean",
+          "description": "Whether the prompt is currently active and available for use",
+          "default": true
         }
       }
     },
-    "system_prompt": {
-      "type": "string",
-      "description": "System-level instructions for the LLM"
+    "current_version": {
+      "type": "object",
+      "required": ["number", "timestamp", "author", "description", "change_type"],
+      "properties": {
+        "number": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version number"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When this version was created"
+        },
+        "author": {
+          "type": "string",
+          "description": "Author of this version"
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of changes in this version"
+        },
+        "change_type": {
+          "type": "string",
+          "enum": ["major", "minor", "patch", "breaking", "merge"],
+          "description": "Type of change made"
+        },
+        "git_commit": {
+          "type": "string",
+          "description": "Associated git commit hash"
+        }
+      }
     },
-    "user_prompt": {
-      "type": "string",
-      "description": "Template for formatting user input"
+    "version_history": {
+      "type": "array",
+      "description": "History of previous versions",
+      "items": {
+        "$ref": "#/properties/current_version"
+      }
     },
     "examples": {
       "type": "array",

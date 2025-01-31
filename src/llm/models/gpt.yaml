@@ -1,0 +1,200 @@
+models:
+  - name: gpt-3.5-turbo
+    family: gpt
+    capabilities:
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: false
+      supports_embeddings: false
+
+      # Context and Performance
+      max_context_window: 4096
+      max_output_tokens: 4096
+      typical_speed: 150.0
+
+      # Cost and Quotas
+      input_cost_per_1k_tokens: 0.0015
+      output_cost_per_1k_tokens: 0.002
+      daily_request_limit: 200000
+
+      # Advanced Features
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_message_role: true
+      supports_tools: true
+      supports_parallel_requests: true
+
+      # Input/Output Capabilities
+      supported_languages:
+        - en
+        - es
+        - fr
+        - de
+        - it
+        - pt
+        - nl
+        - ru
+        - zh
+        - ja
+        - ko
+      supported_mime_types: []
+
+      # Quality and Control
+      temperature:
+        min_value: 0.0
+        max_value: 2.0
+        default_value: 1.0
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+      supports_frequency_penalty: true
+      supports_presence_penalty: true
+      supports_stop_sequences: true
+
+      # Specialized Features
+      supports_semantic_search: false
+      supports_code_completion: true
+      supports_chat_memory: false
+      supports_few_shot_learning: true
+
+    is_preview: false
+    is_deprecated: false
+    min_api_version: "2023-05-15"
+    release_date: "2023-11-06"
+
+  - name: gpt-4
+    family: gpt
+    capabilities:
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: false
+      supports_embeddings: false
+
+      # Context and Performance
+      max_context_window: 8192
+      max_output_tokens: 4096
+      typical_speed: 40.0
+
+      # Cost and Quotas
+      input_cost_per_1k_tokens: 0.03
+      output_cost_per_1k_tokens: 0.06
+      daily_request_limit: 100000
+
+      # Advanced Features
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_message_role: true
+      supports_tools: true
+      supports_parallel_requests: true
+
+      # Input/Output Capabilities
+      supported_languages:
+        - en
+        - es
+        - fr
+        - de
+        - it
+        - pt
+        - nl
+        - ru
+        - zh
+        - ja
+        - ko
+      supported_mime_types: []
+
+      # Quality and Control
+      temperature:
+        min_value: 0.0
+        max_value: 2.0
+        default_value: 1.0
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+      supports_frequency_penalty: true
+      supports_presence_penalty: true
+      supports_stop_sequences: true
+
+      # Specialized Features
+      supports_semantic_search: true
+      supports_code_completion: true
+      supports_chat_memory: false
+      supports_few_shot_learning: true
+
+    is_preview: false
+    is_deprecated: false
+    min_api_version: "2023-05-15"
+    release_date: "2023-11-06"
+
+  - name: gpt-4-vision-preview
+    family: gpt
+    capabilities:
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: true
+      supports_embeddings: false
+
+      # Context and Performance
+      max_context_window: 128000
+      max_output_tokens: 4096
+      typical_speed: 30.0
+
+      # Cost and Quotas
+      input_cost_per_1k_tokens: 0.01
+      output_cost_per_1k_tokens: 0.03
+      daily_request_limit: 50000
+
+      # Advanced Features
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_message_role: true
+      supports_tools: true
+      supports_parallel_requests: true
+
+      # Input/Output Capabilities
+      supported_languages:
+        - en
+        - es
+        - fr
+        - de
+        - it
+        - pt
+        - nl
+        - ru
+        - zh
+        - ja
+        - ko
+      supported_mime_types:
+        - image/jpeg
+        - image/png
+        - image/gif
+        - image/webp
+      max_image_size: 2048
+
+      # Quality and Control
+      temperature:
+        min_value: 0.0
+        max_value: 2.0
+        default_value: 1.0
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+      supports_frequency_penalty: true
+      supports_presence_penalty: true
+      supports_stop_sequences: true
+
+      # Specialized Features
+      supports_semantic_search: true
+      supports_code_completion: true
+      supports_chat_memory: false
+      supports_few_shot_learning: true
+
+    is_preview: true
+    is_deprecated: false
+    min_api_version: "2023-11-15"
+    release_date: "2023-11-06"
