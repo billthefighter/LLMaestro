@@ -290,3 +290,26 @@ class ModelRegistry:
         data = {"models": [model.model_dump() for model in self._models.values()]}
         with open(path, "w") as f:
             yaml.dump(data, f, sort_keys=False)
+
+
+ANTHROPIC_MODELS = {
+    "claude-3-sonnet": ModelDescriptor(
+        name="claude-3-sonnet",
+        provider="anthropic",
+        min_api_version="2024-03-07",
+        release_date="2024-03-07",
+        context_window=200000,
+        max_tokens=4096,
+        token_encoding="cl100k_base",
+        capabilities=[
+            "text",
+            "code",
+            "analysis",
+            "math",
+            "extraction",
+            "classification",
+            "json",
+        ],
+        description="Claude 3 Sonnet model from Anthropic, released March 2024",
+    ),
+}
