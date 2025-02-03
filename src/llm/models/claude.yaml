@@ -168,7 +168,7 @@ models:
     min_api_version: "2024-02-29"
     release_date: "2024-02-29"
 
-  - name: claude-3-sonnet-20240307
+  - name: claude-3-sonnet-20240229
     family: claude
     capabilities:
       # Core Features
@@ -180,10 +180,10 @@ models:
       # Context and Performance
       max_context_window: 200000
       max_output_tokens: 4096
-      typical_speed: 150.0
+      typical_speed: 100.0
 
       # Cost and Quotas
-      input_cost_per_1k_tokens: 0.003
+      input_cost_per_1k_tokens: 0.015
       output_cost_per_1k_tokens: 0.015
       daily_request_limit: 150000
 
@@ -200,8 +200,6 @@ models:
       supported_mime_types:
         - image/jpeg
         - image/png
-        - image/gif
-        - image/webp
 
       # Quality and Control
       temperature:
@@ -219,13 +217,13 @@ models:
       # Specialized Features
       supports_semantic_search: true
       supports_code_completion: true
-      supports_chat_memory: false
+      supports_chat_memory: true
       supports_few_shot_learning: true
 
     is_preview: false
     is_deprecated: false
-    min_api_version: "2024-03-07"
-    release_date: "2024-03-07"
+    min_api_version: "2024-02-29"
+    release_date: "2024-02-29"
 
   - name: claude-3-haiku-20240229
     family: claude
@@ -275,6 +273,63 @@ models:
       supports_semantic_search: true
       supports_code_completion: true
       supports_chat_memory: false
+      supports_few_shot_learning: true
+
+    is_preview: false
+    is_deprecated: false
+    min_api_version: "2024-02-29"
+    release_date: "2024-02-29"
+
+  - name: claude-3-5-sonnet-latest
+    family: claude
+    capabilities:
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: true
+      supports_embeddings: false
+
+      # Context and Performance
+      max_context_window: 200000
+      max_output_tokens: 4096
+      typical_speed: 100.0
+
+      # Cost and Quotas
+      input_cost_per_1k_tokens: 0.015
+      output_cost_per_1k_tokens: 0.015
+      daily_request_limit: 150000
+
+      # Advanced Features
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_message_role: true
+      supports_tools: true
+      supports_parallel_requests: true
+
+      # Input/Output Capabilities
+      supported_languages:
+        - en
+      supported_mime_types:
+        - image/jpeg
+        - image/png
+
+      # Quality and Control
+      temperature:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 0.7
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+      supports_frequency_penalty: false
+      supports_presence_penalty: false
+      supports_stop_sequences: true
+
+      # Specialized Features
+      supports_semantic_search: true
+      supports_code_completion: true
+      supports_chat_memory: true
       supports_few_shot_learning: true
 
     is_preview: false

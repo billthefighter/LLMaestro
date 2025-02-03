@@ -3,8 +3,8 @@ import pytest
 from datetime import datetime, timedelta
 from pydantic import ValidationError
 
-from src.prompts.base import BasePrompt, ResponseFormat, PromptMetadata
-from src.prompts.types import VersionInfo
+from src.prompts.base import BasePrompt, PromptMetadata
+from src.prompts.types import VersionInfo, ResponseFormat
 
 # Test Data Fixtures
 @pytest.fixture

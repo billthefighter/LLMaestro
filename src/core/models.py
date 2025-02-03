@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskStatus(str, Enum):
@@ -22,6 +22,8 @@ class SubTask(BaseModel):
     result: Optional[Any] = None
     error: Optional[str] = None
 
+    model_config = ConfigDict(validate_assignment=True)
+
 
 class Task(BaseModel):
     """A task that can be decomposed into subtasks."""
@@ -34,6 +36,8 @@ class Task(BaseModel):
     subtasks: List[SubTask] = Field(default_factory=list)
     result: Optional[Any] = None
 
+    model_config = ConfigDict(validate_assignment=True)
+
 
 class TokenUsage(BaseModel):
     """Tracks token usage for a single LLM request."""
@@ -43,6 +47,8 @@ class TokenUsage(BaseModel):
     total_tokens: int
     estimated_cost: Optional[float] = None
 
+    model_config = ConfigDict(validate_assignment=True)
+
 
 class ContextMetrics(BaseModel):
     """Tracks context window usage and limits."""
@@ -51,6 +57,8 @@ class ContextMetrics(BaseModel):
     current_context_tokens: int
     available_tokens: int
     context_utilization: float  # percentage of context window used
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class SummarizationConfig(BaseModel):
@@ -75,6 +83,8 @@ class SummarizationConfig(BaseModel):
         description="Template for task reminder messages",
     )
 
+    model_config = ConfigDict(validate_assignment=True)
+
 
 class RateLimitConfig(BaseModel):
     """Configuration for rate limiting."""
@@ -84,6 +94,8 @@ class RateLimitConfig(BaseModel):
     requests_per_hour: int = Field(default=3500, description="Maximum requests per hour")
     max_daily_tokens: int = Field(default=1000000, description="Maximum tokens per day")
     alert_threshold: float = Field(default=0.8, description="Alert threshold for quota usage (0.0-1.0)")
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class AgentConfig(BaseModel):
@@ -103,9 +115,13 @@ class AgentConfig(BaseModel):
     )
     rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig, description="Configuration for rate limiting")
 
+    model_config = ConfigDict(validate_assignment=True)
+
 
 class StorageConfig(BaseModel):
     """Configuration for storage manager."""
 
     base_path: str
     max_cache_size: int = 1024 * 1024 * 1024  # 1GB default
+
+    model_config = ConfigDict(validate_assignment=True)

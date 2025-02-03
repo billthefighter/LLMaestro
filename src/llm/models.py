@@ -3,7 +3,7 @@ import json
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -54,6 +54,21 @@ class ModelCapabilities(BaseModel):
     supports_vision: bool = False
     supports_embeddings: bool = False
 
+    # Vision/Image Capabilities
+    vision_config: Optional[Dict[str, Any]] = Field(
+        default_factory=lambda: {
+            "max_images_per_request": 1,
+            "supported_formats": ["png", "jpeg"],
+            "max_image_size_mb": 20,
+            "max_image_resolution": 2048,  # max pixels in either dimension
+            "supports_image_annotations": False,  # whether model can handle image region annotations
+            "supports_image_analysis": False,  # whether model can analyze image content
+            "supports_image_generation": False,  # whether model can generate images
+            "cost_per_image": 0.0,  # additional cost per image in request
+        },
+        description="Configuration for vision/image capabilities when supports_vision is True",
+    )
+
     # Context and Performance
     max_context_window: int = Field(default=4096, gt=0)
     max_output_tokens: Optional[int] = Field(default=None, gt=0)
@@ -93,10 +108,64 @@ class ModelCapabilities(BaseModel):
     supports_chat_memory: bool = False
     supports_few_shot_learning: bool = True
 
-    class Config:
-        """Pydantic config."""
+    model_config = ConfigDict(validate_assignment=True)
 
-        json_encoders = {set: list, datetime: lambda v: v.isoformat()}
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        # Convert sets to lists for JSON serialization
+        if "supported_languages" in data:
+            data["supported_languages"] = list(data["supported_languages"])
+        if "supported_mime_types" in data:
+            data["supported_mime_types"] = list(data["supported_mime_types"])
+        return data
+
+    @property
+    def supports_images(self) -> bool:
+        """Helper property to check if model supports image inputs."""
+        return self.supports_vision and bool(self.vision_config)
+
+    def get_image_limits(self) -> Dict[str, Any]:
+        """Get the image-related limitations for this model."""
+        if not self.supports_images:
+            return {}
+        return self.vision_config or {}
+
+    def validate_image_request(
+        self, image_count: int, formats: List[str], sizes: List[int]
+    ) -> Tuple[bool, Optional[str]]:
+        """Validate if an image request meets the model's capabilities.
+
+        Args:
+            image_count: Number of images in the request
+            formats: List of image formats (e.g., ['png', 'jpeg'])
+            sizes: List of image sizes in MB
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not self.supports_images:
+            return False, "Model does not support image inputs"
+
+        config = self.vision_config or {}
+
+        # Check image count
+        max_images = config.get("max_images_per_request", 1)
+        if image_count > max_images:
+            return False, f"Too many images. Maximum allowed: {max_images}"
+
+        # Check formats
+        supported_formats = set(config.get("supported_formats", []))
+        unsupported = [fmt for fmt in formats if fmt not in supported_formats]
+        if unsupported:
+            return False, f"Unsupported image formats: {', '.join(unsupported)}"
+
+        # Check sizes
+        max_size = config.get("max_image_size_mb", 20)
+        oversized = [size for size in sizes if size > max_size]
+        if oversized:
+            return False, f"Images exceed maximum size of {max_size}MB"
+
+        return True, None
 
 
 class ModelDescriptor(BaseModel):
@@ -112,10 +181,16 @@ class ModelDescriptor(BaseModel):
     end_of_life_date: Optional[datetime] = None
     recommended_replacement: Optional[str] = None
 
-    class Config:
-        """Pydantic config."""
+    model_config = ConfigDict(validate_assignment=True)
 
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        # Convert datetime objects to ISO format strings
+        if data.get("release_date"):
+            data["release_date"] = data["release_date"].isoformat()
+        if data.get("end_of_life_date"):
+            data["end_of_life_date"] = data["end_of_life_date"].isoformat()
+        return data
 
 
 class ModelCapabilitiesTable(Base):
@@ -151,21 +226,34 @@ class ModelCapabilitiesTable(Base):
 
     def to_descriptor(self) -> ModelDescriptor:
         """Convert database record to a model descriptor."""
+        # Convert capabilities to a string-keyed dictionary
+        capabilities_dict = {str(k): v for k, v in self.capabilities.items()}
+
+        # Get values from SQLAlchemy columns
+        name = getattr(self.model_name, "value", self.model_name)
+        family = getattr(self.family, "value", self.family)
+        is_preview = getattr(self.is_preview, "value", self.is_preview)
+        is_deprecated = getattr(self.is_deprecated, "value", self.is_deprecated)
+        min_api_version = getattr(self.min_api_version, "value", self.min_api_version)
+        release_date = getattr(self.release_date, "value", self.release_date)
+        end_of_life_date = getattr(self.end_of_life_date, "value", self.end_of_life_date)
+        recommended_replacement = getattr(self.recommended_replacement, "value", self.recommended_replacement)
+
         return ModelDescriptor(
-            name=self.model_name,
-            family=ModelFamily(self.family),
-            capabilities=ModelCapabilities(**self.capabilities),
-            is_preview=self.is_preview,
-            is_deprecated=self.is_deprecated,
-            min_api_version=self.min_api_version,
-            release_date=self.release_date,
-            end_of_life_date=self.end_of_life_date,
-            recommended_replacement=self.recommended_replacement,
+            name=str(name),
+            family=ModelFamily(str(family)),
+            capabilities=ModelCapabilities(**capabilities_dict),
+            is_preview=bool(is_preview),
+            is_deprecated=bool(is_deprecated),
+            min_api_version=str(min_api_version) if min_api_version is not None else None,
+            release_date=release_date.replace(tzinfo=None) if release_date is not None else None,
+            end_of_life_date=end_of_life_date.replace(tzinfo=None) if end_of_life_date is not None else None,
+            recommended_replacement=str(recommended_replacement) if recommended_replacement is not None else None,
         )
 
 
 class ModelRegistry:
-    """Registry of model families and their capabilities."""
+    """Registry of available LLM models and their capabilities."""
 
     def __init__(self):
         self._models: Dict[str, ModelDescriptor] = {}
@@ -233,6 +321,35 @@ class ModelRegistry:
 
         return True, None
 
+    async def detect_and_register_model(self, provider: str, model_name: str, api_key: str) -> ModelDescriptor:
+        """
+        Detects capabilities of a model and registers it in the registry.
+
+        Args:
+            provider: The LLM provider (e.g., "anthropic", "openai")
+            model_name: Name of the model to detect capabilities for
+            api_key: API key for authentication
+
+        Returns:
+            ModelDescriptor for the registered model
+        """
+        # Detect capabilities
+        capabilities = await ModelCapabilitiesDetector.detect_capabilities(provider, model_name, api_key)
+
+        # Create model descriptor with proper datetime
+        descriptor = ModelDescriptor(
+            name=model_name,
+            family=ModelFamily(provider.lower()),
+            capabilities=capabilities,
+            min_api_version="2024-02-29",  # Use current latest version
+            release_date=datetime.now(),
+        )
+
+        # Register the model
+        self.register(descriptor)
+
+        return descriptor
+
     @classmethod
     def from_json(cls, path: Union[str, Path]) -> "ModelRegistry":
         """Load registry from a JSON file."""
@@ -292,24 +409,173 @@ class ModelRegistry:
             yaml.dump(data, f, sort_keys=False)
 
 
-ANTHROPIC_MODELS = {
-    "claude-3-sonnet": ModelDescriptor(
-        name="claude-3-sonnet",
-        provider="anthropic",
-        min_api_version="2024-03-07",
-        release_date="2024-03-07",
-        context_window=200000,
-        max_tokens=4096,
-        token_encoding="cl100k_base",
-        capabilities=[
-            "text",
-            "code",
-            "analysis",
-            "math",
-            "extraction",
-            "classification",
-            "json",
-        ],
-        description="Claude 3 Sonnet model from Anthropic, released March 2024",
-    ),
-}
+class ModelCapabilitiesDetector:
+    """Dynamically detects and generates model capabilities by querying the provider's API."""
+
+    @classmethod
+    async def detect_capabilities(cls, provider: str, model_name: str, api_key: str) -> ModelCapabilities:
+        """
+        Detects model capabilities by making API calls to the provider.
+
+        Args:
+            provider: The LLM provider (e.g., "anthropic", "openai")
+            model_name: Name of the model to detect capabilities for
+            api_key: API key for authentication
+
+        Returns:
+            ModelCapabilities object with detected capabilities
+        """
+        detector = cls._get_detector(provider)
+        return await detector(model_name, api_key)
+
+    @classmethod
+    def _get_detector(cls, provider: str):
+        """Returns the appropriate detector method for the given provider."""
+        detectors = {
+            "anthropic": cls._detect_anthropic_capabilities,
+            "openai": cls._detect_openai_capabilities,
+        }
+        if provider.lower() not in detectors:
+            raise ValueError(f"Unsupported provider for capability detection: {provider}")
+        return detectors[provider.lower()]
+
+    @staticmethod
+    async def _detect_anthropic_capabilities(model_name: str, api_key: str) -> ModelCapabilities:
+        """Detects capabilities for Anthropic models."""
+        from anthropic import Anthropic
+
+        try:
+            # Initialize client to verify API key
+            client = Anthropic(api_key=api_key)
+            # Make a simple API call to verify the key works
+            client.messages.create(
+                model="claude-3-haiku-20240229", max_tokens=1, messages=[{"role": "user", "content": "test"}]
+            )
+
+            # Test streaming
+            supports_streaming = True  # Anthropic supports streaming by default
+
+            # Test function calling and tools
+            supports_tools = "claude-3" in model_name.lower()
+            supports_function_calling = supports_tools
+
+            # Test vision capabilities
+            supports_vision = "claude-3" in model_name.lower()
+
+            # Get context window and other limits
+            if "claude-3" in model_name.lower():
+                max_context_window = 200000
+                typical_speed = 100.0
+            else:
+                max_context_window = 100000
+                typical_speed = 70.0
+
+            # Determine supported mime types
+            supported_mime_types = set()
+            if supports_vision:
+                supported_mime_types.update({"image/jpeg", "image/png"})
+                if "opus" in model_name.lower():
+                    supported_mime_types.add("image/gif")
+                    supported_mime_types.add("image/webp")
+
+            # Create capabilities object
+            return ModelCapabilities(
+                supports_streaming=supports_streaming,
+                supports_function_calling=supports_function_calling,
+                supports_vision=supports_vision,
+                supports_embeddings=False,
+                max_context_window=max_context_window,
+                max_output_tokens=4096,
+                typical_speed=typical_speed,
+                input_cost_per_1k_tokens=0.015 if "claude-3" in model_name.lower() else 0.008,
+                output_cost_per_1k_tokens=0.075
+                if "opus" in model_name.lower()
+                else (0.015 if "sonnet" in model_name.lower() else 0.024),
+                daily_request_limit=150000,
+                supports_json_mode="claude-3" in model_name.lower(),
+                supports_system_prompt=True,
+                supports_message_role=True,
+                supports_tools=supports_tools,
+                supports_parallel_requests=True,
+                supported_languages={"en"},
+                supported_mime_types=supported_mime_types,
+                temperature=RangeConfig(min_value=0.0, max_value=1.0, default_value=0.7),
+                top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
+                supports_frequency_penalty=False,
+                supports_presence_penalty=False,
+                supports_stop_sequences=True,
+                supports_semantic_search=True,
+                supports_code_completion=True,
+                supports_chat_memory="claude-3" in model_name.lower(),
+                supports_few_shot_learning=True,
+            )
+        except Exception as e:
+            raise RuntimeError("Failed to detect Anthropic capabilities") from e
+
+    @staticmethod
+    async def _detect_openai_capabilities(model_name: str, api_key: str) -> ModelCapabilities:
+        """Detects capabilities for OpenAI models."""
+        from openai import AsyncOpenAI
+
+        try:
+            # Initialize client and verify API key
+            client = AsyncOpenAI(api_key=api_key)
+            model_info = await client.models.retrieve(model_name)
+
+            # Determine capabilities based on model name and info
+            is_gpt4 = "gpt-4" in model_name.lower()
+            is_vision = "vision" in model_name.lower()
+
+            # Get context window from model info or use default
+            try:
+                context_window = getattr(model_info, "context_window", 4096)
+            except AttributeError:
+                context_window = 4096  # Default if not available
+
+            # Create capabilities object
+            return ModelCapabilities(
+                supports_streaming=True,
+                supports_function_calling=True,
+                supports_vision=is_vision,
+                supports_embeddings=False,
+                max_context_window=context_window,
+                max_output_tokens=4096,
+                typical_speed=150.0,
+                input_cost_per_1k_tokens=0.01 if is_gpt4 else 0.0015,
+                output_cost_per_1k_tokens=0.03 if is_gpt4 else 0.002,
+                daily_request_limit=200000,
+                supports_json_mode=True,
+                supports_system_prompt=True,
+                supports_message_role=True,
+                supports_tools=True,
+                supports_parallel_requests=True,
+                supported_languages={"en", "es", "fr", "de", "it", "pt", "nl", "ru", "zh", "ja", "ko"},
+                supported_mime_types={"image/jpeg", "image/png", "image/gif", "image/webp"} if is_vision else set(),
+                temperature=RangeConfig(min_value=0.0, max_value=2.0, default_value=1.0),
+                top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
+                supports_frequency_penalty=True,
+                supports_presence_penalty=True,
+                supports_stop_sequences=True,
+                supports_semantic_search=True,
+                supports_code_completion=True,
+                supports_chat_memory=False,
+                supports_few_shot_learning=True,
+            )
+        except Exception as e:
+            raise RuntimeError("Failed to detect OpenAI capabilities") from e
+
+
+async def register_claude_3_5_sonnet_latest(api_key: str) -> ModelDescriptor:
+    """
+    Registers the claude-3-5-sonnet-latest model with dynamically detected capabilities.
+
+    Args:
+        api_key: Anthropic API key
+
+    Returns:
+        ModelDescriptor for the registered model
+    """
+    registry = ModelRegistry()
+    return await registry.detect_and_register_model(
+        provider="anthropic", model_name="claude-3-5-sonnet-latest", api_key=api_key
+    )

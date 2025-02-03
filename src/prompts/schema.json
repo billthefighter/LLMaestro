@@ -142,6 +142,40 @@
           }
         }
       }
+    },
+    "media_inputs": {
+      "type": "object",
+      "description": "Configuration for media inputs like images",
+      "properties": {
+        "supports_images": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether this prompt supports image inputs"
+        },
+        "image_requirements": {
+          "type": "object",
+          "properties": {
+            "max_images": {
+              "type": "integer",
+              "description": "Maximum number of images allowed in a single prompt",
+              "default": 1
+            },
+            "supported_formats": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["png", "jpeg", "gif", "webp"]
+              },
+              "default": ["png", "jpeg"]
+            },
+            "max_size_mb": {
+              "type": "number",
+              "description": "Maximum size of each image in megabytes",
+              "default": 20
+            }
+          }
+        }
+      }
     }
   },
   "additionalProperties": false

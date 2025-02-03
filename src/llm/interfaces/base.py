@@ -1,8 +1,11 @@
+import base64
 import json
+import mimetypes
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from litellm import acompletion
 from pydantic import BaseModel
@@ -21,6 +24,30 @@ class ConversationContext:
     summary: Optional[Dict[str, Any]] = None
     initial_task: Optional[str] = None
     message_count: int = 0
+
+
+@dataclass
+class ImageInput:
+    """Represents an image input for LLM processing."""
+
+    content: Union[str, bytes]  # Base64 encoded string or raw bytes
+    mime_type: str
+    file_name: Optional[str] = None
+
+    @classmethod
+    def from_file(cls, file_path: Union[str, Path]) -> "ImageInput":
+        """Create an ImageInput from a file path."""
+        path = Path(file_path)
+        with open(path, "rb") as f:
+            content = base64.b64encode(f.read()).decode()
+        mime_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+        return cls(content=content, mime_type=mime_type, file_name=path.name)
+
+    @classmethod
+    def from_bytes(cls, data: bytes, mime_type: str, file_name: Optional[str] = None) -> "ImageInput":
+        """Create an ImageInput from bytes."""
+        content = base64.b64encode(data).decode()
+        return cls(content=content, mime_type=mime_type, file_name=file_name)
 
 
 class LLMResponse(BaseModel):
@@ -52,18 +79,17 @@ class BaseLLMInterface(ABC):
         self._total_tokens = 0
         self._token_counter = TokenCounter()
 
+        # Validate API key
+        if not self.config.api_key:
+            raise ValueError(f"API key is required for provider {self.config.provider}")
+
         # Create registry instance
         self._registry = ModelRegistry()
 
-        # Validate model configuration
-        is_valid, error = self._registry.validate_model(self.config.model_name)
-        if not is_valid:
-            raise ValueError(error)
-
-        # Get model descriptor
+        # Try to get model from registry
         self._model_descriptor = self._registry.get_model(self.config.model_name)
         if not self._model_descriptor:
-            raise ValueError(f"Could not find descriptor for model {self.config.model_name}")
+            raise ValueError(f"Could not find model {self.config.model_name} in registry")
 
         # Initialize storage and rate limiter
         db_path = os.path.join("data", f"rate_limiter_{self.config.provider}.db")
@@ -122,14 +148,17 @@ class BaseLLMInterface(ABC):
         output_cost = token_usage.completion_tokens * (self.capabilities.output_cost_per_1k_tokens or 0.0) / 1000
         return input_cost + output_cost
 
-    async def _check_rate_limits(self, messages: List[Dict[str, str]]) -> tuple[bool, Optional[str]]:
+    async def _check_rate_limits(
+        self, messages: List[Dict[str, str]], estimated_tokens: Optional[int] = None
+    ) -> tuple[bool, Optional[str]]:
         """Check rate limits before processing a request"""
         if not self.rate_limiter:
             return True, None
 
-        # Estimate tokens for the request
-        estimates = self.estimate_tokens(messages)
-        estimated_tokens = estimates["total_tokens"]
+        # Use provided token estimate or calculate it
+        if estimated_tokens is None:
+            estimates = self.estimate_tokens(messages)
+            estimated_tokens = estimates["total_tokens"]
 
         can_proceed, error_msg = await self.rate_limiter.check_and_update(estimated_tokens)
         if not can_proceed:
@@ -263,30 +292,32 @@ class BaseLLMInterface(ABC):
             print(f"Failed to update metrics: {str(e)}")
             return None, None
 
-    def _format_messages(self, input_data: Any, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
-        """Format input data and context into messages for the LLM."""
-        messages = self.context.messages.copy()
+    def _format_messages(
+        self, input_data: Any, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
+    ) -> List[Dict[str, Any]]:
+        """Format input data and optional system prompt into messages."""
+        messages = []
 
         if system_prompt:
-            messages.insert(0, {"role": "system", "content": system_prompt})
+            messages.append({"role": "system", "content": system_prompt})
 
         if isinstance(input_data, str):
             messages.append({"role": "user", "content": input_data})
-        elif isinstance(input_data, dict) and "role" in input_data and "content" in input_data:
+        elif isinstance(input_data, dict):
             messages.append(input_data)
         elif isinstance(input_data, list):
             messages.extend(input_data)
-        else:
-            raise ValueError(f"Unsupported input type: {type(input_data)}")
 
-        # Validate context length using model capabilities
-        if self.capabilities:
-            total_tokens = self.estimate_tokens(messages)["total_tokens"]
-            if total_tokens > self.capabilities.max_context_window:
-                raise ValueError(
-                    f"Context too long: {total_tokens} tokens exceeds model's maximum of "
-                    f"{self.capabilities.max_context_window} tokens"
-                )
+        # Add images if provided
+        if images:
+            # Convert the last user message to include images
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i]["role"] == "user":
+                    messages[i]["images"] = [
+                        {"content": img.content, "mime_type": img.mime_type, "file_name": img.file_name}
+                        for img in images
+                    ]
+                    break
 
         return messages
 
@@ -356,12 +387,20 @@ class BaseLLMInterface(ABC):
         return LLMResponse(content=error_message, metadata={"error": str(e)})
 
     @abstractmethod
-    async def process(self, input_data: Any, system_prompt: Optional[str] = None) -> LLMResponse:
-        """Process input data and return a response.
-
-        Before processing, implementations should:
-        1. Format messages using self._format_messages()
-        2. Call self._check_rate_limits(messages)
-        3. Only proceed if rate limits check passes
-        """
+    async def process(
+        self, input_data: Any, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
+    ) -> LLMResponse:
+        """Process input data and return a response."""
         pass
+
+    async def initialize(self) -> None:
+        """Initialize async components of the interface."""
+        # If model not in registry, detect capabilities and register
+        if not self._model_descriptor:
+            self._model_descriptor = await self._registry.detect_and_register_model(
+                provider=self.config.provider,
+                model_name=self.config.model_name,
+                api_key=str(self.config.api_key),  # Ensure string type
+            )
+            if not self._model_descriptor:
+                raise ValueError(f"Could not detect capabilities for model {self.config.model_name}")
