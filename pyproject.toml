@@ -3,12 +3,17 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "llm_orchestrator"
+name = "llmaestro"
 version = "0.1.0"
 description = "A system for orchestrating LLM tasks that exceed context limits"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
 packages = [{include = "src", from = "."}]
+license = "MIT"  # You may want to change this to your preferred license
+homepage = "https://github.com/yourusername/llmaestro"  # Update with your repository URL
+repository = "https://github.com/yourusername/llmaestro"  # Update with your repository URL
+documentation = "https://github.com/yourusername/llmaestro#readme"  # Update with your docs URL
+keywords = ["llm", "orchestration", "ai", "language-models", "context-management"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
@@ -57,7 +62,7 @@ exclude = [
 ]
 
 [tool.poetry.scripts]
-llm-orchestrator = "src.cli:main"
+llmaestro = "src.cli:main"
 
 [tool.pydantic]
 warn_field_name_shadows = false

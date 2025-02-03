@@ -1,4 +1,4 @@
-# LLM Orchestrator
+# LLMaestro
 
 A system for orchestrating large-scale LLM tasks that exceed token limits through task decomposition and parallel processing.
 
@@ -119,3 +119,11 @@ task = task_manager.create_task(
 # Execute the task
 results = task_manager.execute(task)
 ```
+
+## Contributing
+
+Contributions are welcome! Please open an issue or submit a pull request.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
