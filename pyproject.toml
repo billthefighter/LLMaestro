@@ -6,13 +6,13 @@ build-backend = "poetry.core.masonry.api"
 name = "llmaestro"
 version = "0.1.0"
 description = "A system for orchestrating LLM tasks that exceed context limits"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["billthefighter <billthefighter@gmail.com>"]
 readme = "README.md"
 packages = [{include = "src", from = "."}]
 license = "MIT"  # You may want to change this to your preferred license
-homepage = "https://github.com/yourusername/llmaestro"  # Update with your repository URL
-repository = "https://github.com/yourusername/llmaestro"  # Update with your repository URL
-documentation = "https://github.com/yourusername/llmaestro#readme"  # Update with your docs URL
+homepage = "https://github.com/billthefighter/llmaestro"  # Update with your repository URL
+repository = "https://github.com/billthefighter/llmaestro"  # Update with your repository URL
+documentation = "https://github.com/billthefighter/llmaestro#readme"  # Update with your docs URL
 keywords = ["llm", "orchestration", "ai", "language-models", "context-management"]
 
 [tool.poetry.dependencies]
