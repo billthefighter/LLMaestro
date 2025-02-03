@@ -36,6 +36,10 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["src"]
+markers = [
+    "unit: marks tests as unit tests",
+    "integration: marks tests as integration tests"
+]
 
 [tool.ruff]
 line-length = 120

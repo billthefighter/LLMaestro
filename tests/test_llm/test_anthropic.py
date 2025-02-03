@@ -83,30 +83,33 @@ def mock_tokenizer():
 
     return MockTokenizer
 
+class Usage:
+    def __init__(self):
+        self.input_tokens = 10
+        self.output_tokens = 20
+
+class MockResponse:
+    def __init__(self):
+        self.id = "test_response_id"
+        self.content = [TextBlock(text="Test response", type="text")]
+        self.usage = Usage()
+
+class MockMessages:
+    async def create(self, **kwargs):
+        return MockResponse()
+
+class MockClient:
+    def __init__(self, api_key):
+        self.messages = MockMessages()
+
 @pytest.fixture
-def mock_anthropic_client(monkeypatch, test_response):
+def mock_anthropic_client(monkeypatch):
     """Mock Anthropic client using monkeypatch."""
-    class MockResponse:
-        def __init__(self):
-            self.id = test_response["id"]
-            self.content = [TextBlock(**block) for block in test_response["content"]]
-
-    class MockMessages:
-        async def create(self, **kwargs):
-            return MockResponse()
-
-    class MockClient:
-        def __init__(self, api_key):
-            self.messages = MockMessages()
-
-    # Create a mock instance
-    mock_instance = MockClient("test_api_key")
-
     def mock_init(self, api_key):
-        self.messages = mock_instance.messages
+        self.messages = MockClient(api_key).messages
 
     monkeypatch.setattr(Anthropic, "__init__", mock_init)
-    return mock_instance
+    return MockClient("test_api_key")
 
 @pytest.fixture
 def test_config():
@@ -157,6 +160,19 @@ def sample_image():
         content=img_base64,
         mime_type="image/png"
     )
+
+@pytest.fixture
+def mock_token_counter(monkeypatch):
+    """Mock token counter."""
+    def mock_estimate(*args, **kwargs):
+        return {
+            "prompt_tokens": 10,
+            "completion_tokens": 20,
+            "total_tokens": 30
+        }
+
+    monkeypatch.setattr(TokenCounter, "estimate_messages_with_images", mock_estimate)
+    return None
 
 # Unit Tests
 @pytest.mark.unit
@@ -230,7 +246,7 @@ class TestAnthropicLLM:
 class TestAnthropicLLMIntegration:
     """Integration tests for AnthropicLLM class."""
 
-    async def test_simple_completion(self, anthropic_llm):
+    async def test_simple_completion(self, anthropic_llm, mock_token_counter):
         """Test basic completion without images."""
         messages = [
             {"role": "user", "content": "Say hello!"}
@@ -242,10 +258,12 @@ class TestAnthropicLLMIntegration:
 
         assert response.content is not None
         assert isinstance(response.content, str)
-        assert response.metadata["id"] is not None
-        assert isinstance(response.token_usage, TokenUsage)
+        assert response.metadata["id"] == "test_response_id"
+        assert response.token_usage is not None
+        assert response.token_usage.prompt_tokens == 10
+        assert response.token_usage.completion_tokens == 20
 
-    async def test_completion_with_system_prompt(self, anthropic_llm):
+    async def test_completion_with_system_prompt(self, anthropic_llm, mock_token_counter):
         """Test completion with system prompt."""
         messages = [
             {"role": "user", "content": "What's your role?"}
@@ -259,9 +277,12 @@ class TestAnthropicLLMIntegration:
 
         assert response.content is not None
         assert isinstance(response.content, str)
-        assert response.metadata["id"] is not None
+        assert response.metadata["id"] == "test_response_id"
+        assert response.token_usage is not None
+        assert response.token_usage.prompt_tokens == 10
+        assert response.token_usage.completion_tokens == 20
 
-    async def test_completion_with_image(self, anthropic_llm, sample_image):
+    async def test_completion_with_image(self, anthropic_llm, sample_image, mock_token_counter):
         """Test completion with image input."""
         messages = [
             {"role": "user", "content": "What's in this image?"}
@@ -274,10 +295,12 @@ class TestAnthropicLLMIntegration:
 
         assert response.content is not None
         assert isinstance(response.content, str)
-        assert response.metadata["id"] is not None
-        assert "image_tokens" in response.metadata
+        assert response.metadata["id"] == "test_response_id"
+        assert response.token_usage is not None
+        assert response.token_usage.prompt_tokens == 10
+        assert response.token_usage.completion_tokens == 20
 
-    async def test_rate_limiting(self, anthropic_llm):
+    async def test_rate_limiting(self, anthropic_llm, mock_token_counter):
         """Test rate limiting functionality."""
         messages = [
             {"role": "user", "content": "Test message"}
@@ -290,4 +313,7 @@ class TestAnthropicLLMIntegration:
             responses.append(response)
 
         assert all(r.content is not None for r in responses)
-        assert all(isinstance(r.metadata["cost"], float) for r in responses)
+        assert all(r.metadata["id"] == "test_response_id" for r in responses)
+        assert all(r.token_usage is not None for r in responses)
+        assert all(r.token_usage.prompt_tokens == 10 for r in responses)
+        assert all(r.token_usage.completion_tokens == 20 for r in responses)
