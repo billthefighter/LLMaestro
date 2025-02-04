@@ -7,6 +7,9 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    environment:
+      name: pypi-publish
+      url: https://pypi.org/p/llmaestro  # This will link to your package on PyPI
     steps:
     - uses: actions/checkout@v4
 

@@ -25,7 +25,7 @@ def coro(f):
 
 @click.group()
 def cli():
-    """LLM Orchestrator CLI - Manage and run LLM chains"""
+    """LLMaestro CLI - Manage and run LLM chains"""
     pass
 
 
