@@ -61,8 +61,8 @@ class TestModelCapabilitiesDetector:
         assert capabilities.output_cost_per_1k_tokens == 0.015
         assert capabilities.supports_json_mode is True
         assert capabilities.supports_tools is True
-        assert "image/jpeg" in capabilities.supported_mime_types
-        assert "image/png" in capabilities.supported_mime_types
+        assert "image/jpeg" in capabilities.supported_media_types
+        assert "image/png" in capabilities.supported_media_types
 
     async def test_detect_openai_capabilities(self, mock_openai_client):
         """Test detecting capabilities for OpenAI models."""
@@ -97,7 +97,7 @@ class TestModelCapabilitiesDetector:
 
     async def test_anthropic_api_error(self, mock_anthropic_client):
         """Test handling Anthropic API errors."""
-        mock_anthropic_client.side_effect = Exception("API Error")
+        mock_anthropic_client.messages.create.side_effect = Exception("API Error")
 
         with pytest.raises(RuntimeError, match="Failed to detect Anthropic capabilities"):
             await ModelCapabilitiesDetector.detect_capabilities(
@@ -146,7 +146,7 @@ class TestModelRegistry:
 
     async def test_detect_and_register_model_error(self, mock_anthropic_client):
         """Test error handling when detecting and registering a model."""
-        mock_anthropic_client.side_effect = Exception("API Error")
+        mock_anthropic_client.messages.create.side_effect = Exception("API Error")
         registry = ModelRegistry()
 
         with pytest.raises(RuntimeError, match="Failed to detect Anthropic capabilities"):

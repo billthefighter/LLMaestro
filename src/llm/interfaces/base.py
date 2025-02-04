@@ -4,8 +4,9 @@ import mimetypes
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from litellm import acompletion
 from pydantic import BaseModel
@@ -14,6 +15,54 @@ from src.core.models import AgentConfig, ContextMetrics, TokenUsage
 from src.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
 from src.llm.rate_limiter import RateLimitConfig, RateLimiter, SQLiteQuotaStorage
 from src.llm.token_utils import TokenCounter
+
+
+class MediaType(Enum):
+    """Standard media types for LLM inputs.
+
+    This enum represents commonly supported media types across different LLM providers.
+    Each provider may support a subset of these types.
+    """
+
+    # Image formats
+    JPEG = "image/jpeg"
+    PNG = "image/png"
+    GIF = "image/gif"
+    WEBP = "image/webp"
+    BMP = "image/bmp"
+    TIFF = "image/tiff"
+    SVG = "image/svg+xml"
+
+    # Document formats (for future use)
+    PDF = "application/pdf"
+
+    # Fallback
+    UNKNOWN = "application/octet-stream"
+
+    @classmethod
+    def from_mime_type(cls, mime_type: str) -> "MediaType":
+        """Convert a MIME type string to MediaType enum."""
+        try:
+            return cls(mime_type)
+        except ValueError:
+            return cls.UNKNOWN
+
+    @classmethod
+    def from_file_extension(cls, file_path: Union[str, Path]) -> "MediaType":
+        """Detect media type from file extension."""
+        mime_type = mimetypes.guess_type(str(file_path))[0]
+        return cls.from_mime_type(mime_type or "application/octet-stream")
+
+    def is_image(self) -> bool:
+        """Check if this media type represents an image format."""
+        return self.value.startswith("image/")
+
+    def is_document(self) -> bool:
+        """Check if this media type represents a document format."""
+        return self.value.startswith("application/")
+
+    def __str__(self) -> str:
+        return self.value
 
 
 @dataclass
@@ -28,11 +77,21 @@ class ConversationContext:
 
 @dataclass
 class ImageInput:
-    """Represents an image input for LLM processing."""
+    """Input image data for vision models."""
 
     content: Union[str, bytes]  # Base64 encoded string or raw bytes
-    mime_type: str
+    media_type: MediaType  # Media type of the image
     file_name: Optional[str] = None
+
+    def __init__(
+        self,
+        content: Union[str, bytes],
+        media_type: Union[str, MediaType] = MediaType.JPEG,
+        file_name: Optional[str] = None,
+    ):
+        self.content = content
+        self.media_type = media_type if isinstance(media_type, MediaType) else MediaType.from_mime_type(media_type)
+        self.file_name = file_name
 
     @classmethod
     def from_file(cls, file_path: Union[str, Path]) -> "ImageInput":
@@ -40,14 +99,15 @@ class ImageInput:
         path = Path(file_path)
         with open(path, "rb") as f:
             content = base64.b64encode(f.read()).decode()
-        mime_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
-        return cls(content=content, mime_type=mime_type, file_name=path.name)
+        media_type = MediaType.from_file_extension(path)
+        return cls(content=content, media_type=media_type, file_name=path.name)
 
     @classmethod
-    def from_bytes(cls, data: bytes, mime_type: str, file_name: Optional[str] = None) -> "ImageInput":
+    def from_bytes(cls, data: bytes, mime_type: Union[str, MediaType], file_name: Optional[str] = None) -> "ImageInput":
         """Create an ImageInput from bytes."""
         content = base64.b64encode(data).decode()
-        return cls(content=content, mime_type=mime_type, file_name=file_name)
+        media_type = mime_type if isinstance(mime_type, MediaType) else MediaType.from_mime_type(mime_type)
+        return cls(content=content, media_type=media_type, file_name=file_name)
 
 
 class LLMResponse(BaseModel):
@@ -73,6 +133,9 @@ class LLMResponse(BaseModel):
 class BaseLLMInterface(ABC):
     """Base interface for LLM interactions."""
 
+    # Default supported media types (can be overridden by specific implementations)
+    SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG}
+
     def __init__(self, config: AgentConfig):
         self.config = config
         self.context = ConversationContext([])
@@ -90,6 +153,13 @@ class BaseLLMInterface(ABC):
         self._model_descriptor = self._registry.get_model(self.config.model_name)
         if not self._model_descriptor:
             raise ValueError(f"Could not find model {self.config.model_name} in registry")
+
+        # Update supported media types from model capabilities if available
+        if self._model_descriptor and self._model_descriptor.capabilities:
+            if hasattr(self._model_descriptor.capabilities, "supported_media_types"):
+                self.SUPPORTED_MEDIA_TYPES = set(
+                    MediaType.from_mime_type(mt) for mt in self._model_descriptor.capabilities.supported_media_types
+                )
 
         # Initialize storage and rate limiter
         db_path = os.path.join("data", f"rate_limiter_{self.config.provider}.db")
@@ -314,7 +384,7 @@ class BaseLLMInterface(ABC):
             for i in range(len(messages) - 1, -1, -1):
                 if messages[i]["role"] == "user":
                     messages[i]["images"] = [
-                        {"content": img.content, "mime_type": img.mime_type, "file_name": img.file_name}
+                        {"content": img.content, "mime_type": str(img.media_type), "file_name": img.file_name}
                         for img in images
                     ]
                     break
@@ -404,3 +474,26 @@ class BaseLLMInterface(ABC):
             )
             if not self._model_descriptor:
                 raise ValueError(f"Could not detect capabilities for model {self.config.model_name}")
+
+    def validate_media_type(self, media_type: Union[str, MediaType]) -> MediaType:
+        """Validate and convert media type to a supported format.
+
+        Args:
+            media_type: The media type to validate, either as a string or MediaType enum
+
+        Returns:
+            A supported MediaType enum value, falling back to JPEG if unsupported
+        """
+        if isinstance(media_type, str):
+            media_type = MediaType.from_mime_type(media_type)
+
+        if media_type not in self.SUPPORTED_MEDIA_TYPES:
+            # Default to JPEG if unsupported type
+            return MediaType.JPEG
+        return media_type
+
+    def supports_media_type(self, media_type: Union[str, MediaType]) -> bool:
+        """Check if a media type is supported by this LLM."""
+        if isinstance(media_type, str):
+            media_type = MediaType.from_mime_type(media_type)
+        return media_type in self.SUPPORTED_MEDIA_TYPES

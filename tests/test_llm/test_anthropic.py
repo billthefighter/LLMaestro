@@ -11,11 +11,11 @@ from anthropic import Anthropic
 from anthropic.types import Message, MessageParam, TextBlock
 
 from src.llm.interfaces.anthropic import AnthropicLLM
+from src.llm.interfaces.base import MediaType, ImageInput
 from src.core.models import AgentConfig, TokenUsage, RateLimitConfig
 from src.llm.models import ModelFamily, ModelRegistry, ModelDescriptor, ModelCapabilities, RangeConfig
 from src.llm.token_utils import TokenCounter, TokenizerRegistry, BaseTokenizer
 from src.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
-from src.llm.interfaces.base import ImageInput
 
 # Test Data
 @pytest.fixture
@@ -47,7 +47,7 @@ def mock_model_registry():
         supports_system_prompt=True,
         supports_message_role=True,
         supports_tools=True,
-        supported_mime_types={"image/jpeg", "image/png"},
+        supported_media_types={"image/jpeg", "image/png"},
         temperature=RangeConfig(min_value=0.0, max_value=1.0, default_value=0.7),
         top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0)
     )
@@ -158,7 +158,7 @@ def sample_image():
 
     return ImageInput(
         content=img_base64,
-        mime_type="image/png"
+        media_type="image/png"
     )
 
 @pytest.fixture
@@ -194,24 +194,79 @@ class TestAnthropicLLM:
         assert llm.model_family == ModelFamily.CLAUDE
         assert isinstance(llm._token_counter, TokenCounter)
 
+    def test_validate_media_type(self, anthropic_llm):
+        """Test media type validation."""
+        # Test valid media types
+        assert anthropic_llm._validate_media_type("image/jpeg") == MediaType.JPEG
+        assert anthropic_llm._validate_media_type("image/png") == MediaType.PNG
+        assert anthropic_llm._validate_media_type(MediaType.JPEG) == MediaType.JPEG
+
+        # Test unsupported media type defaults to JPEG
+        assert anthropic_llm._validate_media_type("image/bmp") == MediaType.JPEG
+        assert anthropic_llm._validate_media_type("image/tiff") == MediaType.JPEG
+
+        # Test with MediaType enum
+        assert anthropic_llm._validate_media_type(MediaType.PNG) == MediaType.PNG
+
+    def test_supported_media_types(self, anthropic_llm):
+        """Test supported media types."""
+        # Check supported types from mock registry
+        assert MediaType.JPEG in anthropic_llm.SUPPORTED_MEDIA_TYPES
+        assert MediaType.PNG in anthropic_llm.SUPPORTED_MEDIA_TYPES
+
+        # Verify unsupported types
+        assert MediaType.BMP not in anthropic_llm.SUPPORTED_MEDIA_TYPES
+        assert MediaType.TIFF not in anthropic_llm.SUPPORTED_MEDIA_TYPES
+
     def test_get_image_dimensions(self, anthropic_llm, sample_image):
         """Test image dimension extraction."""
         dimensions = anthropic_llm._get_image_dimensions(sample_image)
         assert dimensions["width"] == 64
         assert dimensions["height"] == 64
 
-    def test_create_message_param(self, anthropic_llm):
-        """Test message parameter creation."""
-        content_blocks = [
-            {"type": "text", "text": "Test message"}
-        ]
-        message = anthropic_llm._create_message_param(
-            role="user",
-            content_blocks=content_blocks
+    def test_create_image_source(self, anthropic_llm):
+        """Test image source creation."""
+        test_data = "base64_encoded_data"
+
+        # Test with string media type
+        source = anthropic_llm._create_image_source("image/jpeg", test_data)
+        assert source["type"] == "base64"
+        assert source["media_type"] == MediaType.JPEG
+        assert source["data"] == test_data
+
+        # Test with MediaType enum
+        source = anthropic_llm._create_image_source(MediaType.PNG, test_data)
+        assert source["type"] == "base64"
+        assert source["media_type"] == MediaType.PNG
+        assert source["data"] == test_data
+
+    @pytest.mark.asyncio
+    async def test_create_message_content(self, anthropic_llm):
+        """Test message content creation."""
+        # Test text-only message
+        message = {"role": "user", "content": "Test message"}
+        content = await anthropic_llm._create_message_content(message)
+        assert len(content) == 1
+        assert content[0]["type"] == "text"
+        assert content[0]["text"] == "Test message"
+
+        # Test message with image
+        sample_image = ImageInput(
+            content="base64_encoded_data",
+            media_type="image/png"
         )
-        assert isinstance(message, dict)
-        assert message["role"] == "user"
-        assert message["content"] == content_blocks
+        content = await anthropic_llm._create_message_content(message, images=[sample_image])
+        assert len(content) == 2
+        assert content[0]["type"] == "text"
+        assert content[1]["type"] == "image"
+        assert content[1]["source"]["type"] == "base64"
+        assert content[1]["source"]["media_type"] == str(MediaType.PNG)
+
+        # Test system message with image (should ignore image)
+        message = {"role": "system", "content": "System message"}
+        content = await anthropic_llm._create_message_content(message, images=[sample_image])
+        assert len(content) == 1
+        assert content[0]["type"] == "text"
 
     def test_format_messages(self, anthropic_llm):
         """Test message formatting."""

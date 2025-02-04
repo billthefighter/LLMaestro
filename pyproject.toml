@@ -26,7 +26,6 @@ networkx = "^3.0"           # For graph operations
 click = "^8.1.0"           # For CLI interface
 pyyaml = "^6.0.1"          # For configuration management
 websockets = "^14.2"
-pre-commit = "^4.1.0"
 transformers = "^4.36.0"    # Required for token estimation
 anthropic = {version = "^0.45.2", allow-prereleases = true}        # Required for Anthropic API integration
 pillow = "^11.1.0"
@@ -35,6 +34,7 @@ pillow = "^11.1.0"
 pytest = "^7.0.0"
 pytest-asyncio = "^0.21.0"
 ruff = "^0.1.0"
+pre-commit = "^4.1.0"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

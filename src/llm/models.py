@@ -89,7 +89,10 @@ class ModelCapabilities(BaseModel):
 
     # Input/Output Capabilities
     supported_languages: Set[str] = Field(default_factory=lambda: {"en"})
-    supported_mime_types: Set[str] = Field(default_factory=set)
+    supported_media_types: Set[str] = Field(
+        default_factory=set,
+        description="Set of supported media types (e.g., image/jpeg, image/png). Used for type validation.",
+    )
     max_image_size: Optional[int] = Field(default=None, gt=0)
     max_audio_length: Optional[float] = Field(default=None, gt=0)
 
@@ -115,8 +118,8 @@ class ModelCapabilities(BaseModel):
         # Convert sets to lists for JSON serialization
         if "supported_languages" in data:
             data["supported_languages"] = list(data["supported_languages"])
-        if "supported_mime_types" in data:
-            data["supported_mime_types"] = list(data["supported_mime_types"])
+        if "supported_media_types" in data:
+            data["supported_media_types"] = list(data["supported_media_types"])
         return data
 
     @property
@@ -166,6 +169,31 @@ class ModelCapabilities(BaseModel):
             return False, f"Images exceed maximum size of {max_size}MB"
 
         return True, None
+
+    def supports_media_type(self, media_type: str) -> bool:
+        """Check if a specific media type is supported.
+
+        Args:
+            media_type: The media type to check (e.g., "image/jpeg")
+
+        Returns:
+            bool: True if the media type is supported, False otherwise
+        """
+        return media_type in self.supported_media_types
+
+    def get_supported_media_types(self, category: Optional[str] = None) -> Set[str]:
+        """Get all supported media types, optionally filtered by category.
+
+        Args:
+            category: Optional category filter (e.g., "image", "audio", "application")
+
+        Returns:
+            Set of supported media types
+        """
+        if not category:
+            return self.supported_media_types
+
+        return {mt for mt in self.supported_media_types if mt.startswith(f"{category}/")}
 
 
 class ModelDescriptor(BaseModel):
@@ -333,13 +361,22 @@ class ModelRegistry:
         Returns:
             ModelDescriptor for the registered model
         """
+        # Map provider to model family
+        provider_to_family = {
+            "anthropic": ModelFamily.CLAUDE,
+            "openai": ModelFamily.GPT,
+        }
+        family = provider_to_family.get(provider.lower())
+        if not family:
+            raise ValueError(f"Unsupported provider: {provider}")
+
         # Detect capabilities
         capabilities = await ModelCapabilitiesDetector.detect_capabilities(provider, model_name, api_key)
 
         # Create model descriptor with proper datetime
         descriptor = ModelDescriptor(
             name=model_name,
-            family=ModelFamily(provider.lower()),
+            family=family,
             capabilities=capabilities,
             min_api_version="2024-02-29",  # Use current latest version
             release_date=datetime.now(),
@@ -362,8 +399,8 @@ class ModelRegistry:
                     caps = model_data["capabilities"]
                     if "supported_languages" in caps and isinstance(caps["supported_languages"], str):
                         caps["supported_languages"] = eval(caps["supported_languages"])
-                    if "supported_mime_types" in caps and isinstance(caps["supported_mime_types"], str):
-                        caps["supported_mime_types"] = eval(caps["supported_mime_types"])
+                    if "supported_media_types" in caps and isinstance(caps["supported_media_types"], str):
+                        caps["supported_media_types"] = eval(caps["supported_media_types"])
                 registry.register(ModelDescriptor(**model_data))
         return registry
 
@@ -379,8 +416,8 @@ class ModelRegistry:
                     caps = model_data["capabilities"]
                     if "supported_languages" in caps and isinstance(caps["supported_languages"], str):
                         caps["supported_languages"] = eval(caps["supported_languages"])
-                    if "supported_mime_types" in caps and isinstance(caps["supported_mime_types"], str):
-                        caps["supported_mime_types"] = eval(caps["supported_mime_types"])
+                    if "supported_media_types" in caps and isinstance(caps["supported_media_types"], str):
+                        caps["supported_media_types"] = eval(caps["supported_media_types"])
                 registry.register(ModelDescriptor(**model_data))
         return registry
 
@@ -471,12 +508,12 @@ class ModelCapabilitiesDetector:
                 typical_speed = 70.0
 
             # Determine supported mime types
-            supported_mime_types = set()
+            supported_media_types = set()
             if supports_vision:
-                supported_mime_types.update({"image/jpeg", "image/png"})
+                supported_media_types.update({"image/jpeg", "image/png"})
                 if "opus" in model_name.lower():
-                    supported_mime_types.add("image/gif")
-                    supported_mime_types.add("image/webp")
+                    supported_media_types.add("image/gif")
+                    supported_media_types.add("image/webp")
 
             # Create capabilities object
             return ModelCapabilities(
@@ -498,7 +535,7 @@ class ModelCapabilitiesDetector:
                 supports_tools=supports_tools,
                 supports_parallel_requests=True,
                 supported_languages={"en"},
-                supported_mime_types=supported_mime_types,
+                supported_media_types=supported_media_types,
                 temperature=RangeConfig(min_value=0.0, max_value=1.0, default_value=0.7),
                 top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
                 supports_frequency_penalty=False,
@@ -550,7 +587,7 @@ class ModelCapabilitiesDetector:
                 supports_tools=True,
                 supports_parallel_requests=True,
                 supported_languages={"en", "es", "fr", "de", "it", "pt", "nl", "ru", "zh", "ja", "ko"},
-                supported_mime_types={"image/jpeg", "image/png", "image/gif", "image/webp"} if is_vision else set(),
+                supported_media_types={"image/jpeg", "image/png", "image/gif", "image/webp"} if is_vision else set(),
                 temperature=RangeConfig(min_value=0.0, max_value=2.0, default_value=1.0),
                 top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
                 supports_frequency_penalty=True,
