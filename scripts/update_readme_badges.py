@@ -2,9 +2,12 @@
 import json
 import re
 from pathlib import Path
+from typing import Dict, List, Literal, Tuple
+
+TestResult = Literal["success", "failure", "skip"]
 
 
-def load_test_results():
+def load_test_results() -> Dict[str, TestResult]:
     """Load the test results from the JSON file."""
     results_path = Path("test-results/model_connectivity.json")
     if not results_path.exists():
@@ -14,7 +17,7 @@ def load_test_results():
         return json.load(f)
 
 
-def group_models_by_provider(results):
+def group_models_by_provider(results: Dict[str, TestResult]) -> Dict[str, List[Tuple[str, TestResult]]]:
     """Group models by their provider (Anthropic, OpenAI, etc)."""
     providers = {
         "anthropic": [],
@@ -34,17 +37,17 @@ def group_models_by_provider(results):
     return providers
 
 
-def generate_badge_section(models):
+def generate_badge_section(models: List[Tuple[str, TestResult]]) -> str:
     """Generate markdown for a group of model badges."""
     lines = []
-    for model, _ in models:
+    for model, _ in models:  # Use _ to indicate intentionally unused variable
         # Use the correct GitHub repository URL
         badge_url = f"https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/{model}.json"
         lines.append(f"![{model}]({badge_url})")
     return "\n".join(lines)
 
 
-def update_readme(results):
+def update_readme(results: Dict[str, TestResult]) -> None:
     """Update the README.md with current model status badges."""
     readme_path = Path("README.md")
     if not readme_path.exists():
@@ -75,21 +78,14 @@ def update_readme(results):
         # Replace existing section
         updated_content = re.sub(pattern, model_status_section, content, flags=re.DOTALL | re.IGNORECASE)
     else:
-        # Add new section after first heading or at the end
-        if "##" in content:
-            # Find the position after the first heading
-            first_heading_end = content.find("##")
-            next_heading = content.find("##", first_heading_end + 2)
-            if next_heading != -1:
-                # Insert before next heading
-                updated_content = (
-                    content[:next_heading].rstrip() + "\n\n" + model_status_section + content[next_heading:]
-                )
-            else:
-                # Append to end
-                updated_content = content.rstrip() + "\n\n" + model_status_section
+        # Add new section after first heading
+        first_heading_end = content.find("#")
+        next_heading = content.find("##", first_heading_end + 1)
+        if next_heading != -1:
+            # Insert before next heading
+            updated_content = content[:next_heading].rstrip() + "\n\n" + model_status_section + content[next_heading:]
         else:
-            # No headings, append to end
+            # Append to end
             updated_content = content.rstrip() + "\n\n" + model_status_section
 
     # Write updated content
@@ -97,6 +93,17 @@ def update_readme(results):
         f.write(updated_content)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main entry point."""
+    # Ensure docs/badges directory exists
+    badges_dir = Path("docs/badges")
+    badges_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load and process results
     results = load_test_results()
-    update_readme(results)
+    if results:
+        update_readme(results)
+
+
+if __name__ == "__main__":
+    main()

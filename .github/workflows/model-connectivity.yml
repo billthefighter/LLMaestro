@@ -89,42 +89,47 @@ jobs:
           fi
         done
 
-    - name: Create docs directory
+    - name: Create docs directory and copy badges
       if: always()
       run: |
+        # Create docs directory if it doesn't exist
         mkdir -p docs/badges
-        cp -v test-results/badges/*.json docs/badges/
-        echo "Contents of docs/badges:"
-        ls -la docs/badges/
 
-        # Create an index.html file
-        cat > docs/badges/index.html << 'EOL'
+        # Copy badge files
+        cp -v test-results/badges/*.json docs/badges/
+
+        # Create index.html in docs directory (not in badges)
+        cat > docs/index.html << 'EOL'
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Model Status Badges</title>
+            <title>LLM Orchestrator - Model Status</title>
             <style>
                 body { font-family: Arial, sans-serif; margin: 2em; }
                 .badge-list { list-style: none; padding: 0; }
                 .badge-item { margin: 1em 0; }
+                .badge-container { display: flex; align-items: center; gap: 1em; }
+                .badge-name { font-weight: bold; min-width: 200px; }
             </style>
         </head>
         <body>
-            <h1>Model Status Badges</h1>
-            <ul class="badge-list">
+            <h1>LLM Orchestrator - Model Status</h1>
+            <div class="badge-list">
         EOL
 
+        # Add badges to index.html
         for f in docs/badges/*.json; do
           if [ -f "$f" ]; then
-            filename=$(basename "$f")
-            echo "<li class='badge-item'><a href='$filename'>$filename</a></li>" >> docs/badges/index.html
+            model_name=$(basename "$f" .json)
+            badge_url="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/$(basename "$f")"
+            echo "<div class='badge-container'><span class='badge-name'>$model_name:</span><img src='$badge_url' alt='$model_name status'></div>" >> docs/index.html
           fi
         done
 
-        echo "</ul></body></html>" >> docs/badges/index.html
+        echo "</div></body></html>" >> docs/index.html
 
-        echo "Contents of index.html:"
-        cat docs/badges/index.html
+        echo "Contents of docs/badges:"
+        ls -la docs/badges/
 
     - name: Commit changes
       if: always()
@@ -132,7 +137,7 @@ jobs:
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
 
-        git add docs/badges/ README.md
+        git add docs/badges/ docs/index.html README.md
 
         if git diff --staged --quiet; then
           echo "No changes to commit"
