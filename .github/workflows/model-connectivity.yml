@@ -69,6 +69,7 @@ jobs:
       if: always()
       run: |
         poetry run python scripts/generate_model_badges.py
+        poetry run python scripts/update_readme_badges.py
         echo "Generated badge files:"
         ls -la test-results/badges/
 
@@ -125,26 +126,18 @@ jobs:
         echo "Contents of index.html:"
         cat docs/badges/index.html
 
-    - name: Commit and push badges
+    - name: Commit changes
       if: always()
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
 
-        echo "Git status:"
-        git status
-
-        echo "Adding files to git:"
-        git add docs/badges/
-
-        echo "Git status after add:"
-        git status
+        git add docs/badges/ README.md
 
         if git diff --staged --quiet; then
           echo "No changes to commit"
         else
-          git commit -m "chore: update model connectivity badges"
-          echo "Pushing changes..."
+          git commit -m "chore: update model connectivity badges and README"
           git push origin HEAD:main
         fi
 
