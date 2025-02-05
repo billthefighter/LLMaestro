@@ -1,6 +1,6 @@
 """Tests for validating model connectivity with a simple hello world prompt."""
 import pytest
-from typing import Dict, List, Optional, Union, Any
+from typing import Dict, List, Optional, Union, Any, Literal
 import json
 import os
 from pathlib import Path
@@ -12,6 +12,7 @@ from openai.types.chat import ChatCompletion
 from src.llm.models import (
     ModelRegistry,
     register_all_models,
+    ModelFamily,
 )
 
 # Test message that should work across all models
@@ -19,7 +20,8 @@ HELLO_WORLD_PROMPT = "Say hello world"
 EXPECTED_RESPONSE_SUBSTRING = "hello world"
 
 # Dictionary to store test results for badge generation
-TEST_RESULTS: Dict[str, bool] = {}
+TestResult = Literal["success", "failure", "skip"]
+TEST_RESULTS: Dict[str, TestResult] = {}
 
 def save_test_results():
     """Save test results to a JSON file for badge generation."""
@@ -57,67 +59,63 @@ class TestModelConnectivity:
             openai_api_key=os.getenv("OPENAI_API_KEY")
         )
 
-    async def test_claude_3_5_sonnet_connectivity(self, model_registry):
-        """Test connectivity to Claude 3.5 Sonnet."""
-        api_key = os.getenv("ANTHROPIC_API_KEY")
-        if not api_key:
-            pytest.skip("ANTHROPIC_API_KEY not set")
+    async def test_model_connectivity(self, model_registry):
+        """Test connectivity for all registered models."""
+        # Get API keys
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
+        openai_api_key = os.getenv("OPENAI_API_KEY")
 
-        model_name = "claude-3-5-sonnet-latest"
-        model = model_registry.get_model(model_name)
-        if not model:
-            pytest.skip(f"Model {model_name} not registered")
+        # Test each model family
+        for family in ModelFamily:
+            # Record skip status for all models in a family if API key is missing
+            if family == ModelFamily.CLAUDE and not anthropic_api_key:
+                models = model_registry.get_family_models(family)
+                for model in models:
+                    TEST_RESULTS[model.name] = "skip"
+                pytest.skip("ANTHROPIC_API_KEY not set")
+            elif family == ModelFamily.GPT and not openai_api_key:
+                models = model_registry.get_family_models(family)
+                for model in models:
+                    TEST_RESULTS[model.name] = "skip"
+                pytest.skip("OPENAI_API_KEY not set")
+            elif family == ModelFamily.HUGGINGFACE:
+                models = model_registry.get_family_models(family)
+                for model in models:
+                    TEST_RESULTS[model.name] = "skip"
+                continue  # Skip HuggingFace models for now
 
-        try:
-            # Create Anthropic client
-            client = AsyncAnthropic(api_key=api_key)
+            # Get all models for this family
+            models = model_registry.get_family_models(family)
+            if not models:
+                continue
 
-            # Create a simple message
-            response = await client.messages.create(
-                model=model_name,
-                max_tokens=100,
-                messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
-            )
+            for model in models:
+                try:
+                    if family == ModelFamily.CLAUDE:
+                        # Test Anthropic model
+                        client = AsyncAnthropic(api_key=anthropic_api_key)
+                        response = await client.messages.create(
+                            model=model.name,
+                            max_tokens=100,
+                            messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
+                        )
+                        message_text = get_message_text(response.content[0])
+                        assert EXPECTED_RESPONSE_SUBSTRING in message_text.lower()
+                        TEST_RESULTS[model.name] = "success"
 
-            # Extract text from the response
-            message_text = get_message_text(response.content[0])
-            assert EXPECTED_RESPONSE_SUBSTRING in message_text.lower()
+                    elif family == ModelFamily.GPT:
+                        # Test OpenAI model
+                        client = AsyncOpenAI(api_key=openai_api_key)
+                        response = await client.chat.completions.create(
+                            model=model.name,
+                            max_tokens=100,
+                            messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
+                        )
+                        message_content = response.choices[0].message.content
+                        assert message_content is not None
+                        assert EXPECTED_RESPONSE_SUBSTRING in message_content.lower()
+                        TEST_RESULTS[model.name] = "success"
 
-            TEST_RESULTS["claude-3-5-sonnet"] = True
-
-        except Exception as e:
-            TEST_RESULTS["claude-3-5-sonnet"] = False
-            raise e
-
-    @pytest.mark.parametrize("model_name", ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"])
-    async def test_openai_model_connectivity(self, model_registry, model_name: str):
-        """Test connectivity to OpenAI models."""
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            pytest.skip("OPENAI_API_KEY not set")
-
-        model = model_registry.get_model(model_name)
-        if not model:
-            pytest.skip(f"Model {model_name} not registered")
-
-        try:
-            # Create OpenAI client
-            client = AsyncOpenAI(api_key=api_key)
-
-            # Create a simple message
-            response: ChatCompletion = await client.chat.completions.create(
-                model=model_name,
-                max_tokens=100,
-                messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
-            )
-
-            # Extract and check response content
-            message_content: Optional[str] = response.choices[0].message.content
-            assert message_content is not None
-            assert EXPECTED_RESPONSE_SUBSTRING in message_content.lower()
-
-            TEST_RESULTS[model_name] = True
-
-        except Exception as e:
-            TEST_RESULTS[model_name] = False
-            raise e
+                except Exception as e:
+                    TEST_RESULTS[model.name] = "failure"
+                    raise e

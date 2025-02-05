@@ -38,7 +38,8 @@ def generate_badge_section(models):
     """Generate markdown for a group of model badges."""
     lines = []
     for model, _ in models:
-        badge_url = f"https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/LLMaestro/LLMaestro/main/docs/badges/{model}.json"
+        # Use the correct GitHub repository URL
+        badge_url = f"https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/{model}.json"
         lines.append(f"![{model}]({badge_url})")
     return "\n".join(lines)
 
