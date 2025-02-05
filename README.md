@@ -5,12 +5,7 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 ## Model Status
 
 ### Anthropic Models
-![Claude 3.5 Sonnet](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/LLMaestro/LLMaestro/main/docs/badges/claude-3-5-sonnet.json)
-
-### OpenAI Models
-![GPT-4 Turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/LLMaestro/LLMaestro/main/docs/badges/gpt-4-turbo-preview.json)
-![GPT-4](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/LLMaestro/LLMaestro/main/docs/badges/gpt-4.json)
-![GPT-3.5 Turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/LLMaestro/LLMaestro/main/docs/badges/gpt-3.5-turbo.json)
+![claude-3-5-sonnet](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/LLMaestro/LLMaestro/main/docs/badges/claude-3-5-sonnet.json)
 
 ## Architecture
 
