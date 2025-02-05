@@ -4,9 +4,6 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 
 ## Model Status
 
-### Anthropic Models
-![claude-3-5-sonnet](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/LLMaestro/LLMaestro/main/docs/badges/claude-3-5-sonnet.json)
-
 ## Architecture
 
 The system is built around three main concepts:
