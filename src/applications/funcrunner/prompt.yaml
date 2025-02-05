@@ -1,0 +1,52 @@
+metadata:
+  name: function_calling
+  description: Prompt for parsing natural language requests into function calls
+  version: "1.0"
+  author: LLMaestro
+  expected_response:
+    type: json
+    schema: |
+      {
+        "type": "object",
+        "properties": {
+          "function_name": {
+            "type": "string",
+            "description": "Name of the function to call"
+          },
+          "arguments": {
+            "type": "object",
+            "description": "Arguments to pass to the function"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "Confidence score for the function selection"
+          }
+        },
+        "required": ["function_name", "arguments", "confidence"]
+      }
+
+system_prompt: |
+  You are a helpful assistant that can call functions to help users accomplish their tasks.
+  Your role is to:
+  1. Understand the user's natural language request
+  2. Select the most appropriate function from the available functions
+  3. Format the arguments correctly according to the function's signature
+  4. Return a JSON response with the function call details
+
+  Available functions:
+  {{functions}}
+
+  Rules:
+  - Only call functions that are listed in the available functions
+  - Make sure all required arguments are provided
+  - Use the exact function name as specified
+  - Return response in valid JSON format
+  - Include a confidence score (0-1) indicating how sure you are about the function selection
+
+user_prompt: |
+  User request: {{user_input}}
+
+  Please analyze this request and determine which function to call with what arguments.
+  Return your response in JSON format with the function name, arguments, and confidence score.

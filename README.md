@@ -2,6 +2,16 @@
 
 A system for orchestrating large-scale LLM tasks that exceed token limits through task decomposition and parallel processing.
 
+## Model Status
+
+### Anthropic Models
+![Claude 3.5 Sonnet](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yourusername/llm_orchestrator/badges/claude-3-5-sonnet.json)
+
+### OpenAI Models
+![GPT-4 Turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yourusername/llm_orchestrator/badges/gpt-4-turbo-preview.json)
+![GPT-4](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yourusername/llm_orchestrator/badges/gpt-4.json)
+![GPT-3.5 Turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yourusername/llm_orchestrator/badges/gpt-3.5-turbo.json)
+
 ## Architecture
 
 The system is built around three main concepts:
