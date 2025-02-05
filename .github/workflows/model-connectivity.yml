@@ -20,6 +20,9 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -66,12 +69,15 @@ jobs:
       if: always()
       run: |
         poetry run python scripts/generate_model_badges.py
+        echo "Generated badge files:"
+        ls -la test-results/badges/
 
     - name: Validate badge JSON
       if: always()
       run: |
         for f in test-results/badges/*.json; do
           echo "Validating $f"
+          cat "$f"  # Display content for debugging
           if ! jq empty "$f" 2>/dev/null; then
             echo "Invalid JSON in $f"
             exit 1
@@ -86,22 +92,61 @@ jobs:
       if: always()
       run: |
         mkdir -p docs/badges
-        cp test-results/badges/*.json docs/badges/
-        # Create an index.html file to make the directory browsable
-        echo "<html><body><h1>Model Status Badges</h1><ul>" > docs/badges/index.html
+        cp -v test-results/badges/*.json docs/badges/
+        echo "Contents of docs/badges:"
+        ls -la docs/badges/
+
+        # Create an index.html file
+        cat > docs/badges/index.html << 'EOL'
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Model Status Badges</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 2em; }
+                .badge-list { list-style: none; padding: 0; }
+                .badge-item { margin: 1em 0; }
+            </style>
+        </head>
+        <body>
+            <h1>Model Status Badges</h1>
+            <ul class="badge-list">
+        EOL
+
         for f in docs/badges/*.json; do
-          echo "<li><a href='$(basename $f)'>$(basename $f)</a></li>" >> docs/badges/index.html
+          if [ -f "$f" ]; then
+            filename=$(basename "$f")
+            echo "<li class='badge-item'><a href='$filename'>$filename</a></li>" >> docs/badges/index.html
+          fi
         done
+
         echo "</ul></body></html>" >> docs/badges/index.html
+
+        echo "Contents of index.html:"
+        cat docs/badges/index.html
 
     - name: Commit and push badges
       if: always()
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
+
+        echo "Git status:"
+        git status
+
+        echo "Adding files to git:"
         git add docs/badges/
-        git commit -m "chore: update model connectivity badges" || echo "No changes to commit"
-        git push
+
+        echo "Git status after add:"
+        git status
+
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "chore: update model connectivity badges"
+          echo "Pushing changes..."
+          git push origin HEAD:main
+        fi
 
     - name: Upload test results
       if: always()

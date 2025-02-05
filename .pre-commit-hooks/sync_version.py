@@ -2,7 +2,8 @@
 import subprocess
 from pathlib import Path
 
-import toml
+import tomli
+import tomli_w
 
 
 def get_latest_version_tag():
@@ -36,13 +37,15 @@ def main():
         return 1
 
     # Update version in pyproject.toml
-    config = toml.load(pyproject_path)
+    with open(pyproject_path, "rb") as f:
+        config = tomli.load(f)
+
     current_version = config["tool"]["poetry"]["version"]
 
     if current_version != version:
         config["tool"]["poetry"]["version"] = version
-        with open(pyproject_path, "w") as f:
-            toml.dump(config, f)
+        with open(pyproject_path, "wb") as f:
+            tomli_w.dump(config, f)
         print(f"Updated version from {current_version} to {version}")
         return 1  # Return 1 to indicate file was modified
 
