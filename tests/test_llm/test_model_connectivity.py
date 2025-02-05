@@ -27,19 +27,11 @@ def save_test_results():
     """Save test results to a JSON file for badge generation."""
     results_dir = Path("test-results")
     results_dir.mkdir(exist_ok=True)
+    badges_dir = results_dir / "badges"
+    badges_dir.mkdir(exist_ok=True)
 
     with open(results_dir / "model_connectivity.json", "w") as f:
         json.dump(TEST_RESULTS, f, indent=2)
-
-def get_message_text(content: Union[ContentBlock, Dict[str, Any], str]) -> str:
-    """Extract text content from an Anthropic message block."""
-    if isinstance(content, dict):
-        return content.get('text', content.get('value', str(content)))
-    if hasattr(content, 'text'):
-        return str(getattr(content, 'text'))
-    if hasattr(content, 'value'):
-        return str(getattr(content, 'value'))
-    return str(content)
 
 @pytest.mark.asyncio
 class TestModelConnectivity:
@@ -49,15 +41,34 @@ class TestModelConnectivity:
     def setup_and_teardown(self):
         """Setup before tests and save results after."""
         yield
+        # Ensure results are saved even if tests are skipped
         save_test_results()
 
     @pytest.fixture
     async def model_registry(self):
         """Initialize and return the model registry."""
-        return await register_all_models(
+        registry = await register_all_models(
             anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
             openai_api_key=os.getenv("OPENAI_API_KEY")
         )
+
+        # Pre-register all models as skipped
+        for family in ModelFamily:
+            models = registry.get_family_models(family)
+            for model in models:
+                TEST_RESULTS[model.name] = "skip"
+
+        return registry
+
+    def get_message_text(self, content: Union[ContentBlock, Dict[str, Any], str]) -> str:
+        """Extract text content from an Anthropic message block."""
+        if isinstance(content, dict):
+            return content.get('text', content.get('value', str(content)))
+        if hasattr(content, 'text'):
+            return str(getattr(content, 'text'))
+        if hasattr(content, 'value'):
+            return str(getattr(content, 'value'))
+        return str(content)
 
     async def test_model_connectivity(self, model_registry):
         """Test connectivity for all registered models."""
@@ -67,21 +78,12 @@ class TestModelConnectivity:
 
         # Test each model family
         for family in ModelFamily:
-            # Record skip status for all models in a family if API key is missing
+            # Skip if API key is missing
             if family == ModelFamily.CLAUDE and not anthropic_api_key:
-                models = model_registry.get_family_models(family)
-                for model in models:
-                    TEST_RESULTS[model.name] = "skip"
                 pytest.skip("ANTHROPIC_API_KEY not set")
             elif family == ModelFamily.GPT and not openai_api_key:
-                models = model_registry.get_family_models(family)
-                for model in models:
-                    TEST_RESULTS[model.name] = "skip"
                 pytest.skip("OPENAI_API_KEY not set")
             elif family == ModelFamily.HUGGINGFACE:
-                models = model_registry.get_family_models(family)
-                for model in models:
-                    TEST_RESULTS[model.name] = "skip"
                 continue  # Skip HuggingFace models for now
 
             # Get all models for this family
@@ -99,7 +101,7 @@ class TestModelConnectivity:
                             max_tokens=100,
                             messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
                         )
-                        message_text = get_message_text(response.content[0])
+                        message_text = self.get_message_text(response.content[0])
                         assert EXPECTED_RESPONSE_SUBSTRING in message_text.lower()
                         TEST_RESULTS[model.name] = "success"
 
