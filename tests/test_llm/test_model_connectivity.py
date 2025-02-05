@@ -1,6 +1,6 @@
 """Tests for validating model connectivity with a simple hello world prompt."""
 import pytest
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Any
 import json
 import os
 from pathlib import Path
@@ -11,7 +11,7 @@ from openai.types.chat import ChatCompletion
 
 from src.llm.models import (
     ModelRegistry,
-    register_claude_3_5_sonnet_latest,
+    register_all_models,
 )
 
 # Test message that should work across all models
@@ -21,13 +21,6 @@ EXPECTED_RESPONSE_SUBSTRING = "hello world"
 # Dictionary to store test results for badge generation
 TEST_RESULTS: Dict[str, bool] = {}
 
-# OpenAI models to test
-OPENAI_MODELS = [
-    "gpt-4-turbo-preview",  # Latest GPT-4 model
-    "gpt-4",                # Base GPT-4 model
-    "gpt-3.5-turbo",       # GPT-3.5 Turbo
-]
-
 def save_test_results():
     """Save test results to a JSON file for badge generation."""
     results_dir = Path("test-results")
@@ -36,15 +29,15 @@ def save_test_results():
     with open(results_dir / "model_connectivity.json", "w") as f:
         json.dump(TEST_RESULTS, f, indent=2)
 
-
-def get_message_text(content: ContentBlock) -> str:
+def get_message_text(content: Union[ContentBlock, Dict[str, Any], str]) -> str:
     """Extract text content from an Anthropic message block."""
+    if isinstance(content, dict):
+        return content.get('text', content.get('value', str(content)))
     if hasattr(content, 'text'):
-        return content.text
+        return str(getattr(content, 'text'))
     if hasattr(content, 'value'):
-        return content.value
+        return str(getattr(content, 'value'))
     return str(content)
-
 
 @pytest.mark.asyncio
 class TestModelConnectivity:
@@ -56,22 +49,32 @@ class TestModelConnectivity:
         yield
         save_test_results()
 
-    async def test_claude_3_5_sonnet_connectivity(self):
+    @pytest.fixture
+    async def model_registry(self):
+        """Initialize and return the model registry."""
+        return await register_all_models(
+            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
+            openai_api_key=os.getenv("OPENAI_API_KEY")
+        )
+
+    async def test_claude_3_5_sonnet_connectivity(self, model_registry):
         """Test connectivity to Claude 3.5 Sonnet."""
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
             pytest.skip("ANTHROPIC_API_KEY not set")
 
-        try:
-            # Register the model
-            model_descriptor = await register_claude_3_5_sonnet_latest(api_key)
+        model_name = "claude-3-5-sonnet-latest"
+        model = model_registry.get_model(model_name)
+        if not model:
+            pytest.skip(f"Model {model_name} not registered")
 
+        try:
             # Create Anthropic client
             client = AsyncAnthropic(api_key=api_key)
 
             # Create a simple message
             response = await client.messages.create(
-                model=model_descriptor.name,
+                model=model_name,
                 max_tokens=100,
                 messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
             )
@@ -86,12 +89,16 @@ class TestModelConnectivity:
             TEST_RESULTS["claude-3-5-sonnet"] = False
             raise e
 
-    @pytest.mark.parametrize("model_name", OPENAI_MODELS)
-    async def test_openai_model_connectivity(self, model_name: str):
+    @pytest.mark.parametrize("model_name", ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"])
+    async def test_openai_model_connectivity(self, model_registry, model_name: str):
         """Test connectivity to OpenAI models."""
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
             pytest.skip("OPENAI_API_KEY not set")
+
+        model = model_registry.get_model(model_name)
+        if not model:
+            pytest.skip(f"Model {model_name} not registered")
 
         try:
             # Create OpenAI client

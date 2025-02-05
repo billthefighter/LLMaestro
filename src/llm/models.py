@@ -614,3 +614,40 @@ async def register_claude_3_5_sonnet_latest(api_key: str) -> ModelDescriptor:
     return await registry.detect_and_register_model(
         provider="anthropic", model_name="claude-3-5-sonnet-latest", api_key=api_key
     )
+
+
+async def register_all_models(
+    anthropic_api_key: Optional[str] = None, openai_api_key: Optional[str] = None
+) -> ModelRegistry:
+    """
+    Register all available models from supported providers.
+
+    Args:
+        anthropic_api_key: API key for Anthropic models
+        openai_api_key: API key for OpenAI models
+
+    Returns:
+        ModelRegistry with all registered models
+    """
+    registry = ModelRegistry()
+
+    # Register Anthropic models
+    if anthropic_api_key:
+        try:
+            await registry.detect_and_register_model(
+                provider="anthropic", model_name="claude-3-5-sonnet-latest", api_key=anthropic_api_key
+            )
+        except Exception as e:
+            print(f"Failed to register Anthropic model: {e}")
+
+    # Register OpenAI models
+    if openai_api_key:
+        for model_name in ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"]:
+            try:
+                await registry.detect_and_register_model(
+                    provider="openai", model_name=model_name, api_key=openai_api_key
+                )
+            except Exception as e:
+                print(f"Failed to register OpenAI model {model_name}: {e}")
+
+    return registry
