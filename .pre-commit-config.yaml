@@ -36,7 +36,7 @@ repos:
       pass_filenames: true
     - id: sync-version
       name: Sync version with git tag
-      entry: python .pre-commit-hooks/sync_version.py
+      entry: poetry run python .pre-commit-hooks/sync_version.py
       language: system
       files: ^pyproject\.toml$
       pass_filenames: false
