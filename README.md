@@ -7,11 +7,6 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 ### Anthropic Models
 ![claude-3-5-sonnet-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/claude-3-5-sonnet-latest.json)
 
-### OpenAI Models
-![gpt-4-turbo-preview](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/gpt-4-turbo-preview.json)
-![gpt-4](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/gpt-4.json)
-![gpt-3.5-turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/gpt-3.5-turbo.json)
-
 ## Architecture
 
 The system is built around three main concepts:
