@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "label": "claude-3-5-sonnet",
+  "message": "Disconnected",
+  "color": "critical",
+  "style": "flat"
+}
