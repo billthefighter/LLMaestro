@@ -1,35 +1,18 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>LLMaestro Documentation</title>
+    <title>LLM Orchestrator - Model Status</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 2em;
-        }
-        .nav {
-            margin: 2em 0;
-            padding: 1em;
-            background: #f5f5f5;
-            border-radius: 4px;
-        }
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        .badge-list { list-style: none; padding: 0; }
+        .badge-item { margin: 1em 0; }
+        .badge-container { display: flex; align-items: center; gap: 1em; }
+        .badge-name { font-weight: bold; min-width: 200px; }
     </style>
 </head>
 <body>
-    <h1>LLMaestro Documentation</h1>
-
-    <div class="nav">
-        <h2>Quick Links</h2>
-        <ul>
-            <li><a href="badges/">Model Status Badges</a></li>
-            <li><a href="https://github.com/LLMaestro/LLMaestro">GitHub Repository</a></li>
-        </ul>
-    </div>
-
-    <h2>Model Status</h2>
-    <p>View current model connectivity status in the <a href="badges/">badges directory</a>.</p>
-</body>
-</html>
+    <h1>LLM Orchestrator - Model Status</h1>
+    <div class="badge-list">
+<div class='badge-container'><span class='badge-name'>claude-3-5-sonnet-latest:</span><img src='https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/claude-3-5-sonnet-latest.json' alt='claude-3-5-sonnet-latest status'></div>
+<div class='badge-container'><span class='badge-name'>claude-3-5-sonnet:</span><img src='https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/claude-3-5-sonnet.json' alt='claude-3-5-sonnet status'></div>
+</div></body></html>
