@@ -15,6 +15,8 @@ on:
 jobs:
   test-model-connectivity:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
     - uses: actions/checkout@v4
@@ -65,17 +67,41 @@ jobs:
       run: |
         poetry run python scripts/generate_model_badges.py
 
-    - name: Deploy badges
+    - name: Validate badge JSON
       if: always()
-      uses: peaceiris/actions-gh-pages@v3
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        publish_dir: ./test-results/badges
-        publish_branch: badges
-        keep_files: true
-        user_name: 'github-actions[bot]'
-        user_email: 'github-actions[bot]@users.noreply.github.com'
-        commit_message: 'chore: update model connectivity badges'
+      run: |
+        for f in test-results/badges/*.json; do
+          echo "Validating $f"
+          if ! jq empty "$f" 2>/dev/null; then
+            echo "Invalid JSON in $f"
+            exit 1
+          fi
+          if ! jq -e '.schemaVersion == 1 and .label != null and .message != null and .color != null' "$f" >/dev/null; then
+            echo "Invalid badge schema in $f"
+            exit 1
+          fi
+        done
+
+    - name: Create docs directory
+      if: always()
+      run: |
+        mkdir -p docs/badges
+        cp test-results/badges/*.json docs/badges/
+        # Create an index.html file to make the directory browsable
+        echo "<html><body><h1>Model Status Badges</h1><ul>" > docs/badges/index.html
+        for f in docs/badges/*.json; do
+          echo "<li><a href='$(basename $f)'>$(basename $f)</a></li>" >> docs/badges/index.html
+        done
+        echo "</ul></body></html>" >> docs/badges/index.html
+
+    - name: Commit and push badges
+      if: always()
+      run: |
+        git config --local user.email "github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+        git add docs/badges/
+        git commit -m "chore: update model connectivity badges" || echo "No changes to commit"
+        git push
 
     - name: Upload test results
       if: always()

@@ -34,3 +34,9 @@ repos:
       language: system
       files: ^llm_orchestrator/prompts/tasks/.*\.yaml$
       pass_filenames: true
+    - id: sync-version
+      name: Sync version with git tag
+      entry: python .pre-commit-hooks/sync_version.py
+      language: system
+      files: ^pyproject\.toml$
+      pass_filenames: false
