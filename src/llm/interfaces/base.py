@@ -136,7 +136,7 @@ class BaseLLMInterface(ABC):
     # Default supported media types (can be overridden by specific implementations)
     SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG}
 
-    def __init__(self, config: AgentConfig):
+    def __init__(self, config: AgentConfig, model_registry: Optional[ModelRegistry] = None):
         self.config = config
         self.context = ConversationContext([])
         self._total_tokens = 0
@@ -146,8 +146,8 @@ class BaseLLMInterface(ABC):
         if not self.config.api_key:
             raise ValueError(f"API key is required for provider {self.config.provider}")
 
-        # Create registry instance
-        self._registry = ModelRegistry()
+        # Use provided registry or create a new one
+        self._registry = model_registry or ModelRegistry()
 
         # Try to get model from registry
         self._model_descriptor = self._registry.get_model(self.config.model_name)

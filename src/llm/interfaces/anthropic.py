@@ -5,9 +5,8 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
-from anthropic import Anthropic
+from anthropic import AsyncAnthropic
 from anthropic.types import (
-    ContentBlockSourceParam,
     MessageStreamEvent,
 )
 from PIL import Image
@@ -29,7 +28,7 @@ class AnthropicLLM(BaseLLMInterface):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.client = Anthropic(api_key=self.config.api_key)
+        self.client = AsyncAnthropic(api_key=self.config.api_key)
         self.stream = getattr(self.config, "stream", False)  # Default to False if not specified
         logger.info(f"Initialized AnthropicLLM with model: {self.config.model_name}")
 
@@ -60,13 +59,13 @@ class AnthropicLLM(BaseLLMInterface):
         img = Image.open(io.BytesIO(image_data))
         return {"width": img.width, "height": img.height}
 
-    def _create_image_source(self, media_type: str, data: str) -> ContentBlockSourceParam:
+    def _create_image_source(self, media_type: str, data: str) -> Dict[str, str]:
         """Create a properly typed image source."""
-        return ContentBlockSourceParam(
-            type="base64",
-            media_type=self._validate_media_type(media_type),
-            data=data,
-        )
+        return {
+            "type": "base64",
+            "media_type": str(self._validate_media_type(media_type)),
+            "data": data,
+        }
 
     async def _create_message_content(
         self, message: Dict[str, Any], images: Optional[List[ImageInput]] = None
@@ -187,12 +186,20 @@ class AnthropicLLM(BaseLLMInterface):
                             "image_tokens": token_estimates.get("image_tokens", 0),
                         },
                         token_usage=TokenUsage(
-                            prompt_tokens=getattr(final_message, "usage", {}).get("input_tokens", 0),
-                            completion_tokens=getattr(final_message, "usage", {}).get("output_tokens", 0),
+                            prompt_tokens=getattr(final_message.usage, "input_tokens", 0)
+                            if hasattr(final_message, "usage")
+                            else 0,
+                            completion_tokens=getattr(final_message.usage, "output_tokens", 0)
+                            if hasattr(final_message, "usage")
+                            else 0,
                             total_tokens=sum(
                                 [
-                                    getattr(final_message, "usage", {}).get("input_tokens", 0),
-                                    getattr(final_message, "usage", {}).get("output_tokens", 0),
+                                    getattr(final_message.usage, "input_tokens", 0)
+                                    if hasattr(final_message, "usage")
+                                    else 0,
+                                    getattr(final_message.usage, "output_tokens", 0)
+                                    if hasattr(final_message, "usage")
+                                    else 0,
                                 ]
                             ),
                         ),
@@ -215,12 +222,16 @@ class AnthropicLLM(BaseLLMInterface):
                             "image_tokens": token_estimates.get("image_tokens", 0),
                         },
                         token_usage=TokenUsage(
-                            prompt_tokens=getattr(response, "usage", {}).get("input_tokens", 0),
-                            completion_tokens=getattr(response, "usage", {}).get("output_tokens", 0),
+                            prompt_tokens=getattr(response.usage, "input_tokens", 0)
+                            if hasattr(response, "usage")
+                            else 0,
+                            completion_tokens=getattr(response.usage, "output_tokens", 0)
+                            if hasattr(response, "usage")
+                            else 0,
                             total_tokens=sum(
                                 [
-                                    getattr(response, "usage", {}).get("input_tokens", 0),
-                                    getattr(response, "usage", {}).get("output_tokens", 0),
+                                    getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0,
+                                    getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0,
                                 ]
                             ),
                         ),
@@ -236,12 +247,16 @@ class AnthropicLLM(BaseLLMInterface):
                             "image_tokens": token_estimates.get("image_tokens", 0),
                         },
                         token_usage=TokenUsage(
-                            prompt_tokens=getattr(response, "usage", {}).get("input_tokens", 0),
-                            completion_tokens=getattr(response, "usage", {}).get("output_tokens", 0),
+                            prompt_tokens=getattr(response.usage, "input_tokens", 0)
+                            if hasattr(response, "usage")
+                            else 0,
+                            completion_tokens=getattr(response.usage, "output_tokens", 0)
+                            if hasattr(response, "usage")
+                            else 0,
                             total_tokens=sum(
                                 [
-                                    getattr(response, "usage", {}).get("input_tokens", 0),
-                                    getattr(response, "usage", {}).get("output_tokens", 0),
+                                    getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0,
+                                    getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0,
                                 ]
                             ),
                         ),

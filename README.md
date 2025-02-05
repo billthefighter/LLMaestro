@@ -25,6 +25,20 @@ The system is built around three main concepts:
 - Disk-based storage for handling large datasets
 - Strong type validation using Pydantic
 
+## Applications
+
+The framework includes several example applications demonstrating common use cases and best practices. See the [applications directory](src/applications/) for detailed documentation on creating and structuring applications.
+
+| Application | Description | Key Features |
+|------------|-------------|--------------|
+| [PDFReader](src/applications/pdfreader/) | Extract structured data from PDFs using vision capabilities | - Multi-page processing<br>- Schema-based extraction<br>- Confidence scoring |
+
+Each application follows a standardized structure and includes:
+- Comprehensive documentation
+- YAML-based prompt templates
+- Pydantic data models
+- Unit and integration tests
+
 ## Examples
 
 Each example demonstrates how LLM Orchestrator handles tasks that would typically exceed token limits by:

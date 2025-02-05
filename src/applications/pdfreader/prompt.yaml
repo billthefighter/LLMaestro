@@ -1,0 +1,63 @@
+name: "pdf-reader"
+description: "Extract structured data from PDF documents using vision capabilities"
+metadata:
+  type: "pdf_analysis"
+  expected_response:
+    format: "json"
+    schema: |
+      {
+        "type": "object",
+        "properties": {
+          "extracted_data": {
+            "type": "object",
+            "description": "The structured data extracted from the PDF, matching the provided schema"
+          },
+          "confidence": {
+            "type": "number",
+            "description": "Confidence score between 0 and 1 for the extraction",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "warnings": {
+            "type": "array",
+            "description": "Any warnings or issues encountered during extraction",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["extracted_data", "confidence"]
+      }
+  model_requirements:
+    min_tokens: 1000
+    preferred_models: ["claude-3-5-sonnet-latest"]
+  tags: ["pdf", "vision", "extraction"]
+  is_active: true
+
+current_version:
+  number: "1.0.0"
+  timestamp: "2024-02-04T00:00:00Z"
+  author: "LLM Orchestrator Team"
+  description: "Initial version"
+  change_type: "major"
+
+system_prompt: |
+  You are an expert at analyzing PDF documents and extracting structured data.
+  Your task is to carefully examine the provided document image and extract information according to the specified schema.
+
+  Guidelines:
+  1. Pay attention to document structure and layout
+  2. Extract data with high accuracy
+  3. Provide confidence scores for extractions
+  4. Note any potential issues or ambiguities
+  5. Follow the exact schema provided for output
+
+user_prompt: |
+  Please analyze this document and extract the information according to this schema: {output_schema}
+
+  Additional instructions:
+  - Extract all required fields
+  - Maintain data types as specified
+  - Include a confidence score
+  - Note any unclear or ambiguous content
+  - Format the response as valid JSON
