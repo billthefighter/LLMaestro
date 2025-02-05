@@ -8,6 +8,7 @@ from anthropic import AsyncAnthropic
 from anthropic.types import ContentBlock, Message
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion
+import subprocess
 
 from src.llm.models import (
     ModelRegistry,
@@ -32,6 +33,12 @@ def save_test_results():
 
     with open(results_dir / "model_connectivity.json", "w") as f:
         json.dump(TEST_RESULTS, f, indent=2)
+
+    # Generate badges
+    try:
+        subprocess.run(["python", "scripts/generate_model_badges.py"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: Failed to generate badges: {e}")
 
 @pytest.mark.asyncio
 class TestModelConnectivity:
@@ -80,11 +87,23 @@ class TestModelConnectivity:
         for family in ModelFamily:
             # Skip if API key is missing
             if family == ModelFamily.CLAUDE and not anthropic_api_key:
-                pytest.skip("ANTHROPIC_API_KEY not set")
+                # Mark all Claude models as skipped
+                models = model_registry.get_family_models(family)
+                for model in models:
+                    TEST_RESULTS[model.name] = "skip"
+                continue
             elif family == ModelFamily.GPT and not openai_api_key:
-                pytest.skip("OPENAI_API_KEY not set")
+                # Mark all GPT models as skipped
+                models = model_registry.get_family_models(family)
+                for model in models:
+                    TEST_RESULTS[model.name] = "skip"
+                continue
             elif family == ModelFamily.HUGGINGFACE:
-                continue  # Skip HuggingFace models for now
+                # Mark all HuggingFace models as skipped
+                models = model_registry.get_family_models(family)
+                for model in models:
+                    TEST_RESULTS[model.name] = "skip"
+                continue
 
             # Get all models for this family
             models = model_registry.get_family_models(family)

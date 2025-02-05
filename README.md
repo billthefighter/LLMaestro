@@ -7,6 +7,11 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 ### Anthropic Models
 ![claude-3-5-sonnet-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/claude-3-5-sonnet-latest.json)
 
+### OpenAI Models
+![gpt-4-turbo-preview](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/gpt-4-turbo-preview.json)
+![gpt-4](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/gpt-4.json)
+![gpt-3.5-turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/gpt-3.5-turbo.json)
+
 ## Architecture
 
 The system is built around three main concepts:
@@ -118,32 +123,3 @@ poetry install
 ```bash
 python examples/live_visualization_demo.py
 ```
-
-4. Open `examples/visualization.html` in your browser when prompted
-
-## Usage
-
-```python
-from llm_orchestrator import TaskManager, Agent
-
-# Initialize the orchestrator
-task_manager = TaskManager()
-
-# Create a task
-task = task_manager.create_task(
-    task_type="pdf_analysis",
-    input_data="path/to/pdfs",
-    config={"batch_size": 100}
-)
-
-# Execute the task
-results = task_manager.execute(task)
-```
-
-## Contributing
-
-Contributions are welcome! Please open an issue or submit a pull request.
-
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
