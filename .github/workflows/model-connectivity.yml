@@ -29,21 +29,44 @@ jobs:
       run: |
         curl -sSL https://install.python-poetry.org | python3 -
 
+    - name: Configure Poetry
+      run: |
+        poetry config virtualenvs.create true
+        poetry config virtualenvs.in-project true
+
+    - name: Cache Poetry virtualenv
+      uses: actions/cache@v3
+      id: cache
+      with:
+        path: ./.venv
+        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
     - name: Install dependencies
-      run: poetry install
+      if: steps.cache.outputs.cache-hit != 'true'
+      run: |
+        poetry install --with dev --no-interaction
+
+    - name: Install additional dependencies
+      run: |
+        poetry add sqlalchemy
 
     - name: Run connectivity tests
+      id: run_tests
+      continue-on-error: true
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: |
-        poetry run pytest tests/test_llm/test_model_connectivity.py -v
+        mkdir -p test-results
+        poetry run pytest tests/test_llm/test_model_connectivity.py -v --junitxml=test-results/junit.xml
 
     - name: Generate badges
+      if: always()
       run: |
         poetry run python scripts/generate_model_badges.py
 
     - name: Deploy badges
+      if: always()
       uses: peaceiris/actions-gh-pages@v3
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -53,3 +76,21 @@ jobs:
         user_name: 'github-actions[bot]'
         user_email: 'github-actions[bot]@users.noreply.github.com'
         commit_message: 'chore: update model connectivity badges'
+
+    - name: Upload test results
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: test-results
+        path: test-results/
+
+    - name: Report Status
+      if: always()
+      uses: ravsamhq/notify-slack-action@v2
+      with:
+        status: ${{ steps.run_tests.outcome }}
+        notification_title: 'Model Connectivity Test Results'
+        message_format: '{emoji} *{workflow}* {status_message}'
+        footer: '<{run_url}|View Run>'
+      env:
+        SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -15,7 +15,7 @@ from src.prompts.types import VersionInfo
 from src.llm.models import ModelRegistry
 from src.llm.token_utils import TokenCounter
 from src.llm.rate_limiter import RateLimiter, RateLimitConfig, SQLiteQuotaStorage
-from src.llm.interfaces.anthropic import Anthropic
+from src.llm.interfaces.anthropic import AnthropicLLM
 
 
 def pytest_addoption(parser):
@@ -134,7 +134,7 @@ async def anthropic_llm(llm_config, model_registry):
         llm.rate_limiter = None
 
     # Initialize Anthropic client
-    llm.client = Anthropic(api_key=llm.config.api_key)
+    llm.client = AnthropicLLM(api_key=llm.config.api_key)
 
     return llm
 

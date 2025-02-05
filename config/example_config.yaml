@@ -10,7 +10,7 @@ llm:
   # - claude-3-opus-20240229    (most capable)
   # - claude-3-sonnet-20240229  (balanced)
   # - claude-3-haiku-20240229   (fastest)
-  model: claude-3-sonnet-20240229
+  model: claude-3-sonnet-latest
 
   # Your API key from Anthropic
   # Get one at: https://console.anthropic.com/
