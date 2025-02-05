@@ -485,9 +485,7 @@ class ModelCapabilitiesDetector:
             # Initialize client to verify API key
             client = Anthropic(api_key=api_key)
             # Make a simple API call to verify the key works
-            client.messages.create(
-                model="claude-3-haiku-20240229", max_tokens=1, messages=[{"role": "user", "content": "test"}]
-            )
+            client.messages.create(model=model_name, max_tokens=1, messages=[{"role": "user", "content": "test"}])
 
             # Test streaming
             supports_streaming = True  # Anthropic supports streaming by default
