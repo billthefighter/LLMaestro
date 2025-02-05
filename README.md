@@ -1,6 +1,6 @@
 # LLMaestro
 
-A system for orchestrating large-scale LLM tasks that exceed token limits through task decomposition and parallel processing.
+A system for orchestrating large-scale LLM tasks that exceed token limits through task decomposition and parallel processing. Also includes a collection of applications that demonstrate common use cases and best practices.
 
 ## Model Status
 
@@ -42,6 +42,7 @@ The framework includes several example applications demonstrating common use cas
 | Application | Description | Key Features |
 |------------|-------------|--------------|
 | [PDFReader](src/applications/pdfreader/) | Extract structured data from PDFs using vision capabilities | - Multi-page processing<br>- Schema-based extraction<br>- Confidence scoring |
+| [FunctionRunner](src/applications/funcrunner/) | Execute functions through natural language requests | - Natural language processing<br>- Type-safe execution<br>- Confidence scoring |
 
 Each application follows a standardized structure and includes:
 - Comprehensive documentation

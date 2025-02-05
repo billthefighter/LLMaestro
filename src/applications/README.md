@@ -95,6 +95,11 @@ Each application should include:
    - Shows schema-based extraction
    - Includes confidence scoring
 
+2. [FunctionRunner](funcrunner/): Execute functions through natural language requests
+   - Natural language to function call translation
+   - Type-safe function registration
+   - Confidence-based execution
+
 ## Creating a New Application
 
 1. Create a new directory:
