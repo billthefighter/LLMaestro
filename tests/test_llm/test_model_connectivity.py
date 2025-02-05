@@ -4,17 +4,16 @@ from typing import Dict, List, Optional, Union, Any, Literal
 import json
 import os
 from pathlib import Path
-from anthropic import AsyncAnthropic
-from anthropic.types import ContentBlock, Message
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletion
 import subprocess
 
 from src.llm.models import (
     ModelRegistry,
     register_all_models,
     ModelFamily,
+    ModelDescriptor,
 )
+from src.llm.interfaces import create_interface_for_model, BaseLLMInterface
+from src.core.models import AgentConfig
 
 # Test message that should work across all models
 HELLO_WORLD_PROMPT = "Say hello world"
@@ -67,76 +66,50 @@ class TestModelConnectivity:
 
         return registry
 
-    def get_message_text(self, content: Union[ContentBlock, Dict[str, Any], str]) -> str:
-        """Extract text content from an Anthropic message block."""
-        if isinstance(content, dict):
-            return content.get('text', content.get('value', str(content)))
-        if hasattr(content, 'text'):
-            return str(getattr(content, 'text'))
-        if hasattr(content, 'value'):
-            return str(getattr(content, 'value'))
-        return str(content)
+    def get_api_key(self, family: ModelFamily) -> Optional[str]:
+        """Get the appropriate API key for a model family."""
+        if family == ModelFamily.CLAUDE:
+            return os.getenv("ANTHROPIC_API_KEY")
+        elif family == ModelFamily.GPT:
+            return os.getenv("OPENAI_API_KEY")
+        return None
 
-    async def test_model_connectivity(self, model_registry):
-        """Test connectivity for all registered models."""
-        # Get API keys
-        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-
-        # Test each model family
+    def get_test_models(self, model_registry) -> List[ModelDescriptor]:
+        """Get all registered models for testing."""
+        models = []
         for family in ModelFamily:
-            # Skip if API key is missing
-            if family == ModelFamily.CLAUDE and not anthropic_api_key:
-                # Mark all Claude models as skipped
-                models = model_registry.get_family_models(family)
-                for model in models:
-                    TEST_RESULTS[model.name] = "skip"
-                continue
-            elif family == ModelFamily.GPT and not openai_api_key:
-                # Mark all GPT models as skipped
-                models = model_registry.get_family_models(family)
-                for model in models:
-                    TEST_RESULTS[model.name] = "skip"
-                continue
-            elif family == ModelFamily.HUGGINGFACE:
-                # Mark all HuggingFace models as skipped
-                models = model_registry.get_family_models(family)
-                for model in models:
-                    TEST_RESULTS[model.name] = "skip"
-                continue
+            models.extend(model_registry.get_family_models(family))
+        return models
 
-            # Get all models for this family
-            models = model_registry.get_family_models(family)
-            if not models:
-                continue
+    @pytest.mark.parametrize("model", "get_test_models")
+    async def test_model_connectivity(self, model: ModelDescriptor, model_registry):
+        """Test connectivity for a specific model."""
+        api_key = self.get_api_key(model.family)
+        if not api_key:
+            TEST_RESULTS[model.name] = "skip"
+            pytest.skip(f"API key not set for {model.family.value}")
 
-            for model in models:
-                try:
-                    if family == ModelFamily.CLAUDE:
-                        # Test Anthropic model
-                        client = AsyncAnthropic(api_key=anthropic_api_key)
-                        response = await client.messages.create(
-                            model=model.name,
-                            max_tokens=100,
-                            messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
-                        )
-                        message_text = self.get_message_text(response.content[0])
-                        assert EXPECTED_RESPONSE_SUBSTRING in message_text.lower()
-                        TEST_RESULTS[model.name] = "success"
+        try:
+            # Create interface using factory with proper config
+            config = AgentConfig(
+                provider=model.family.value,
+                model_name=model.name,
+                api_key=api_key,
+                max_tokens=100
+            )
+            interface: BaseLLMInterface = create_interface_for_model(model, config)
 
-                    elif family == ModelFamily.GPT:
-                        # Test OpenAI model
-                        client = AsyncOpenAI(api_key=openai_api_key)
-                        response = await client.chat.completions.create(
-                            model=model.name,
-                            max_tokens=100,
-                            messages=[{"role": "user", "content": HELLO_WORLD_PROMPT}]
-                        )
-                        message_content = response.choices[0].message.content
-                        assert message_content is not None
-                        assert EXPECTED_RESPONSE_SUBSTRING in message_content.lower()
-                        TEST_RESULTS[model.name] = "success"
+            # Test connectivity with a simple message
+            response = await interface.process(
+                input_data=HELLO_WORLD_PROMPT,
+                system_prompt="You are a helpful assistant. Keep responses brief."
+            )
 
-                except Exception as e:
-                    TEST_RESULTS[model.name] = "failure"
-                    raise e
+            # Check response
+            assert response.content is not None
+            assert EXPECTED_RESPONSE_SUBSTRING in response.content.lower()
+            TEST_RESULTS[model.name] = "success"
+
+        except Exception as e:
+            TEST_RESULTS[model.name] = "failure"
+            raise e

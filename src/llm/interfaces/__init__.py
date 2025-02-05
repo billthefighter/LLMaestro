@@ -1,20 +1,8 @@
-from src.core.models import AgentConfig
-
+"""LLM Interface module."""
 from .anthropic import AnthropicLLM
 from .base import BaseLLMInterface, ConversationContext, LLMResponse
+from .factory import create_interface_for_model, create_llm_interface
 from .openai import OpenAIInterface
-
-
-def create_llm_interface(config: AgentConfig) -> BaseLLMInterface:
-    """Create an LLM interface based on the configuration."""
-    match config.provider.lower():
-        case "openai":
-            return OpenAIInterface(config)
-        case "anthropic":
-            return AnthropicLLM(config)
-        case _:
-            raise ValueError(f"Unsupported LLM provider: {config.provider}")
-
 
 __all__ = [
     "BaseLLMInterface",
@@ -23,4 +11,5 @@ __all__ = [
     "OpenAIInterface",
     "AnthropicLLM",
     "create_llm_interface",
+    "create_interface_for_model",
 ]
