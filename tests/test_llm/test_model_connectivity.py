@@ -66,6 +66,12 @@ class TestModelConnectivity:
 
         return registry
 
+    @pytest.fixture
+    def model(self, request, model_registry):
+        """Provide a model for testing."""
+        models = self.get_test_models(model_registry)
+        return models[request.param] if request.param < len(models) else None
+
     def get_api_key(self, family: ModelFamily) -> Optional[str]:
         """Get the appropriate API key for a model family."""
         if family == ModelFamily.CLAUDE:
@@ -81,9 +87,12 @@ class TestModelConnectivity:
             models.extend(model_registry.get_family_models(family))
         return models
 
-    @pytest.mark.parametrize("model", "get_test_models")
+    @pytest.mark.parametrize("model", range(10), indirect=True)
     async def test_model_connectivity(self, model: ModelDescriptor, model_registry):
         """Test connectivity for a specific model."""
+        if model is None:
+            pytest.skip("No model available at this index")
+
         api_key = self.get_api_key(model.family)
         if not api_key:
             TEST_RESULTS[model.name] = "skip"
