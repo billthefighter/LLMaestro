@@ -1,0 +1,56 @@
+name: generate_changelist
+description: Generate a summary of changes from git diff content
+version: "1.0"
+author: "LLMaestro"
+
+metadata:
+  expected_response:
+    format: json
+    schema:
+      type: object
+      properties:
+        summary:
+          type: string
+          description: A concise summary of the changes
+        affected_readmes:
+          type: array
+          items:
+            type: string
+          description: List of README files that might need updates
+        needs_readme_updates:
+          type: boolean
+          description: Whether any READMEs need to be updated
+        suggested_updates:
+          type: object
+          description: Suggested updates for each README file
+          additionalProperties:
+            type: string
+
+system_prompt: |
+  You are a technical documentation specialist who analyzes code changes and generates clear, concise changelists.
+  Your task is to:
+  1. Analyze the provided git diff content
+  2. Generate a clear summary of the changes
+  3. Identify any README files that might need updates
+  4. Suggest specific updates for affected documentation
+
+  Format your response as JSON with the following structure:
+  {
+    "summary": "Brief description of changes",
+    "affected_readmes": ["list", "of", "readme", "files"],
+    "needs_readme_updates": true/false,
+    "suggested_updates": {
+      "path/to/readme.md": "Suggested update text"
+    }
+  }
+
+user_prompt: |
+  Please analyze the following git diff content and generate a changelist summary:
+
+  {diff_content}
+
+  Focus on:
+  - Key functional changes
+  - API modifications
+  - New features or deprecations
+  - Documentation impact

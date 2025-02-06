@@ -1,7 +1,7 @@
 name: "task_decomposer"
 version: "1.0.0"
 description: "Analyzes a task and generates a decomposition strategy"
-author: "LLM Orchestrator Team"
+author: "LLMaestro Team"
 git_metadata:
   created:
     commit: "initial"
@@ -17,7 +17,7 @@ metadata:
     preferred_models: ["gpt-4", "claude-2"]
   expected_response:
     format: "json"
-    schema: |
+    schema: >
       {
         "strategy": {
           "name": "string - unique identifier for this strategy",
@@ -38,7 +38,7 @@ metadata:
     max_parallel: 1
     aggregation: "custom"
 
-system_prompt: |
+system_prompt: >
   You are an expert system architect specializing in task decomposition. Your role is to analyze tasks and design strategies to break them down into manageable subtasks.
 
   When designing a decomposition strategy:
@@ -62,7 +62,7 @@ system_prompt: |
   - Handle partial or failed results gracefully
   - Maintain the expected output format
 
-user_prompt: |
+user_prompt: >
   Task to analyze:
   Type: {task_type}
   Description: {description}
@@ -77,7 +77,7 @@ examples:
       input_format: "List of dictionaries with 'text' and 'metadata' keys"
       expected_output: "Dictionary mapping cluster IDs to summaries and document lists"
       requirements: "Must handle variable-length documents and maintain document relationships"
-    expected_output: |
+    expected_output: >
       {
         "strategy": {
           "name": "hierarchical_clustering",
@@ -85,72 +85,8 @@ examples:
           "max_parallel": 10
         },
         "decomposition": {
-          "method": """
-def decompose_clustering(task: Task) -> List[SubTask]:
-    documents = task.input_data
-    if not isinstance(documents, list):
-        raise ValueError("Input must be a list of documents")
-
-    # Phase 1: Generate embeddings and initial clusters
-    embedding_tasks = []
-    batch_size = 20
-    for i in range(0, len(documents), batch_size):
-        batch = documents[i:i+batch_size]
-        embedding_tasks.append(
-            SubTask(
-                id=str(uuid.uuid4()),
-                type="embedding_generation",
-                input_data={"documents": batch},
-                parent_task_id=task.id
-            )
-        )
-
-    # Phase 2: Create cluster summaries
-    cluster_tasks = []
-    for cluster_id, docs in clusters.items():
-        cluster_tasks.append(
-            SubTask(
-                id=str(uuid.uuid4()),
-                type="cluster_summarization",
-                input_data={
-                    "cluster_id": cluster_id,
-                    "documents": docs
-                },
-                parent_task_id=task.id
-            )
-        )
-
-    return embedding_tasks + cluster_tasks
-""",
-          "aggregation": """
-def aggregate_clustering_results(results: List[Any]) -> Dict[str, Any]:
-    # Separate embedding results from summaries
-    embedding_results = [r for r in results if "embeddings" in r]
-    summary_results = [r for r in results if "summary" in r]
-
-    # Combine all embeddings and cluster documents
-    all_embeddings = []
-    for r in embedding_results:
-        all_embeddings.extend(r["embeddings"])
-
-    # Create final clustering result
-    clusters = {}
-    for r in summary_results:
-        cluster_id = r["cluster_id"]
-        clusters[cluster_id] = {
-            "summary": r["summary"],
-            "documents": r["documents"],
-            "keywords": r.get("keywords", [])
-        }
-
-    return {
-        "clusters": clusters,
-        "statistics": {
-            "num_clusters": len(clusters),
-            "total_documents": sum(len(c["documents"]) for c in clusters.values())
-        }
-    }
-"""
+          "method": "def decompose_clustering(task: Task) -> List[SubTask]:\n    documents = task.input_data\n    if not isinstance(documents, list):\n        raise ValueError(\"Input must be a list of documents\")\n\n    # Phase 1: Generate embeddings and initial clusters\n    embedding_tasks = []\n    batch_size = 20\n    for i in range(0, len(documents), batch_size):\n        batch = documents[i:i+batch_size]\n        embedding_tasks.append(\n            SubTask(\n                id=str(uuid.uuid4()),\n                type=\"embedding_generation\",\n                input_data={\"documents\": batch},\n                parent_task_id=task.id\n            )\n        )\n\n    # Phase 2: Create cluster summaries\n    cluster_tasks = []\n    for cluster_id, docs in clusters.items():\n        cluster_tasks.append(\n            SubTask(\n                id=str(uuid.uuid4()),\n                type=\"cluster_summarization\",\n                input_data={\n                    \"cluster_id\": cluster_id,\n                    \"documents\": docs\n                },\n                parent_task_id=task.id\n            )\n        )\n\n    return embedding_tasks + cluster_tasks",
+          "aggregation": "def aggregate_clustering_results(results: List[Any]) -> Dict[str, Any]:\n    # Separate embedding results from summaries\n    embedding_results = [r for r in results if \"embeddings\" in r]\n    summary_results = [r for r in results if \"summary\" in r]\n\n    # Combine all embeddings and cluster documents\n    all_embeddings = []\n    for r in embedding_results:\n        all_embeddings.extend(r[\"embeddings\"])\n\n    # Create final clustering result\n    clusters = {}\n    for r in summary_results:\n        cluster_id = r[\"cluster_id\"]\n        clusters[cluster_id] = {\n            \"summary\": r[\"summary\"],\n            \"documents\": r[\"documents\"],\n            \"keywords\": r.get(\"keywords\", [])\n        }\n\n    return {\n        \"clusters\": clusters,\n        \"statistics\": {\n            \"num_clusters\": len(clusters),\n            \"total_documents\": sum(len(c[\"documents\"]) for c in clusters.values())\n        }\n    }"
         },
         "validation": {
           "input_requirements": [

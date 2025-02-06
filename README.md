@@ -12,6 +12,28 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 ![claude-3-sonnet-20240229](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/claude-3-sonnet-20240229.json)
 ![claude-instant-1.2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/claude-instant-1.2.json)
 
+## Getting Started
+
+## Documentation Index
+
+The following README files provide detailed documentation for different components of the system:
+
+### Core Components
+- [Agent System](src/agents/README.md) - Documentation for the agent system and agent pool
+- [LLM Core](src/llm/README.md) - Core LLM functionality and chain implementations
+- [LLM Interfaces](src/llm/interfaces/README.md) - LLM provider interface implementations
+- [LLM Models](src/llm/models/README.md) - Model configurations and capabilities
+- [Prompts](src/prompts/README.md) - Prompt template system and management
+
+### Applications
+- [Applications Overview](src/applications/README.md) - Guide to creating and structuring applications
+- [PDFReader](src/applications/pdfreader/README.md) - PDF data extraction application
+- [FunctionRunner](src/applications/funcrunner/README.md) - Natural language function execution
+
+### Visualization and Configuration
+- [Visualization](src/visualization/README.md) - Chain visualization tools and patterns
+- [Configuration](config/README.md) - Configuration system and setup guide
+
 ## Architecture
 
 The system is built around three main concepts:
@@ -52,7 +74,7 @@ Each application follows a standardized structure and includes:
 
 ## Examples
 
-Each example demonstrates how LLM Orchestrator handles tasks that would typically exceed token limits by:
+Each example demonstrates how LLMaestro handles tasks that would typically exceed token limits by:
 - Automatically decomposing large tasks into manageable chunks
 - Processing subtasks in parallel where possible
 - Managing context and resources efficiently

@@ -1,4 +1,4 @@
-"""LLM Orchestrator package."""
+"""LLMaestro package."""
 
 __version__ = "0.1.0"
 

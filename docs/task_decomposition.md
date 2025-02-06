@@ -1,6 +1,6 @@
 # Task Decomposition
 
-The LLM Orchestrator supports both static and dynamic task decomposition strategies. This allows tasks to be broken down into subtasks that can be processed in parallel, with results aggregated back together.
+The LLMaestro supports both static and dynamic task decomposition strategies. This allows tasks to be broken down into subtasks that can be processed in parallel, with results aggregated back together.
 
 ## Built-in Strategies
 

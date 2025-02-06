@@ -1,6 +1,6 @@
 # Configuration
 
-This directory contains configuration files and schemas for the LLM Orchestrator.
+This directory contains configuration files and schemas for the LLMaestro.
 
 ## Files
 

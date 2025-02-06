@@ -1,7 +1,7 @@
 name: "context_summarizer"
 version: "1.0.0"
 description: "Summarizes conversation context when approaching token limits"
-author: "LLM Orchestrator Team"
+author: "LLMaestro Team"
 git_metadata:
   created:
     commit: "initial"

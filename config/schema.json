@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "LLM Orchestrator Configuration",
-  "description": "Configuration schema for LLM Orchestrator",
+  "title": "LLMaestro Configuration",
+  "description": "Configuration schema for LLMaestro",
   "type": "object",
   "required": ["llm"],
   "properties": {

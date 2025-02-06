@@ -104,6 +104,45 @@ The pool can be configured with:
 - `max_agents`: Maximum number of concurrent agents
 - Agent-specific configurations through `AgentConfig`
 
+Additionally, the pool now supports multiple agent types through the `AgentPoolConfig` system:
+
+```python
+# In your config.yaml
+agents:
+  max_agents: 10
+  default_agent_type: "general"
+  agent_types:
+    general:
+      model_name: "gpt-4"
+      max_tokens: 8192
+      description: "General purpose agent"
+    fast:
+      model_name: "gpt-3.5-turbo"
+      max_tokens: 4096
+      description: "Fast, lightweight agent for simple tasks"
+    specialist:
+      model_name: "claude-3-opus-20240229"
+      max_tokens: 16384
+      description: "Specialist agent for complex tasks"
+```
+
+You can request specific agent types when submitting tasks:
+
+```python
+# Get default agent
+agent = pool.get_agent(task_id)
+
+# Get specific type of agent
+fast_agent = pool.get_agent(task_id, agent_type="fast")
+specialist_agent = pool.get_agent(task_id, agent_type="specialist")
+```
+
+This configuration system allows you to:
+- Define multiple agent types with different capabilities
+- Set appropriate resource limits per agent type
+- Match agent types to task requirements
+- Maintain a default agent type for general tasks
+
 ## Best Practices
 
 1. **Task Design**:
@@ -150,11 +189,19 @@ The agent system now uses the chain system for task processing, providing:
    - Chain result caching
 
 2. **Resource Optimization**:
-   - Smart agent pooling
-   - Load balancing
-   - Priority queuing
+   - Smart agent pooling with automatic type selection
+   - Dynamic load balancing based on agent types
+   - Priority queuing with agent type preferences
+   - Automatic scaling of agent pools based on task patterns
 
 3. **Monitoring**:
-   - Task execution metrics
-   - Agent performance tracking
-   - Resource utilization stats
+   - Task execution metrics per agent type
+   - Performance tracking across different agent configurations
+   - Resource utilization stats by agent type
+   - Cost optimization recommendations
+
+4. **Agent Type Management**:
+   - Dynamic agent type creation based on task patterns
+   - Automatic agent type suggestion based on task characteristics
+   - A/B testing of different agent configurations
+   - Cost-performance optimization across agent types

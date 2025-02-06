@@ -1,0 +1,53 @@
+name: validate_readmes
+description: Validate if README files need updates based on code changes
+version: "1.0"
+author: "LLMaestro"
+
+metadata:
+  expected_response:
+    format: json
+    schema:
+      type: object
+      properties:
+        needs_updates:
+          type: object
+          description: Map of README paths to whether they need updates
+          additionalProperties:
+            type: boolean
+        update_suggestions:
+          type: object
+          description: Suggested updates for each README
+          additionalProperties:
+            type: string
+
+system_prompt: |
+  You are a technical documentation specialist who ensures documentation stays in sync with code changes.
+  Your task is to:
+  1. Review the provided README files
+  2. Analyze the code changes
+  3. Determine if each README needs updates
+  4. Suggest specific updates where needed
+
+  Format your response as JSON with the following structure:
+  {
+    "needs_updates": {
+      "path/to/readme.md": true/false
+    },
+    "update_suggestions": {
+      "path/to/readme.md": "Suggested update text"
+    }
+  }
+
+user_prompt: |
+  Please analyze the following README files in the context of recent changes:
+
+  Changes made:
+  {changes}
+
+  README files to validate:
+  {readmes}
+
+  For each README:
+  1. Check if it needs updates based on the changes
+  2. If updates are needed, suggest specific modifications
+  3. Consider both direct and indirect documentation impacts

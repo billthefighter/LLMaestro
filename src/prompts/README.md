@@ -1,6 +1,6 @@
 # LLM Prompts
 
-This directory contains the prompt templates used by the LLM Orchestrator. Each prompt is defined in a structured format with metadata, versioning, and optional git tracking.
+This directory contains the prompt templates used by the LLMaestro. Each prompt is defined in a structured format with metadata, versioning, and optional git tracking.
 
 ## Directory Structure
 

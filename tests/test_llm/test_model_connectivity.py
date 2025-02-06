@@ -14,7 +14,7 @@ from src.llm.models import (
     ModelDescriptor,
     ModelCapabilities,
 )
-from src.llm.interfaces import create_interface_for_model, BaseLLMInterface
+from src.llm.interfaces.factory import create_interface_for_model, BaseLLMInterface
 from src.core.models import AgentConfig
 from src.core.config import get_config, Config
 from src.core.config import LLMConfig, StorageConfig, VisualizationConfig, LoggingConfig

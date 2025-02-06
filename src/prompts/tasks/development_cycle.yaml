@@ -1,7 +1,7 @@
 name: "development_cycle"
 version: "1.0.0"
 description: "Manages a complete development cycle including feature implementation, testing, bug fixing, and documentation updates"
-author: "LLM Orchestrator Team"
+author: "LLMaestro Team"
 metadata:
   type: "code_development"
   model_requirements:

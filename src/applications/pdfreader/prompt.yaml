@@ -37,7 +37,7 @@ metadata:
 current_version:
   number: "1.0.0"
   timestamp: "2024-02-04T00:00:00Z"
-  author: "LLM Orchestrator Team"
+  author: "LLMaestro Team"
   description: "Initial version"
   change_type: "major"
 

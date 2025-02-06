@@ -123,7 +123,7 @@ jobs:
         <!DOCTYPE html>
         <html>
         <head>
-            <title>LLM Orchestrator - Model Status</title>
+            <title>LLMaestro - Model Status</title>
             <style>
                 body { font-family: Arial, sans-serif; margin: 2em; }
                 .badge-list { list-style: none; padding: 0; }
@@ -133,7 +133,7 @@ jobs:
             </style>
         </head>
         <body>
-            <h1>LLM Orchestrator - Model Status</h1>
+            <h1>LLMaestro - Model Status</h1>
             <div class="badge-list">
         EOL
 

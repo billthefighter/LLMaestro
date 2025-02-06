@@ -1,6 +1,6 @@
 # Visualization Module
 
-This module provides tools for visualizing LLM Orchestrator's chain execution patterns using Cytoscape.js. It generates interactive visualizations that help understand how complex tasks are broken down and processed.
+This module provides tools for visualizing LLMaestro's chain execution patterns using Cytoscape.js. It generates interactive visualizations that help understand how complex tasks are broken down and processed.
 
 ## Components
 

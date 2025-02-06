@@ -1,4 +1,4 @@
-# Test Best Practices for LLM Orchestrator
+# Test Best Practices for LLMaestro
 
 ## Core Principles
 

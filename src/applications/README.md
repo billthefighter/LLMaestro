@@ -1,6 +1,6 @@
 # Applications
 
-This directory contains example applications built using the LLM Orchestrator framework. Each application demonstrates best practices for structuring and implementing LLM-powered tools.
+This directory contains example applications built using the LLMaestro framework. Each application demonstrates best practices for structuring and implementing LLM-powered tools.
 
 ## Application Structure
 

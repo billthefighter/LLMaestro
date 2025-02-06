@@ -46,6 +46,29 @@ class LoggingConfig:
 
 
 @dataclass
+class AgentConfig:
+    """Configuration for a single agent type."""
+
+    model_name: str
+    max_tokens: int = 8192
+    temperature: float = 0.7
+    description: str = ""  # Optional description of when to use this agent type
+
+
+@dataclass
+class AgentPoolConfig:
+    """Configuration for the agent pool."""
+
+    max_agents: int = 10
+    default_agent_type: str = "default"  # Key in agent_types dict
+    agent_types: dict[str, AgentConfig] = field(
+        default_factory=lambda: {
+            "default": AgentConfig(model_name="gpt-4", description="Default general-purpose agent")
+        }
+    )
+
+
+@dataclass
 class Config:
     """Global configuration container."""
 
@@ -53,6 +76,7 @@ class Config:
     storage: StorageConfig = field(default_factory=StorageConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    agents: AgentPoolConfig = field(default_factory=AgentPoolConfig)
 
     @classmethod
     def load(cls, config_path: Optional[Union[str, Path]] = None) -> "Config":
@@ -119,6 +143,7 @@ class Config:
             storage=StorageConfig(**(config_data.get("storage", {}))),
             visualization=VisualizationConfig(**(config_data.get("visualization", {}))),
             logging=LoggingConfig(**(config_data.get("logging", {}))),
+            agents=AgentPoolConfig(**(config_data.get("agents", {}))),
         )
 
 

@@ -1,7 +1,7 @@
 name: "pdf_content_analyzer"
 version: "1.0.0"
 description: "Analyzes PDF content to identify topics, themes, and key information"
-author: "LLM Orchestrator Team"
+author: "LLMaestro Team"
 git_metadata:
   created:
     commit: "initial"
