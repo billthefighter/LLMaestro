@@ -60,8 +60,32 @@ class TestModelConnectivity:
         try:
             # Create config directly from YAML data, bypassing schema validation
             config_path = Path("config/config.yaml")
+
+            # Create minimal config if it doesn't exist
             if not config_path.exists():
-                return None
+                config_path.parent.mkdir(exist_ok=True)
+                minimal_config = {
+                    "llm": {
+                        "provider": "anthropic",
+                        "model": "claude-3-sonnet-latest",
+                        "api_key": "dummy-key",
+                        "max_tokens": 100
+                    },
+                    "storage": {
+                        "path": "chain_storage",
+                        "format": "json"
+                    },
+                    "visualization": {
+                        "host": "localhost",
+                        "port": 8765
+                    },
+                    "logging": {
+                        "level": "INFO",
+                        "file": "orchestrator.log"
+                    }
+                }
+                with open(config_path, 'w') as f:
+                    yaml.safe_dump(minimal_config, f)
 
             with open(config_path) as f:
                 config_data = yaml.safe_load(f)

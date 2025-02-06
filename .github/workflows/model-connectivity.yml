@@ -55,6 +55,26 @@ jobs:
       run: |
         poetry add sqlalchemy
 
+    - name: Create test config
+      run: |
+        mkdir -p config
+        cat > config/config.yaml << 'EOL'
+        llm:
+          provider: anthropic
+          model: claude-3-sonnet-latest
+          api_key: dummy-key
+          max_tokens: 100
+        storage:
+          path: chain_storage
+          format: json
+        visualization:
+          host: localhost
+          port: 8765
+        logging:
+          level: INFO
+          file: orchestrator.log
+        EOL
+
     - name: Run connectivity tests
       id: run_tests
       continue-on-error: true
