@@ -1,0 +1,70 @@
+description: Extract taxable items from receipt/invoice PDF content
+metadata:
+  model_requirements:
+    min_tokens: 1000
+    capabilities: ["json", "vision"]
+  expected_response:
+    format: "json"
+    schema:
+      type: "object"
+      properties:
+        items:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              date:
+                type: "string"
+                description: "Date of the purchase in YYYY-MM-DD format"
+              category:
+                type: "string"
+                description: "Category of the purchase (e.g., Office Supplies, Travel, Equipment)"
+              cost:
+                type: "number"
+                description: "Cost of the item"
+              supplier:
+                type: "string"
+                description: "Name of the supplier/vendor"
+              source_file:
+                type: "string"
+                description: "Name of the PDF file this item came from"
+              description:
+                type: "string"
+                description: "Description of the purchased item"
+              tax_code:
+                type: "string"
+                description: "Tax code or category if available"
+              notes:
+                type: "string"
+                description: "Any additional notes or context"
+  decomposition:
+    strategy: "file"
+    max_parallel: 5
+
+system_prompt: |
+  You are a tax document processing assistant. Your task is to analyze PDF receipts and invoices to extract
+  taxable items. For each item found, extract the relevant information including date, category, cost, supplier, and other details.
+
+  You will be provided with PDF files directly. Analyze the visual content and any text to extract the required information.
+
+  Format the output as a JSON object with an "items" array containing all extracted items. Each item should include:
+  - date: The purchase date in YYYY-MM-DD format if possible
+  - category: The type of purchase (e.g., Office Supplies, Travel, Equipment)
+  - cost: The numerical cost of the item
+  - supplier: The vendor or supplier name
+  - source_file: The name of the PDF file being processed
+  - description: A clear description of what was purchased
+  - tax_code: Any tax codes or categories mentioned (if available)
+  - notes: Any additional relevant information
+
+  Be thorough in extracting all items from the document. If multiple items appear on one receipt, create separate entries for each.
+  If certain fields are unclear or missing, make reasonable assumptions based on context but note this in the notes field.
+
+user_prompt: |
+  Please analyze the following receipt/invoice PDF and extract all taxable items:
+
+  Source File: {file_data.key}
+  [A PDF file has been attached for analysis]
+
+  Extract all items and format them according to the specified JSON schema. Make sure to include the source filename
+  in each item's source_file field.

@@ -34,12 +34,133 @@ llm = create_llm_interface(config)
 llm.set_initial_task("Refactor the user authentication system to use JWT tokens")
 ```
 
-#### Reminder Settings
+## Prompt Integration
 
-- `reminder_frequency`: Number of messages between reminders (default: 5, set to 0 to disable)
-- `reminder_template`: Template for formatting the reminder message
-- Reminders are automatically inserted as system messages
-- The initial task is always preserved during context summarization
+The LLM module now provides tight integration with the prompt system through the `process_prompt` method. This integration enables:
+- Type-safe prompt handling
+- Automatic media type validation
+- Token estimation and rate limiting
+- Structured file attachments
+
+### Using Structured Prompts
+
+```python
+from src.prompts.base import BasePrompt
+from src.llm.models import MediaType
+
+# Create a prompt with file attachments
+prompt = BasePrompt(
+    name="image_analysis",
+    description="Analyze an image with specific focus areas",
+    system_prompt="You are an image analysis assistant.",
+    user_prompt="Please analyze this image, focusing on: {focus_areas}",
+    metadata=PromptMetadata(...)
+)
+
+# Add file attachments
+with open("image.jpg", "rb") as f:
+    prompt.add_attachment(
+        content=f.read(),
+        media_type=MediaType.JPEG,
+        file_name="image.jpg",
+        description="Input image to analyze"
+    )
+
+# Process the prompt with variables
+response = await llm.process_prompt(
+    prompt,
+    variables={
+        "focus_areas": "lighting, composition, subject placement"
+    }
+)
+```
+
+### Media Type Support
+
+The system automatically validates media types against model capabilities:
+
+```python
+# Check if model supports a media type
+if llm.supports_media_type(MediaType.PDF):
+    # Add PDF attachment
+    prompt.add_attachment(
+        content=pdf_content,
+        media_type=MediaType.PDF,
+        file_name="document.pdf"
+    )
+
+# Validation happens automatically in process_prompt
+try:
+    response = await llm.process_prompt(prompt)
+except ValueError as e:
+    print(f"Media type not supported: {e}")
+```
+
+### Token Estimation
+
+Prompts include built-in token estimation:
+
+```python
+# Estimate tokens before processing
+estimates = prompt.estimate_tokens(
+    model_family=llm.model_family,
+    model_name=llm.config.model_name,
+    variables={"focus_areas": "lighting, composition"}
+)
+
+print(f"Estimated tokens: {estimates['total_tokens']}")
+print(f"Has variables: {estimates['has_variables']}")
+print(f"Is estimate: {estimates['is_estimate']}")
+
+# Validate context window
+is_valid, error = prompt.validate_context(
+    model_family=llm.model_family,
+    model_name=llm.config.model_name,
+    max_completion_tokens=1000
+)
+if not is_valid:
+    print(f"Context too large: {error}")
+```
+
+### Handling Multiple Attachments
+
+Prompts can handle multiple attachments with different media types:
+
+```python
+# Add multiple attachments
+prompt.add_attachment(
+    content=image1_content,
+    media_type=MediaType.JPEG,
+    file_name="image1.jpg"
+)
+prompt.add_attachment(
+    content=image2_content,
+    media_type=MediaType.PNG,
+    file_name="image2.png"
+)
+
+# Clear attachments if needed
+prompt.clear_attachments()
+```
+
+### Integration with Model Capabilities
+
+The system automatically checks model capabilities:
+
+```python
+# Model capabilities are checked automatically
+if llm.capabilities and llm.capabilities.supports_vision:
+    # Add image attachments
+    for image in images:
+        prompt.add_attachment(
+            content=image.content,
+            media_type=MediaType.from_file_extension(image.path),
+            file_name=image.name
+        )
+
+# Process with automatic capability validation
+response = await llm.process_prompt(prompt)
+```
 
 ## Context Summarization
 

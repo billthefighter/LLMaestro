@@ -3,13 +3,22 @@ import json
 import re
 from abc import abstractmethod
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, Field
 
-from src.llm.models import ModelFamily
+from src.llm.models import MediaType, ModelFamily
 from src.llm.token_utils import TokenCounter
 from src.prompts.types import PromptMetadata, VersionInfo
+
+
+class FileAttachment(BaseModel):
+    """Represents a file attachment for a prompt."""
+
+    content: Union[str, bytes]
+    media_type: MediaType
+    file_name: str
+    description: Optional[str] = None
 
 
 class BasePrompt(BaseModel):
@@ -21,6 +30,7 @@ class BasePrompt(BaseModel):
     user_prompt: str
     metadata: PromptMetadata
     examples: Optional[List[Dict[str, Any]]] = None
+    attachments: List[FileAttachment] = Field(default_factory=list)
 
     # Version control
     current_version: VersionInfo
@@ -28,6 +38,33 @@ class BasePrompt(BaseModel):
 
     # Token counting
     _token_counter: Optional[TokenCounter] = None
+
+    def add_attachment(
+        self,
+        content: Union[str, bytes],
+        media_type: Union[str, MediaType],
+        file_name: str,
+        description: Optional[str] = None,
+    ) -> None:
+        """Add a file attachment to the prompt.
+
+        Args:
+            content: The file content as string or bytes
+            media_type: The media type (MIME type) of the file
+            file_name: Name of the file
+            description: Optional description of the attachment
+        """
+        if isinstance(media_type, str):
+            media_type = MediaType.from_mime_type(media_type)
+
+        attachment = FileAttachment(
+            content=content, media_type=media_type, file_name=file_name, description=description
+        )
+        self.attachments.append(attachment)
+
+    def clear_attachments(self) -> None:
+        """Remove all attachments from the prompt."""
+        self.attachments.clear()
 
     def model_dump_json(self, **kwargs) -> str:
         data = self.model_dump(**kwargs)
@@ -38,13 +75,25 @@ class BasePrompt(BaseModel):
                 version["timestamp"] = version["timestamp"].isoformat()
         return json.dumps(data, **kwargs)
 
-    def render(self, **kwargs) -> Tuple[str, str]:
-        """Render the prompt template with the given variables."""
+    def render(self, **kwargs) -> Tuple[str, str, List[Dict[str, Any]]]:
+        """Render the prompt template with the given variables.
+
+        Returns:
+            Tuple of (system_prompt, user_prompt, attachments)
+            where attachments is a list of dicts compatible with LLM interface
+        """
         self._validate_template()  # Validate before rendering
         try:
             formatted_system_prompt = self.system_prompt.format(**kwargs)
             formatted_user_prompt = self.user_prompt.format(**kwargs)
-            return formatted_system_prompt, formatted_user_prompt
+
+            # Format attachments for LLM interface
+            formatted_attachments = [
+                {"content": att.content, "mime_type": str(att.media_type), "file_name": att.file_name}
+                for att in self.attachments
+            ]
+
+            return formatted_system_prompt, formatted_user_prompt, formatted_attachments
         except KeyError as e:
             required_vars = self._extract_template_vars()
             missing_vars = [var for var in required_vars if var not in kwargs]
@@ -144,7 +193,7 @@ class BasePrompt(BaseModel):
         try:
             # Try to render with provided variables
             if variables:
-                system, user = self.render(**variables)
+                system, user, _ = self.render(**variables)
             else:
                 # Use template analysis for estimation
                 system = self.system_prompt

@@ -1,10 +1,8 @@
 import base64
 import json
-import mimetypes
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
@@ -12,57 +10,10 @@ from litellm import acompletion
 from pydantic import BaseModel
 
 from src.core.models import AgentConfig, ContextMetrics, TokenUsage
-from src.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
+from src.llm.models import MediaType, ModelDescriptor, ModelFamily, ModelRegistry
 from src.llm.rate_limiter import RateLimitConfig, RateLimiter, SQLiteQuotaStorage
 from src.llm.token_utils import TokenCounter
-
-
-class MediaType(Enum):
-    """Standard media types for LLM inputs.
-
-    This enum represents commonly supported media types across different LLM providers.
-    Each provider may support a subset of these types.
-    """
-
-    # Image formats
-    JPEG = "image/jpeg"
-    PNG = "image/png"
-    GIF = "image/gif"
-    WEBP = "image/webp"
-    BMP = "image/bmp"
-    TIFF = "image/tiff"
-    SVG = "image/svg+xml"
-
-    # Document formats (for future use)
-    PDF = "application/pdf"
-
-    # Fallback
-    UNKNOWN = "application/octet-stream"
-
-    @classmethod
-    def from_mime_type(cls, mime_type: str) -> "MediaType":
-        """Convert a MIME type string to MediaType enum."""
-        try:
-            return cls(mime_type)
-        except ValueError:
-            return cls.UNKNOWN
-
-    @classmethod
-    def from_file_extension(cls, file_path: Union[str, Path]) -> "MediaType":
-        """Detect media type from file extension."""
-        mime_type = mimetypes.guess_type(str(file_path))[0]
-        return cls.from_mime_type(mime_type or "application/octet-stream")
-
-    def is_image(self) -> bool:
-        """Check if this media type represents an image format."""
-        return self.value.startswith("image/")
-
-    def is_document(self) -> bool:
-        """Check if this media type represents a document format."""
-        return self.value.startswith("application/")
-
-    def __str__(self) -> str:
-        return self.value
+from src.prompts.base import BasePrompt
 
 
 @dataclass
@@ -134,7 +85,7 @@ class BaseLLMInterface(ABC):
     """Base interface for LLM interactions."""
 
     # Default supported media types (can be overridden by specific implementations)
-    SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG}
+    SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG, MediaType.PDF}
 
     def __init__(self, config: AgentConfig, model_registry: Optional[ModelRegistry] = None):
         self.config = config
@@ -497,3 +448,55 @@ class BaseLLMInterface(ABC):
         if isinstance(media_type, str):
             media_type = MediaType.from_mime_type(media_type)
         return media_type in self.SUPPORTED_MEDIA_TYPES
+
+    async def process_prompt(self, prompt: BasePrompt, variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
+        """Process a BasePrompt object and return a response.
+
+        Args:
+            prompt: The BasePrompt object to process
+            variables: Optional variables to render the prompt with
+
+        Returns:
+            LLMResponse containing the model's response
+        """
+        # Validate prompt against model capabilities
+        if prompt.attachments:
+            for attachment in prompt.attachments:
+                if not self.supports_media_type(attachment.media_type):
+                    raise ValueError(
+                        f"Media type {attachment.media_type} not supported by model {self.config.model_name}"
+                    )
+
+        # Render the prompt with variables
+        system_prompt, user_prompt, attachments = prompt.render(**(variables or {}))
+
+        # Convert attachments to ImageInput objects
+        image_inputs = [
+            ImageInput(content=att["content"], media_type=att["mime_type"], file_name=att["file_name"])
+            for att in (attachments or [])
+        ]
+
+        # Format messages
+        messages = self._format_messages(
+            input_data=user_prompt, system_prompt=system_prompt, images=image_inputs if image_inputs else None
+        )
+
+        # Check rate limits
+        estimates = prompt.estimate_tokens(self.model_family, self.config.model_name, variables)
+        can_proceed, error = await self._check_rate_limits(messages, estimates["total_tokens"])
+        if not can_proceed:
+            return LLMResponse(content=error or "Rate limit exceeded", metadata={"error": error})
+
+        try:
+            # Process with model
+            stream = await acompletion(
+                model=self.config.model_name,
+                messages=messages,
+                max_tokens=self.config.max_tokens,
+                stream=True,
+            )
+
+            return await self._handle_response(stream, messages)
+
+        except Exception as e:
+            return self._handle_error(e)

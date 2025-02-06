@@ -2,9 +2,11 @@
 import pytest
 from datetime import datetime, timedelta
 from pydantic import ValidationError
+import base64
 
-from src.prompts.base import BasePrompt, PromptMetadata
+from src.prompts.base import BasePrompt, PromptMetadata, FileAttachment
 from src.prompts.types import VersionInfo, ResponseFormat
+from src.llm.models import MediaType
 
 # Test Data Fixtures
 @pytest.fixture
@@ -70,6 +72,21 @@ def base_prompt(valid_prompt_data):
             return None
 
     return TestPrompt(**valid_prompt_data)
+
+@pytest.fixture
+def sample_image_content():
+    """Sample image content for testing."""
+    return base64.b64encode(b"fake_image_data").decode()
+
+@pytest.fixture
+def sample_file_attachment(sample_image_content):
+    """Sample file attachment for testing."""
+    return FileAttachment(
+        content=sample_image_content,
+        media_type=MediaType.JPEG,
+        file_name="test.jpg",
+        description="Test image"
+    )
 
 # Initialization Tests
 class TestBasePromptInitialization:
@@ -242,3 +259,116 @@ class TestPromptMetadata:
         assert metadata.is_active is True
         assert metadata.tags == []
         assert metadata.model_requirements is None
+
+class TestFileAttachments:
+    """Tests for file attachment functionality."""
+
+    def test_add_attachment(self, base_prompt, sample_image_content):
+        """Test adding a file attachment."""
+        base_prompt.add_attachment(
+            content=sample_image_content,
+            media_type=MediaType.JPEG,
+            file_name="test.jpg",
+            description="Test image"
+        )
+
+        assert len(base_prompt.attachments) == 1
+        attachment = base_prompt.attachments[0]
+        assert attachment.content == sample_image_content
+        assert attachment.media_type == MediaType.JPEG
+        assert attachment.file_name == "test.jpg"
+        assert attachment.description == "Test image"
+
+    def test_add_attachment_with_string_media_type(self, base_prompt, sample_image_content):
+        """Test adding attachment with string media type."""
+        base_prompt.add_attachment(
+            content=sample_image_content,
+            media_type="image/jpeg",
+            file_name="test.jpg"
+        )
+
+        assert len(base_prompt.attachments) == 1
+        assert base_prompt.attachments[0].media_type == MediaType.JPEG
+
+    def test_clear_attachments(self, base_prompt, sample_file_attachment):
+        """Test clearing attachments."""
+        # Add two attachments
+        base_prompt.add_attachment(
+            content=sample_file_attachment.content,
+            media_type=sample_file_attachment.media_type,
+            file_name=sample_file_attachment.file_name
+        )
+        base_prompt.add_attachment(
+            content=sample_file_attachment.content,
+            media_type=MediaType.PNG,
+            file_name="test2.png"
+        )
+
+        assert len(base_prompt.attachments) == 2
+
+        # Clear attachments
+        base_prompt.clear_attachments()
+        assert len(base_prompt.attachments) == 0
+
+    def test_render_with_attachments(self, base_prompt, sample_file_attachment):
+        """Test rendering prompt with attachments."""
+        base_prompt.add_attachment(
+            content=sample_file_attachment.content,
+            media_type=sample_file_attachment.media_type,
+            file_name=sample_file_attachment.file_name
+        )
+
+        system, user, attachments = base_prompt.render(
+            context="test context",
+            name="John",
+            query="help me"
+        )
+
+        assert system == "You are a test assistant. Context: test context"
+        assert user == "Hello John, help me"
+        assert len(attachments) == 1
+
+        attachment = attachments[0]
+        assert attachment["content"] == sample_file_attachment.content
+        assert attachment["mime_type"] == str(sample_file_attachment.media_type)
+        assert attachment["file_name"] == sample_file_attachment.file_name
+
+    def test_render_with_multiple_attachments(self, base_prompt, sample_file_attachment):
+        """Test rendering with multiple attachments."""
+        # Add JPEG attachment
+        base_prompt.add_attachment(
+            content=sample_file_attachment.content,
+            media_type=MediaType.JPEG,
+            file_name="test1.jpg"
+        )
+
+        # Add PNG attachment
+        base_prompt.add_attachment(
+            content=sample_file_attachment.content,
+            media_type=MediaType.PNG,
+            file_name="test2.png"
+        )
+
+        _, _, attachments = base_prompt.render(
+            context="test context",
+            name="John",
+            query="help me"
+        )
+
+        assert len(attachments) == 2
+        assert attachments[0]["mime_type"] == str(MediaType.JPEG)
+        assert attachments[1]["mime_type"] == str(MediaType.PNG)
+
+    def test_attachment_validation(self, base_prompt):
+        """Test validation of attachment fields."""
+        with pytest.raises(ValidationError):
+            # Missing required fields
+            FileAttachment()
+
+        with pytest.raises(ValidationError):
+            # Invalid media type
+            FileAttachment(
+                content="test",
+                media_type="invalid_type",
+                file_name="test.txt"
+            )

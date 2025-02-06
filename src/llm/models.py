@@ -1,5 +1,6 @@
 """Model family descriptors for LLM interfaces."""
 import json
+import mimetypes
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -19,6 +20,57 @@ class ModelFamily(str, Enum):
     GPT = "gpt"
     CLAUDE = "claude"
     HUGGINGFACE = "huggingface"
+
+
+class MediaType(str, Enum):
+    """Standard media types for LLM inputs.
+
+    This enum represents commonly supported media types across different LLM providers.
+    Each provider may support a subset of these types.
+    """
+
+    # Image formats
+    JPEG = "image/jpeg"
+    PNG = "image/png"
+    GIF = "image/gif"
+    WEBP = "image/webp"
+    BMP = "image/bmp"
+    TIFF = "image/tiff"
+    SVG = "image/svg+xml"
+
+    # Document formats
+    PDF = "application/pdf"
+    DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    DOC = "application/msword"
+    TXT = "text/plain"
+
+    # Fallback
+    UNKNOWN = "application/octet-stream"
+
+    @classmethod
+    def from_mime_type(cls, mime_type: str) -> "MediaType":
+        """Convert a MIME type string to MediaType enum."""
+        try:
+            return cls(mime_type)
+        except ValueError:
+            return cls.UNKNOWN
+
+    @classmethod
+    def from_file_extension(cls, file_path: Union[str, Path]) -> "MediaType":
+        """Detect media type from file extension."""
+        mime_type = mimetypes.guess_type(str(file_path))[0]
+        return cls.from_mime_type(mime_type or "application/octet-stream")
+
+    def is_image(self) -> bool:
+        """Check if this media type represents an image format."""
+        return self.value.startswith("image/")
+
+    def is_document(self) -> bool:
+        """Check if this media type represents a document format."""
+        return self.value.startswith("application/")
+
+    def __str__(self) -> str:
+        return self.value
 
 
 class RangeConfig(BaseModel):
