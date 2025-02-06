@@ -75,20 +75,19 @@ jobs:
           file: orchestrator.log
         EOL
 
-    - name: Run connectivity tests
-      id: run_tests
+    - name: Run model validation
+      id: run_validation
       continue-on-error: true
       env:
         ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: |
         mkdir -p test-results
-        poetry run pytest tests/test_llm/test_model_connectivity.py -v --junitxml=test-results/junit.xml
+        poetry run python scripts/validate_model_connectivity.py
 
     - name: Generate badges
       if: always()
       run: |
-        poetry run python scripts/generate_model_badges.py
         poetry run python scripts/update_readme_badges.py
         echo "Generated badge files:"
         ls -la test-results/badges/
