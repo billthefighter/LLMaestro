@@ -41,9 +41,9 @@ repos:
       files: ^pyproject\.toml$
       pass_filenames: false
       stages: [pre-commit, pre-push]
-    - id: update-changelist
-      name: Update changelist.md
-      entry: poetry run python scripts/update_changelist.py
-      language: system
-      pass_filenames: false
-      stages: [pre-push]
+    #- id: update-changelist
+    #  name: Update changelist.md
+    #  entry: poetry run python scripts/update_changelist.py
+    #  language: system
+    #  pass_filenames: false
+    #  stages: [pre-push]
