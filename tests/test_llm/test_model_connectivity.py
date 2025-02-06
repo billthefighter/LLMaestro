@@ -5,15 +5,19 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import yaml
 
 from src.llm.models import (
     ModelRegistry,
     register_all_models,
     ModelFamily,
     ModelDescriptor,
+    ModelCapabilities,
 )
 from src.llm.interfaces import create_interface_for_model, BaseLLMInterface
 from src.core.models import AgentConfig
+from src.core.config import get_config, Config
+from src.core.config import LLMConfig, StorageConfig, VisualizationConfig, LoggingConfig
 
 # Test message that should work across all models
 HELLO_WORLD_PROMPT = "Say hello world"
@@ -51,12 +55,31 @@ class TestModelConnectivity:
         save_test_results()
 
     @pytest.fixture
+    def config(self) -> Optional[Config]:
+        """Get configuration, trying config file first then environment variables."""
+        try:
+            # Create config directly from YAML data, bypassing schema validation
+            config_path = Path("config/config.yaml")
+            if not config_path.exists():
+                return None
+
+            with open(config_path) as f:
+                config_data = yaml.safe_load(f)
+
+            return Config(
+                llm=LLMConfig(**config_data["llm"]),
+                storage=StorageConfig(**(config_data.get("storage", {}))),
+                visualization=VisualizationConfig(**(config_data.get("visualization", {}))),
+                logging=LoggingConfig(**(config_data.get("logging", {}))),
+            )
+        except Exception as e:
+            print(f"Warning: Failed to load config: {e}")
+            return None
+
+    @pytest.fixture
     async def model_registry(self):
         """Initialize and return the model registry."""
-        registry = await register_all_models(
-            anthropic_api_key=os.getenv("ANTHROPIC_API_KEY"),
-            openai_api_key=os.getenv("OPENAI_API_KEY")
-        )
+        registry = ModelRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
 
         # Pre-register all models as skipped
         for family in ModelFamily:
@@ -72,11 +95,17 @@ class TestModelConnectivity:
         models = self.get_test_models(model_registry)
         return models[request.param] if request.param < len(models) else None
 
-    def get_api_key(self, family: ModelFamily) -> Optional[str]:
+    def get_api_key(self, family: ModelFamily, config: Optional[Config] = None) -> Optional[str]:
         """Get the appropriate API key for a model family."""
         if family == ModelFamily.CLAUDE:
+            # Try config first, then environment variable
+            if config and config.llm.provider.lower() == "anthropic":
+                return config.llm.api_key
             return os.getenv("ANTHROPIC_API_KEY")
         elif family == ModelFamily.GPT:
+            # Try config first, then environment variable
+            if config and config.llm.provider.lower() == "openai":
+                return config.llm.api_key
             return os.getenv("OPENAI_API_KEY")
         return None
 
@@ -88,12 +117,12 @@ class TestModelConnectivity:
         return models
 
     @pytest.mark.parametrize("model", range(10), indirect=True)
-    async def test_model_connectivity(self, model: ModelDescriptor, model_registry):
+    async def test_model_connectivity(self, model: ModelDescriptor, model_registry, config):
         """Test connectivity for a specific model."""
         if model is None:
             pytest.skip("No model available at this index")
 
-        api_key = self.get_api_key(model.family)
+        api_key = self.get_api_key(model.family, config)
         if not api_key:
             TEST_RESULTS[model.name] = "skip"
             pytest.skip(f"API key not set for {model.family.value}")
@@ -106,7 +135,7 @@ class TestModelConnectivity:
                 api_key=api_key,
                 max_tokens=100
             )
-            interface: BaseLLMInterface = create_interface_for_model(model, config)
+            interface: BaseLLMInterface = create_interface_for_model(model, config, model_registry)
 
             # Test connectivity with a simple message
             response = await interface.process(

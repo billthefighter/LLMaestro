@@ -1,4 +1,196 @@
 models:
+  - name: claude-3-opus-20240229
+    family: claude
+    capabilities:
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: true
+      supports_embeddings: false
+
+      # Context and Performance
+      max_context_window: 200000
+      max_output_tokens: 4096
+      typical_speed: 1000
+
+      # Cost and Quotas
+      input_cost_per_1k_tokens: 0.015
+      output_cost_per_1k_tokens: 0.075
+      daily_request_limit: 10000
+
+      # Advanced Features
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_message_role: true
+      supports_tools: true
+      supports_parallel_requests: true
+
+      # Input/Output Capabilities
+      supported_languages:
+        - en
+      supported_mime_types:
+        - image/jpeg
+        - image/png
+        - image/gif
+        - image/webp
+
+      # Quality and Control
+      temperature:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 0.7
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+      top_k: 5
+      presence_penalty: 0.0
+      frequency_penalty: 0.0
+      supports_stop_sequences: true
+
+      # Specialized Features
+      supports_semantic_search: true
+      supports_code_completion: true
+      supports_chat_memory: false
+      supports_few_shot_learning: true
+      specialized_features:
+        - "Highest quality model"
+        - "Best for complex tasks"
+        - "Most capable model"
+
+    is_preview: false
+    is_deprecated: false
+    api_version: "2024-02-29"
+    release_date: 2024-02-29
+    end_of_life_date: null
+    recommended_replacement: null
+
+  - name: claude-3-sonnet-20240229
+    family: claude
+    capabilities:
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: true
+      supports_embeddings: false
+
+      # Context and Performance
+      max_context_window: 200000
+      max_output_tokens: 4096
+      typical_speed: 1500
+
+      # Cost and Quotas
+      input_cost_per_1k_tokens: 0.003
+      output_cost_per_1k_tokens: 0.015
+      daily_request_limit: 10000
+
+      # Advanced Features
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_message_role: true
+      supports_tools: true
+      supports_parallel_requests: true
+
+      # Input/Output Capabilities
+      supported_languages:
+        - en
+      supported_mime_types:
+        - image/jpeg
+        - image/png
+
+      # Quality and Control
+      temperature:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 0.7
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+      top_k: 5
+      presence_penalty: 0.0
+      frequency_penalty: 0.0
+      supports_stop_sequences: true
+
+      # Specialized Features
+      supports_semantic_search: true
+      supports_code_completion: true
+      supports_chat_memory: true
+      supports_few_shot_learning: true
+      specialized_features:
+        - "Balanced performance and cost"
+        - "Good for most tasks"
+        - "Fast responses"
+
+    is_preview: false
+    is_deprecated: false
+    api_version: "2024-02-29"
+    release_date: 2024-02-29
+    end_of_life_date: null
+    recommended_replacement: null
+
+  - name: claude-3-haiku-20240229
+    family: claude
+    capabilities:
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: true
+      supports_embeddings: false
+
+      # Context and Performance
+      max_context_window: 200000
+      max_output_tokens: 4096
+      typical_speed: 2000
+
+      # Cost and Quotas
+      input_cost_per_1k_tokens: 0.00025
+      output_cost_per_1k_tokens: 0.00125
+      daily_request_limit: 10000
+
+      # Advanced Features
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_message_role: true
+      supports_tools: false
+      supports_parallel_requests: true
+
+      # Input/Output Capabilities
+      supported_languages:
+        - en
+      supported_mime_types: []
+
+      # Quality and Control
+      temperature:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 0.7
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+      top_k: 5
+      presence_penalty: 0.0
+      frequency_penalty: 0.0
+      supports_stop_sequences: true
+
+      # Specialized Features
+      supports_semantic_search: true
+      supports_code_completion: true
+      supports_chat_memory: false
+      supports_few_shot_learning: true
+      specialized_features:
+        - "Fastest and most cost-effective"
+        - "Good for simple tasks"
+        - "Best for high-volume use"
+
+    is_preview: false
+    is_deprecated: false
+    api_version: "2024-02-29"
+    release_date: 2024-02-29
+    end_of_life_date: null
+    recommended_replacement: null
+
   - name: claude-2.1
     family: claude
     capabilities:
@@ -108,177 +300,6 @@ models:
     is_deprecated: false
     min_api_version: "2023-09-01"
     release_date: "2023-07-11"
-
-  - name: claude-3-opus-20240229
-    family: claude
-    capabilities:
-      # Core Features
-      supports_streaming: true
-      supports_function_calling: true
-      supports_vision: true
-      supports_embeddings: false
-
-      # Context and Performance
-      max_context_window: 200000
-      max_output_tokens: 4096
-      typical_speed: 100.0
-
-      # Cost and Quotas
-      input_cost_per_1k_tokens: 0.015
-      output_cost_per_1k_tokens: 0.075
-      daily_request_limit: 150000
-
-      # Advanced Features
-      supports_json_mode: true
-      supports_system_prompt: true
-      supports_message_role: true
-      supports_tools: true
-      supports_parallel_requests: true
-
-      # Input/Output Capabilities
-      supported_languages:
-        - en
-      supported_mime_types:
-        - image/jpeg
-        - image/png
-        - image/gif
-        - image/webp
-
-      # Quality and Control
-      temperature:
-        min_value: 0.0
-        max_value: 1.0
-        default_value: 0.7
-      top_p:
-        min_value: 0.0
-        max_value: 1.0
-        default_value: 1.0
-      supports_frequency_penalty: false
-      supports_presence_penalty: false
-      supports_stop_sequences: true
-
-      # Specialized Features
-      supports_semantic_search: true
-      supports_code_completion: true
-      supports_chat_memory: false
-      supports_few_shot_learning: true
-
-    is_preview: false
-    is_deprecated: false
-    min_api_version: "2024-02-29"
-    release_date: "2024-02-29"
-
-  - name: claude-3-sonnet-20240229
-    family: claude
-    capabilities:
-      # Core Features
-      supports_streaming: true
-      supports_function_calling: true
-      supports_vision: true
-      supports_embeddings: false
-
-      # Context and Performance
-      max_context_window: 200000
-      max_output_tokens: 4096
-      typical_speed: 100.0
-
-      # Cost and Quotas
-      input_cost_per_1k_tokens: 0.015
-      output_cost_per_1k_tokens: 0.015
-      daily_request_limit: 150000
-
-      # Advanced Features
-      supports_json_mode: true
-      supports_system_prompt: true
-      supports_message_role: true
-      supports_tools: true
-      supports_parallel_requests: true
-
-      # Input/Output Capabilities
-      supported_languages:
-        - en
-      supported_mime_types:
-        - image/jpeg
-        - image/png
-
-      # Quality and Control
-      temperature:
-        min_value: 0.0
-        max_value: 1.0
-        default_value: 0.7
-      top_p:
-        min_value: 0.0
-        max_value: 1.0
-        default_value: 1.0
-      supports_frequency_penalty: false
-      supports_presence_penalty: false
-      supports_stop_sequences: true
-
-      # Specialized Features
-      supports_semantic_search: true
-      supports_code_completion: true
-      supports_chat_memory: true
-      supports_few_shot_learning: true
-
-    is_preview: false
-    is_deprecated: false
-    min_api_version: "2024-02-29"
-    release_date: "2024-02-29"
-
-  - name: claude-3-haiku-20240229
-    family: claude
-    capabilities:
-      # Core Features
-      supports_streaming: true
-      supports_function_calling: false
-      supports_vision: false
-      supports_embeddings: false
-
-      # Context and Performance
-      max_context_window: 200000
-      max_output_tokens: 4096
-      typical_speed: 70.0
-
-      # Cost and Quotas
-      input_cost_per_1k_tokens: 0.008
-      output_cost_per_1k_tokens: 0.024
-      daily_request_limit: 150000
-
-      # Advanced Features
-      supports_json_mode: true
-      supports_system_prompt: true
-      supports_message_role: true
-      supports_tools: false
-      supports_parallel_requests: true
-
-      # Input/Output Capabilities
-      supported_languages:
-        - en
-      supported_mime_types: []
-
-      # Quality and Control
-      temperature:
-        min_value: 0.0
-        max_value: 1.0
-        default_value: 0.7
-      top_p:
-        min_value: 0.0
-        max_value: 1.0
-        default_value: 1.0
-      supports_frequency_penalty: false
-      supports_presence_penalty: false
-      supports_stop_sequences: true
-
-      # Specialized Features
-      supports_semantic_search: true
-      supports_code_completion: true
-      supports_chat_memory: false
-      supports_few_shot_learning: true
-
-    is_preview: false
-    is_deprecated: false
-    min_api_version: "2024-02-29"
-    release_date: "2024-02-29"
 
   - name: claude-3-5-sonnet-latest
     family: claude

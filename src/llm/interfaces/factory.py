@@ -32,7 +32,7 @@ def create_llm_interface(config: AgentConfig) -> BaseLLMInterface:
             raise ValueError(f"Unsupported LLM provider: {config.provider}")
 
 
-def create_interface_for_model(model: ModelDescriptor, config: AgentConfig) -> BaseLLMInterface:
+def create_interface_for_model(model: ModelDescriptor, config: AgentConfig, model_registry=None) -> BaseLLMInterface:
     """Create an appropriate LLM interface based on the model family.
 
     This factory function creates interfaces based on the model's family, ensuring
@@ -41,6 +41,7 @@ def create_interface_for_model(model: ModelDescriptor, config: AgentConfig) -> B
     Args:
         model: The model descriptor containing model information
         config: The agent configuration including API key and model settings
+        model_registry: Optional model registry to use for model validation
 
     Returns:
         An instance of the appropriate LLM interface
@@ -50,9 +51,9 @@ def create_interface_for_model(model: ModelDescriptor, config: AgentConfig) -> B
         NotImplementedError: If the model family is recognized but not yet implemented
     """
     if model.family == ModelFamily.CLAUDE:
-        return AnthropicLLM(config=config)
+        return AnthropicLLM(config=config, model_registry=model_registry)
     elif model.family == ModelFamily.GPT:
-        return OpenAIInterface(config=config)
+        return OpenAIInterface(config=config, model_registry=model_registry)
     elif model.family == ModelFamily.HUGGINGFACE:
         raise NotImplementedError("HuggingFace interface not yet implemented")
     else:
