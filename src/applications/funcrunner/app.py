@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, get_type_hints
 from pydantic import BaseModel
 
 from src.core.models import AgentConfig
-from src.llm.interfaces import create_llm_interface
+from src.llm.interfaces.factory import create_interface_for_model
 from src.llm.models import ModelRegistry
 from src.prompts.base import BasePrompt
 from src.prompts.loader import PromptLoader
@@ -88,7 +88,10 @@ class FunctionRunner:
     def _init_llm(self):
         """Initialize LLM interface using factory pattern."""
         self.model_registry = ModelRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
-        self.llm = create_llm_interface(self.config)
+        model = self.model_registry.get_model(self.config.model_name)
+        if not model:
+            raise ValueError(f"Model {self.config.model_name} not found in registry")
+        self.llm = create_interface_for_model(model, self.config, self.model_registry)
 
     def _init_prompts(self):
         """Load prompt templates for function calling."""

@@ -42,7 +42,7 @@ def generate_badge_section(models: List[Tuple[str, TestResult]]) -> str:
     lines = []
     for model, _ in models:  # Use _ to indicate intentionally unused variable
         # Use the correct GitHub repository URL
-        badge_url = f"https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/{model}.json"
+        badge_url = f"https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/{model}.json"
         lines.append(f"![{model}]({badge_url})")
     return "\n".join(lines)
 

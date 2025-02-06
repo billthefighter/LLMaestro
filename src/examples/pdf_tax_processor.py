@@ -4,7 +4,7 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
 
 from src.agents.agent_pool import Agent, AgentPool
 from src.core.models import AgentConfig, SubTask, Task
@@ -26,7 +26,7 @@ class TaxableItem(BaseModel):
     tax_code: Optional[str] = Field(default="")
     notes: Optional[str] = Field(default="")
 
-    @validator("date", pre=True)
+    @field_validator("date", mode="before")
     def parse_date(cls, v):
         """Parse date from string if needed."""
         if isinstance(v, str):
