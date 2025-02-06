@@ -1,40 +1,25 @@
-"""Configuration management for the project."""
+"""Configuration management for the application."""
 
 import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Union
+from typing import Dict, Optional, Union
 
 import yaml
 from jsonschema import ValidationError, validate
 
-
-@dataclass
-class LLMConfig:
-    """Configuration for LLM providers."""
-
-    provider: str
-    model: str
-    api_key: str
-    max_tokens: int = 1024
-    temperature: float = 0.7
-
-
-@dataclass
-class StorageConfig:
-    """Configuration for storage."""
-
-    path: str = "chain_storage"
-    format: str = "json"
+from .models import AgentConfig, StorageConfig
 
 
 @dataclass
 class VisualizationConfig:
-    """Configuration for visualization server."""
+    """Configuration for visualization features."""
 
+    enabled: bool = True
+    port: int = 8501
     host: str = "localhost"
-    port: int = 8765
+    debug: bool = False
 
 
 @dataclass
@@ -46,24 +31,16 @@ class LoggingConfig:
 
 
 @dataclass
-class AgentConfig:
-    """Configuration for a single agent type."""
-
-    model_name: str
-    max_tokens: int = 8192
-    temperature: float = 0.7
-    description: str = ""  # Optional description of when to use this agent type
-
-
-@dataclass
 class AgentPoolConfig:
     """Configuration for the agent pool."""
 
     max_agents: int = 10
     default_agent_type: str = "default"  # Key in agent_types dict
-    agent_types: dict[str, AgentConfig] = field(
+    agent_types: Dict[str, AgentConfig] = field(
         default_factory=lambda: {
-            "default": AgentConfig(model_name="gpt-4", description="Default general-purpose agent")
+            "default": AgentConfig(
+                provider="anthropic", model_name="claude-3-sonnet-20240229", max_tokens=8192, temperature=0.7
+            )
         }
     )
 
@@ -72,8 +49,8 @@ class AgentPoolConfig:
 class Config:
     """Global configuration container."""
 
-    llm: LLMConfig
-    storage: StorageConfig = field(default_factory=StorageConfig)
+    llm: AgentConfig
+    storage: StorageConfig = field(default_factory=lambda: StorageConfig(base_path="chain_storage"))
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     agents: AgentPoolConfig = field(default_factory=AgentPoolConfig)
@@ -108,7 +85,7 @@ class Config:
             config_data = {
                 "llm": {
                     "provider": "anthropic",
-                    "model": os.getenv("ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),
+                    "model_name": os.getenv("ANTHROPIC_MODEL", "claude-3-sonnet-20240229"),
                     "api_key": api_key,
                     "max_tokens": int(os.getenv("ANTHROPIC_MAX_TOKENS", "1024")),
                     "temperature": float(os.getenv("ANTHROPIC_TEMPERATURE", "0.7")),
@@ -137,10 +114,14 @@ class Config:
         except ValidationError as e:
             raise ValidationError(f"Configuration validation failed: {e.message}") from e
 
+        # Map 'model' to 'model_name' for AgentConfig
+        if "llm" in config_data and "model" in config_data["llm"]:
+            config_data["llm"]["model_name"] = config_data["llm"].pop("model")
+
         # Create config object
         return cls(
-            llm=LLMConfig(**config_data["llm"]),
-            storage=StorageConfig(**(config_data.get("storage", {}))),
+            llm=AgentConfig(**config_data["llm"]),
+            storage=StorageConfig(base_path=config_data.get("storage", {}).get("base_path", "chain_storage")),
             visualization=VisualizationConfig(**(config_data.get("visualization", {}))),
             logging=LoggingConfig(**(config_data.get("logging", {}))),
             agents=AgentPoolConfig(**(config_data.get("agents", {}))),
@@ -151,8 +132,15 @@ class Config:
 _config: Optional[Config] = None
 
 
-def get_config(config_path: Optional[str] = None) -> Config:
-    """Get the global configuration instance."""
+def get_config(config_path: Optional[Union[str, Path]] = None) -> Config:
+    """Get the global configuration object.
+
+    Args:
+        config_path: Optional path to config file. If None, uses default locations.
+
+    Returns:
+        Global configuration object
+    """
     global _config
     if _config is None:
         _config = Config.load(config_path)

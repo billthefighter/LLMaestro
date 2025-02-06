@@ -16,8 +16,7 @@ from src.llm.models import (
 )
 from src.llm.interfaces.factory import create_interface_for_model, BaseLLMInterface
 from src.core.models import AgentConfig
-from src.core.config import get_config, Config
-from src.core.config import LLMConfig, StorageConfig, VisualizationConfig, LoggingConfig
+from src.core.config import get_config, Config, StorageConfig, VisualizationConfig, LoggingConfig
 
 # Test message that should work across all models
 HELLO_WORLD_PROMPT = "Say hello world"
@@ -91,7 +90,7 @@ class TestModelConnectivity:
                 config_data = yaml.safe_load(f)
 
             return Config(
-                llm=LLMConfig(**config_data["llm"]),
+                llm=AgentConfig(**config_data["llm"]),
                 storage=StorageConfig(**(config_data.get("storage", {}))),
                 visualization=VisualizationConfig(**(config_data.get("visualization", {}))),
                 logging=LoggingConfig(**(config_data.get("logging", {}))),

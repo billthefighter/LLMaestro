@@ -8,6 +8,7 @@ from .base import (
     LLMResponse,
     TokenUsage,
 )
+from .factory import create_llm_interface
 
 __all__ = [
     "BaseLLMInterface",
@@ -15,4 +16,5 @@ __all__ = [
     "LLMResponse",
     "MediaType",
     "TokenUsage",
+    "create_llm_interface",
 ]

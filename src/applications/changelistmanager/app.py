@@ -12,6 +12,7 @@ from src.agents.agent_pool import AgentPool
 from src.core.config import get_config
 from src.core.models import AgentConfig
 from src.llm.chains import ChainStep, OutputTransform, SequentialChain
+from src.llm.interfaces.base import BaseLLMInterface
 from src.llm.interfaces.factory import create_llm_interface
 from src.prompts.loader import PromptLoader
 
@@ -41,6 +42,7 @@ class ChangelistManager:
         output_model: Type[BaseModel] = ChangelistResponse,
         api_key: Optional[str] = None,
         config_path: Optional[Path] = None,
+        llm_interface: Optional[BaseLLMInterface] = None,
     ):
         """Initialize the Changelist Manager.
 
@@ -48,21 +50,26 @@ class ChangelistManager:
             output_model: Pydantic model for LLM response validation
             api_key: Optional API key for LLM provider
             config_path: Optional path to config file
+            llm_interface: Optional LLM interface for testing
         """
         self.config = get_config()
         self.output_model = output_model
         self.prompt_loader = PromptLoader()
         self.agent_pool = AgentPool()
 
-        # Initialize LLM interface
-        agent_config = AgentConfig(
-            provider=self.config.llm.provider,
-            model_name=self.config.llm.model,
-            api_key=api_key or self.config.llm.api_key,
-            max_tokens=self.config.llm.max_tokens,
-            temperature=self.config.llm.temperature,
-        )
-        self.llm = create_llm_interface(agent_config)
+        # Use provided LLM interface or create a new one
+        if llm_interface:
+            self.llm = llm_interface
+        else:
+            # Initialize LLM interface
+            agent_config = AgentConfig(
+                provider=self.config.llm.provider,
+                model_name=self.config.llm.model_name,
+                api_key=api_key or self.config.llm.api_key,
+                max_tokens=self.config.llm.max_tokens,
+                temperature=self.config.llm.temperature,
+            )
+            self.llm = create_llm_interface(agent_config)
 
     def _create_output_transform(self) -> OutputTransform:
         """Create an output transform for JSON responses."""

@@ -1,1 +1,8 @@
-{}
+{
+  "claude-3-opus-20240229": "skip",
+  "claude-3-sonnet-20240229": "skip",
+  "claude-3-haiku-20240229": "skip",
+  "claude-2.1": "skip",
+  "claude-instant-1.2": "skip",
+  "claude-3-5-sonnet-latest": "skip"
+}

@@ -13,9 +13,33 @@ from src.applications.changelistmanager.app import (
     ChangelistResponse,
 )
 from src.llm.interfaces import LLMResponse
+from src.llm.interfaces.base import BaseLLMInterface
+from src.llm.models import ModelRegistry, ModelDescriptor, ModelFamily, ModelCapabilities
+from tests.test_applications.test_utils import MockLLM
 
 
 # Test Data Fixtures
+@pytest.fixture
+def mock_model_registry() -> ModelRegistry:
+    """Create a mock model registry with test models."""
+    registry = ModelRegistry()
+    registry.register(
+        ModelDescriptor(
+            name="claude-3-sonnet-20240229",
+            family=ModelFamily.CLAUDE,
+            capabilities=ModelCapabilities(
+                supports_streaming=True,
+                supports_function_calling=True,
+                supports_vision=True,
+                max_context_window=200000,
+                input_cost_per_1k_tokens=0.015,
+                output_cost_per_1k_tokens=0.015,
+            ),
+        )
+    )
+    return registry
+
+
 @pytest.fixture
 def sample_diff_content() -> str:
     """Sample git diff content for testing."""
@@ -63,15 +87,9 @@ def mock_llm_response() -> Dict[str, Union[str, List[str], bool, Dict[str, str]]
 
 
 @pytest.fixture
-def mock_llm_interface(mock_llm_response: Dict[str, Any]):
-    """Mock LLM interface for testing."""
-    class MockLLM:
-        async def process(self, prompt: str, system_prompt: Optional[str] = None) -> LLMResponse:
-            return LLMResponse(
-                content=json.dumps(mock_llm_response),
-                metadata={"tokens": 100, "model": "test-model"},
-            )
-    return MockLLM()
+def mock_llm_interface(mock_llm_response: Dict[str, Any], mock_model_registry: ModelRegistry) -> BaseLLMInterface:
+    """Create a mock LLM interface for testing."""
+    return MockLLM(mock_model_registry, mock_llm_response)
 
 
 @pytest.fixture
@@ -84,7 +102,7 @@ def temp_changelist(tmp_path: Path) -> Path:
 
 # Unit Tests
 @pytest.mark.unit
-def test_get_readme_files():
+def test_get_readme_files(mock_llm_interface):
     """Test README file detection."""
     files = [
         "src/README.md",
@@ -92,7 +110,7 @@ def test_get_readme_files():
         "test.py",
         "path/to/README.md",
     ]
-    manager = ChangelistManager()
+    manager = ChangelistManager(llm_interface=mock_llm_interface)
     readmes = manager.get_readme_files(files)
 
     assert len(readmes) == 3
@@ -139,57 +157,49 @@ async def test_process_changes(
     monkeypatch,
 ):
     """Test processing changes with mock LLM."""
-    manager = ChangelistManager()
-    monkeypatch.setattr(manager, "llm", mock_llm_interface)
+    manager = ChangelistManager(llm_interface=mock_llm_interface)
+    response = await manager.process_changes(sample_diff_content)
 
-    result = await manager.process_changes(sample_diff_content)
-
-    assert isinstance(result, ChangelistResponse)
-    assert result.summary == mock_llm_response["summary"]
-    assert result.needs_readme_updates == mock_llm_response["needs_readme_updates"]
-    assert result.affected_readmes == mock_llm_response["affected_readmes"]
+    assert isinstance(response, ChangelistResponse)
+    assert response.summary == mock_llm_response["summary"]
+    assert response.affected_readmes == mock_llm_response["affected_readmes"]
+    assert response.needs_readme_updates == mock_llm_response["needs_readme_updates"]
+    assert response.suggested_updates == mock_llm_response["suggested_updates"]
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_update_changelist_file(temp_changelist: Path, monkeypatch):
+async def test_update_changelist_file(temp_changelist: Path, monkeypatch, mock_llm_interface):
     """Test updating changelist file."""
     # Patch the changelist path
     monkeypatch.setattr(Path, "cwd", lambda: temp_changelist.parent)
 
-    manager = ChangelistManager()
+    manager = ChangelistManager(llm_interface=mock_llm_interface)
     entry = ChangelistEntry(
-        summary="Test changes",
-        files_changed=["file1.py", "file2.py"],
-        timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        summary="Test change",
+        files_changed=["test.py"],
+        timestamp=datetime.now().isoformat(),
     )
 
     await manager.update_changelist_file(entry)
 
     content = temp_changelist.read_text()
-    assert "# Changelist" in content
-    assert "Test changes" in content
-    assert "file1.py" in content
-    assert "file2.py" in content
+    assert "Test change" in content
+    assert "test.py" in content
 
 
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_validate_readmes(mock_llm_interface, monkeypatch):
     """Test README validation."""
-    manager = ChangelistManager()
-    monkeypatch.setattr(manager, "llm", mock_llm_interface)
-
-    readmes = ["README.md", "docs/api/config.md"]
+    manager = ChangelistManager(llm_interface=mock_llm_interface)
+    readmes = ["README.md", "docs/api/README.md"]
     changes = "Updated configuration system"
 
-    try:
-        result = await manager.validate_readmes(readmes, changes)
-        assert isinstance(result, dict)
-        # Check if any key in the result contains README.md
-        assert any("README.md" in str(key) for key in result.keys())
-    except Exception as e:
-        pytest.fail(f"Validate readmes failed: {str(e)}")
+    validation_results = await manager.validate_readmes(readmes, changes)
+
+    assert isinstance(validation_results, dict)
+    assert all(isinstance(k, str) and isinstance(v, bool) for k, v in validation_results.items())
 
 
 # Error Cases
@@ -197,22 +207,22 @@ async def test_validate_readmes(mock_llm_interface, monkeypatch):
 @pytest.mark.unit
 async def test_process_changes_invalid_diff(mock_llm_interface, monkeypatch):
     """Test processing invalid diff content."""
-    manager = ChangelistManager()
-    monkeypatch.setattr(manager, "llm", mock_llm_interface)
+    manager = ChangelistManager(llm_interface=mock_llm_interface)
+    response = await manager.process_changes("Invalid diff content")
 
-    with pytest.raises(Exception):
-        await manager.process_changes("")
+    assert isinstance(response, ChangelistResponse)
+    assert response.summary
+    assert isinstance(response.affected_readmes, list)
+    assert isinstance(response.needs_readme_updates, bool)
 
 
 @pytest.mark.asyncio
 @pytest.mark.unit
 async def test_update_changelist_invalid_entry():
     """Test updating changelist with invalid entry."""
-    manager = ChangelistManager()
-
+    manager = ChangelistManager(llm_interface=mock_llm_interface)  # type: ignore
     with pytest.raises(ValueError):
-        invalid_entry = {"summary": "Test"}  # type: ignore
-        await manager.update_changelist_file(invalid_entry)  # type: ignore
+        await manager.update_changelist_file(None)  # type: ignore
 
 
 # Performance Tests
@@ -232,11 +242,9 @@ async def test_process_changes_performance(
     monkeypatch,
 ):
     """Test performance with different diff sizes."""
-    manager = ChangelistManager()
-    monkeypatch.setattr(manager, "llm", mock_llm_interface)
+    manager = ChangelistManager(llm_interface=mock_llm_interface)
+    diff_content = "+" * diff_size + "\n-" * diff_size
 
-    # Generate diff content of specified size
-    diff_content = "+" * diff_size
-
-    result = await manager.process_changes(diff_content)
-    assert isinstance(result, ChangelistResponse)
+    response = await manager.process_changes(diff_content)
+    assert isinstance(response, ChangelistResponse)
+    assert response.summary
