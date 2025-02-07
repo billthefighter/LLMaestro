@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "label": "claude-2.1",
-  "message": "Disconnected",
-  "color": "critical",
+  "message": "Skipped",
+  "color": "yellow",
   "style": "flat"
 }

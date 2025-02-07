@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "label": "claude-3-haiku-20240229",
-  "message": "Disconnected",
-  "color": "critical",
+  "message": "Skipped",
+  "color": "yellow",
   "style": "flat"
 }
