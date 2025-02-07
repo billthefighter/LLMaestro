@@ -2,12 +2,13 @@
 import asyncio
 import json
 import os
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
 import yaml
 
-from src.core.config import Config, LoggingConfig, StorageConfig, VisualizationConfig
 from src.core.models import AgentConfig
 from src.llm.interfaces.factory import create_interface_for_model
 from src.llm.models import (
@@ -15,14 +16,23 @@ from src.llm.models import (
     ModelFamily,
     ModelRegistry,
 )
-
-# Test message that should work across all models
-HELLO_WORLD_PROMPT = "Say hello world"
-EXPECTED_RESPONSE_SUBSTRING = "hello world"
+from src.prompts.base import BasePrompt
+from src.prompts.types import PromptMetadata, VersionInfo
 
 # Type for test results
 TestResult = Literal["success", "failure", "skip"]
 TEST_RESULTS: Dict[str, TestResult] = {}
+
+# Test message that should work across all models
+HELLO_WORLD_PROMPT = BasePrompt(
+    name="Hello World Test",
+    description="Simple test prompt for model connectivity",
+    system_prompt="You are a helpful assistant. Keep responses brief.",
+    user_prompt="Say hello world",
+    metadata=PromptMetadata(tags=["test"]),
+    current_version=VersionInfo(number="1.0.0", author="system", timestamp=datetime.now()),
+)
+EXPECTED_RESPONSE_SUBSTRING = "hello world"
 
 
 def get_model_registry() -> ModelRegistry:
@@ -44,23 +54,22 @@ def get_model_registry() -> ModelRegistry:
     return registry
 
 
-def get_api_key(family: ModelFamily, config: Optional[Config] = None) -> Optional[str]:
+def get_api_key(family: ModelFamily) -> Optional[str]:
     """Get the appropriate API key for a model family."""
     if family == ModelFamily.CLAUDE:
-        # Try environment variable first, then config
-        env_key = os.getenv("ANTHROPIC_API_KEY")
-        if env_key:
-            return env_key
-        if config and config.llm.provider.lower() == "anthropic":
-            return config.llm.api_key
+        return os.getenv("ANTHROPIC_API_KEY")
     elif family == ModelFamily.GPT:
-        # Try environment variable first, then config
-        env_key = os.getenv("OPENAI_API_KEY")
-        if env_key:
-            return env_key
-        if config and config.llm.provider.lower() == "openai":
-            return config.llm.api_key
+        return os.getenv("OPENAI_API_KEY")
     return None
+
+
+@dataclass
+class Config:
+    """Minimal configuration for model testing."""
+
+    llm: AgentConfig
+    storage_path: str = "chain_storage"
+    logging_level: str = "INFO"
 
 
 def load_config() -> Optional[Config]:
@@ -78,9 +87,6 @@ def load_config() -> Optional[Config]:
                     "api_key": "dummy-key",
                     "max_tokens": 100,
                 },
-                "storage": {"path": "chain_storage", "format": "json"},
-                "visualization": {"host": "localhost", "port": 8765},
-                "logging": {"level": "INFO", "file": "orchestrator.log"},
             }
             with open(config_path, "w") as f:
                 yaml.safe_dump(minimal_config, f)
@@ -88,12 +94,7 @@ def load_config() -> Optional[Config]:
         with open(config_path) as f:
             config_data = yaml.safe_load(f)
 
-        return Config(
-            llm=AgentConfig(**config_data["llm"]),
-            storage=StorageConfig(**(config_data.get("storage", {}))),
-            visualization=VisualizationConfig(**(config_data.get("visualization", {}))),
-            logging=LoggingConfig(**(config_data.get("logging", {}))),
-        )
+        return Config(llm=AgentConfig(**config_data["llm"]))
     except Exception as e:
         print(f"Warning: Failed to load config: {e}")
         return None
@@ -110,25 +111,23 @@ def create_badge_data(model_name: str, result: TestResult) -> Dict:
 
 async def test_model(model: ModelDescriptor, config: Optional[Config], registry: ModelRegistry) -> TestResult:
     """Test connectivity for a specific model with detailed error handling."""
-    api_key = get_api_key(model.family, config)
+    api_key = get_api_key(model.family)
     if not api_key:
-        print(f"⚠️  Skipping {model.name}: API key not set for {model.family.value}")
+        print(f"⚠️  Skipping {model.name}: API key not set for {model.family}")
         return "skip"
 
     try:
         # Create interface using factory with proper config
         model_config = AgentConfig(
-            provider=model.family.value,
+            provider=model.family.name,
             model_name=model.name,  # Ensure model name is set
             api_key=api_key,
             max_tokens=100,
         )
         interface = create_interface_for_model(model, model_config, registry)
 
-        # Test connectivity with a simple message
-        response = await interface.process(
-            input_data=HELLO_WORLD_PROMPT, system_prompt="You are a helpful assistant. Keep responses brief."
-        )
+        # Test connectivity with a simple BasePrompt
+        response = await interface.process(prompt=HELLO_WORLD_PROMPT, variables=None)
 
         if response.content is None:
             print(f"❌ {model.name}: No response content")
@@ -147,9 +146,7 @@ async def test_model(model: ModelDescriptor, config: Optional[Config], registry:
         if "401" in error_str:
             print(f"❌ {model.name}: Authentication error (401) - Please check your API key")
             if "invalid x-api-key" in error_str.lower():
-                print(
-                    f"   Note: Environment variable for {model.family.value} appears to be invalid or not set correctly"
-                )
+                print(f"   Note: Environment variable for {model.family} appears to be invalid or not set correctly")
         elif "403" in error_str:
             print(f"❌ {model.name}: Authorization error (403) - Please check your API permissions")
         elif "429" in error_str:
@@ -185,7 +182,7 @@ def save_results():
 async def test_model_family(family: ModelFamily, config: Optional[Config], yaml_path: Path):
     """Test all models in a specific family."""
     if not yaml_path.exists():
-        print(f"⚠️  No models found for {family.value} (missing {yaml_path})")
+        print(f"⚠️  No models found for {family} (missing {yaml_path})")
         return
 
     try:
@@ -193,14 +190,14 @@ async def test_model_family(family: ModelFamily, config: Optional[Config], yaml_
         models = registry.get_family_models(family)
 
         if not models:
-            print(f"⚠️  No {family.value} models found in {yaml_path}")
+            print(f"⚠️  No {family} models found in {yaml_path}")
             return
 
-        print(f"\nTesting {family.value} models:")
+        print(f"\nTesting {family} models:")
         for model in models:
             TEST_RESULTS[model.name] = await test_model(model, config, registry)
     except Exception as e:
-        print(f"❌ Error loading {family.value} models: {str(e)}")
+        print(f"❌ Error loading {family} models: {str(e)}")
 
 
 async def main():
