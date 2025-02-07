@@ -17,7 +17,7 @@ from src.llm.models import (
     ModelRegistry,
 )
 from src.prompts.base import BasePrompt
-from src.prompts.types import PromptMetadata, VersionInfo
+from src.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 
 # Type for test results
 TestResult = Literal["success", "failure", "skip"]
@@ -29,8 +29,16 @@ HELLO_WORLD_PROMPT = BasePrompt(
     description="Simple test prompt for model connectivity",
     system_prompt="You are a helpful assistant. Keep responses brief.",
     user_prompt="Say hello world",
-    metadata=PromptMetadata(tags=["test"]),
-    current_version=VersionInfo(number="1.0.0", author="system", timestamp=datetime.now()),
+    metadata=PromptMetadata(
+        type="test", expected_response=ResponseFormat(format="text", response_schema=None), tags=["connectivity"]
+    ),
+    current_version=VersionInfo(
+        number="1.0.0",
+        author="system",
+        timestamp=datetime.now(),
+        description="Initial connectivity test",
+        change_type="initial",
+    ),
 )
 EXPECTED_RESPONSE_SUBSTRING = "hello world"
 
@@ -49,7 +57,11 @@ def get_model_registry() -> ModelRegistry:
         for family in ModelFamily:
             models = openai_registry.get_family_models(family)
             for model in models:
-                registry.add_model(model)
+                # Fallback to add_model if register_model doesn't exist
+                try:
+                    registry.register_model(model)
+                except AttributeError:
+                    registry.add_model(model)
 
     return registry
 

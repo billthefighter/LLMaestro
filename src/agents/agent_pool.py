@@ -128,30 +128,26 @@ class AgentPool:
         if task_id in self.agents:
             return self.agents[task_id]
 
-        if len(self.agents) >= self.config.max_agents:
+        max_agents = self.config.agents.get("max_agents", 10)
+        if len(self.agents) >= max_agents:
             raise RuntimeError("No available agents and cannot create more")
 
-        # Use specified agent type or default
-        agent_type = agent_type or self.config.default_agent_type
-        if agent_type not in self.config.agent_types:
-            raise ValueError(f"Unknown agent type: {agent_type}")
-
-        # Get the config from the pool and convert to AgentConfig model
-        agent_config = self.config.agent_types[agent_type]
-        llm_config = get_config().llm
-        agent = Agent(
-            AgentConfig(
-                provider=llm_config.provider,
-                model_name=agent_config.model_name,
-                max_tokens=agent_config.max_tokens,
-                temperature=agent_config.temperature,
-                api_key=llm_config.api_key,
-                max_context_tokens=8192,  # Default from models.py
-                token_tracking=True,
-                cost_per_1k_tokens=None,  # Optional in models.py
-                top_p=1.0,  # Default from models.py
-            )
+        # Remove the unused assignment and directly use config
+        agent_config = AgentConfig(
+            provider=self.config.agents.get("default_agent", {}).get("provider", "anthropic"),
+            model_name=self.config.agents.get("default_agent", {}).get("model", "claude-3-sonnet-20240229"),
+            max_tokens=self.config.agents.get("default_agent", {}).get("settings", {}).get("max_tokens", 1024),
+            temperature=self.config.agents.get("default_agent", {}).get("settings", {}).get("temperature", 0.7),
+            api_key=self.config.api_keys.get(
+                self.config.agents.get("default_agent", {}).get("provider", "anthropic"), ""
+            ),
+            max_context_tokens=8192,
+            token_tracking=True,
+            cost_per_1k_tokens=None,
+            top_p=1.0,
         )
+
+        agent = Agent(agent_config)
         self.agents[task_id] = agent
         return agent
 
