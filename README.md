@@ -19,6 +19,7 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 The following README files provide detailed documentation for different components of the system:
 
 ### Core Components
+- [Core System](src/core/README.md) - Core system components including configuration management
 - [Agent System](src/agents/README.md) - Documentation for the agent system and agent pool
 - [LLM Core](src/llm/README.md) - Core LLM functionality and chain implementations
 - [LLM Interfaces](src/llm/interfaces/README.md) - LLM provider interface implementations
@@ -32,7 +33,7 @@ The following README files provide detailed documentation for different componen
 
 ### Visualization and Configuration
 - [Visualization](src/visualization/README.md) - Chain visualization tools and patterns
-- [Configuration](config/README.md) - Configuration system and setup guide
+- [Configuration](config/README.md) - User configuration guide and examples
 
 ## Architecture
 
@@ -44,6 +45,7 @@ The system is built around three main concepts:
 
 ### Core Components
 
+- `ConfigurationManager`: Manages system and user configuration with type safety
 - `TaskManager`: Decomposes large tasks into smaller, manageable chunks
 - `Agent`: Represents an LLM instance that can process subtasks
 - `StorageManager`: Manages intermediate results using disk-based storage
@@ -99,49 +101,100 @@ Note: To view the interactive visualizations locally, clone the repository and o
 
 ## Configuration
 
-The project requires configuration for LLM API access. You can set this up in two ways:
+The project uses a flexible configuration system that supports multiple initialization methods:
 
-### 1. Using a Configuration File
+### 1. Using Configuration Files
 
-1. Copy the example configuration:
+1. Copy the example user configuration:
 ```bash
-cp example_config.yaml config.yaml
+cp config/user_config.yml.example config/user_config.yml
 ```
 
-2. Edit `config.yaml` and replace the placeholder API key with your actual key:
+2. Edit `user_config.yml` with your settings:
 ```yaml
-llm:
+api_keys:
+  anthropic: your-api-key-here
+default_model:
   provider: anthropic
-  model: claude-3-sonnet-20240229
-  api_key: your-api-key-here
+  name: claude-3-sonnet-20240229
+  settings:
+    max_tokens: 1024
+    temperature: 0.7
+```
+
+3. In your code:
+```python
+from core.config import get_config
+
+config = get_config()
 ```
 
 ### 2. Using Environment Variables
 
-Alternatively, you can set the following environment variables:
-
+Set environment variables for your providers:
 ```bash
+# Provider API Keys
 export ANTHROPIC_API_KEY=your-api-key-here
-export ANTHROPIC_MODEL=claude-3-sonnet-20240229  # optional, defaults to sonnet
+export OPENAI_API_KEY=your-openai-key  # optional
+
+# Default Model Settings (optional)
+export ANTHROPIC_MODEL=claude-3-sonnet-20240229
+export ANTHROPIC_MAX_TOKENS=1024
+export ANTHROPIC_TEMPERATURE=0.7
+
+# Global Settings (optional)
+export LLM_MAX_AGENTS=10
+export LLM_STORAGE_PATH=chain_storage
+export LLM_LOG_LEVEL=INFO
 ```
 
-## Security Notes
+Then in your code:
+```python
+from core.config import get_config
+
+config = get_config()
+config.load_from_env()
+```
+
+### 3. Programmatic Configuration
+
+You can also configure the system programmatically:
+
+```python
+from core.config import ConfigurationManager, UserConfig, SystemConfig
+
+# Create configurations
+user_config = UserConfig(
+    api_keys={"anthropic": "your-api-key"},
+    default_model={
+        "provider": "anthropic",
+        "name": "claude-3-sonnet-20240229",
+        "settings": {"max_tokens": 1024}
+    },
+    # ... other settings ...
+)
+
+# Load system config from file
+system_config = SystemConfig.from_yaml("config/system_config.yml")
+
+# Initialize configuration
+config = ConfigurationManager()
+config.initialize(user_config, system_config)
+```
+
+For detailed configuration documentation, see:
+- [Core Configuration](src/core/README.md#configuration-management)
+- [Configuration Files](config/README.md)
+- [LLM Models](src/llm/README.md)
+
+### Security Notes
 
 - Never commit API keys to version control
-- The `config.yaml` file is already added to `.gitignore`
+- The `user_config.yml` file is already added to `.gitignore`
 - Use environment variables in production environments
-- Rotate API keys if they are ever exposed
+- Keep API keys secure and rotate them if exposed
 
 ## Getting Started
 
 1. Install dependencies:
-```bash
-poetry install
-```
-
-2. Set up configuration using one of the methods above
-
-3. Try the visualization demo:
-```bash
-python examples/live_visualization_demo.py
 ```

@@ -409,9 +409,39 @@ class BaseLLMInterface(ABC):
 
     @abstractmethod
     async def process(
-        self, input_data: Any, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
+        self,
+        prompt: Union[BasePrompt, "BasePrompt"],  # Allow for subclasses and forward references
+        variables: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
-        """Process input data and return a response."""
+        """Process a BasePrompt and return a response.
+
+        Args:
+            prompt: The BasePrompt to process
+            variables: Optional variables to render the prompt with
+
+        Returns:
+            LLMResponse containing the model's response
+        """
+        pass
+
+    @abstractmethod
+    async def batch_process(
+        self,
+        prompts: List[Union[BasePrompt, "BasePrompt"]],  # Allow for subclasses and forward references
+        variables: Optional[List[Optional[Dict[str, Any]]]] = None,
+    ) -> List[LLMResponse]:
+        """
+        Process multiple BasePrompts in a batch.
+
+        Args:
+            prompts: A list of BasePrompt objects to process
+            variables: Optional list of variable dictionaries corresponding to each prompt.
+                       If None, no variables will be used for that prompt.
+                       If not provided, no variables will be used for any prompt.
+
+        Returns:
+            A list of LLMResponses corresponding to the input prompts
+        """
         pass
 
     async def initialize(self) -> None:

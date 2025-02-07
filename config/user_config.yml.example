@@ -1,0 +1,46 @@
+# User-specific configuration for LLMaestro
+# Copy this file to config.yaml and customize for your needs
+
+# API Keys for different providers
+api_keys:
+  anthropic: sk-ant-xxxx...  # Your Anthropic API key
+  openai: sk-xxxx...         # Your OpenAI API key (optional)
+  huggingface: hf_xxxx...    # Your HuggingFace API key (optional)
+
+# Default model settings
+default_model:
+  provider: anthropic
+  name: claude-3-sonnet-20240229
+  settings:
+    max_tokens: 1024
+    temperature: 0.7
+
+# Agent pool configuration
+agents:
+  max_agents: 10
+  default_agent:
+    provider: anthropic
+    model: claude-3-sonnet-20240229
+    settings:
+      max_tokens: 8192
+      temperature: 0.7
+
+# Storage settings
+storage:
+  path: chain_storage
+  format: json
+
+# Visualization settings
+visualization:
+  enabled: true
+  host: localhost
+  port: 8501
+  debug: false
+
+# Logging configuration
+logging:
+  level: INFO
+  file: orchestrator.log  # Optional
+
+# Note: Never commit API keys to version control!
+# The config.yaml file is already added to .gitignore

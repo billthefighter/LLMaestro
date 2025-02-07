@@ -62,7 +62,7 @@ jobs:
         llm:
           provider: anthropic
           model: claude-3-sonnet-latest
-          api_key: dummy-key
+          api_key: ${ANTHROPIC_API_KEY:-dummy-key}  # Will be overridden by env var
           max_tokens: 100
         storage:
           path: chain_storage
@@ -83,6 +83,12 @@ jobs:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       run: |
         mkdir -p test-results
+        if [ -z "$ANTHROPIC_API_KEY" ]; then
+          echo "Warning: ANTHROPIC_API_KEY is not set"
+        fi
+        if [ -z "$OPENAI_API_KEY" ]; then
+          echo "Warning: OPENAI_API_KEY is not set"
+        fi
         poetry run python scripts/validate_model_connectivity.py
 
     - name: Generate badges

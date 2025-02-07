@@ -11,9 +11,8 @@ from anthropic.types import (
 )
 from PIL import Image
 
+from src.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse, MediaType, TokenUsage
 from src.llm.models import ModelFamily
-
-from .base import BaseLLMInterface, ImageInput, LLMResponse, MediaType, TokenUsage
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -90,25 +89,31 @@ class AnthropicLLM(BaseLLMInterface):
         return content_blocks
 
     async def process(
-        self, input_data: Any, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
+        self, prompt: Union[BasePrompt, "BasePrompt"], variables: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
         """Process input data through Claude and return a standardized response."""
         try:
-            logger.debug(f"Processing input data: {input_data}")
-            logger.debug(f"System prompt: {system_prompt}")
+            logger.debug(f"Processing prompt: {prompt}")
+            logger.debug(f"Variables: {variables}")
 
-            messages = self._format_messages(input_data, system_prompt=None, images=images)
+            # Render the prompt with optional variables
+            system_prompt, user_prompt, attachments = prompt.render(**(variables or {}))
+            logger.debug(f"Rendered system prompt: {system_prompt}")
+            logger.debug(f"Rendered user prompt: {user_prompt}")
+
+            # Convert attachments to ImageInput objects if any
+            images = (
+                [
+                    ImageInput(content=att["content"], media_type=att["mime_type"], file_name=att["file_name"])
+                    for att in attachments
+                ]
+                if attachments
+                else None
+            )
+
+            # Format messages
+            messages = self._format_messages(input_data=user_prompt, system_prompt=system_prompt, images=images)
             logger.debug(f"Formatted messages: {messages}")
-
-            # Extract system prompt from input_data if present
-            if isinstance(input_data, list):
-                system_messages = [msg for msg in input_data if msg.get("role") == "system"]
-                if system_messages and not system_prompt:
-                    system_prompt = system_messages[0].get("content")
-                    logger.debug(f"Extracted system prompt: {system_prompt}")
-                # Remove system messages from the list
-                messages = [msg for msg in messages if msg.get("role") != "system"]
-                logger.debug(f"Messages after system removal: {messages}")
 
             # Get image dimensions for token counting
             image_dimensions = []
@@ -269,6 +274,24 @@ class AnthropicLLM(BaseLLMInterface):
         except Exception as e:
             logger.error(f"Process failed: {str(e)}", exc_info=True)
             return self._handle_error(e)
+
+    async def batch_process(
+        self, prompts: List[Union[BasePrompt, "BasePrompt"]], variables: Optional[List[Optional[Dict[str, Any]]]] = None
+    ) -> List[LLMResponse]:
+        """Batch process prompts using Anthropic's API."""
+        # Ensure variables list matches prompts length if provided
+        if variables is not None and len(variables) != len(prompts):
+            raise ValueError("Number of variable sets must match number of prompts")
+
+        # Process each prompt
+        results = []
+        for i, prompt in enumerate(prompts):
+            # Use corresponding variables if provided, otherwise None
+            prompt_vars = variables[i] if variables is not None else None
+            result = await self.process(prompt, prompt_vars)
+            results.append(result)
+
+        return results
 
     def _handle_error(self, e: Exception) -> LLMResponse:
         """Handle errors in LLM processing."""

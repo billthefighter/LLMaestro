@@ -1,11 +1,10 @@
 """Factory for creating LLM interfaces."""
 
 from src.core.models import AgentConfig
+from src.llm.interfaces.base import BaseLLMInterface
+from src.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
+from src.llm.interfaces.provider_interfaces.openai import OpenAIInterface
 from src.llm.models import ModelDescriptor, ModelFamily
-
-from .anthropic import AnthropicLLM
-from .base import BaseLLMInterface
-from .openai import OpenAIInterface
 
 
 def create_llm_interface(config: AgentConfig) -> BaseLLMInterface:

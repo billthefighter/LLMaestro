@@ -1,0 +1,80 @@
+providers:
+  anthropic:
+    api_base: https://api.anthropic.com/v1
+    capabilities_detector: llm.models.ModelCapabilitiesDetector._detect_anthropic_capabilities
+    models:
+      claude-3-opus-20240229:
+        family: claude
+        context_window: 200000
+        typical_speed: 100.0
+        features:
+          - streaming
+          - function_calling
+          - vision
+          - json_mode
+          - system_prompt
+        cost:
+          input_per_1k: 0.015
+          output_per_1k: 0.075
+      claude-3-sonnet-20240229:
+        family: claude
+        context_window: 200000
+        typical_speed: 100.0
+        features:
+          - streaming
+          - function_calling
+          - vision
+          - json_mode
+          - system_prompt
+        cost:
+          input_per_1k: 0.015
+          output_per_1k: 0.024
+    rate_limits:
+      requests_per_minute: 50
+      tokens_per_minute: 100000
+
+  openai:
+    api_base: https://api.openai.com/v1
+    capabilities_detector: llm.models.ModelCapabilitiesDetector._detect_openai_capabilities
+    models:
+      gpt-4-turbo-preview:
+        family: gpt
+        context_window: 128000
+        typical_speed: 150.0
+        features:
+          - streaming
+          - function_calling
+          - vision
+          - json_mode
+          - system_prompt
+          - tools
+        cost:
+          input_per_1k: 0.01
+          output_per_1k: 0.03
+      gpt-4:
+        family: gpt
+        context_window: 8192
+        typical_speed: 120.0
+        features:
+          - streaming
+          - function_calling
+          - json_mode
+          - system_prompt
+          - tools
+        cost:
+          input_per_1k: 0.03
+          output_per_1k: 0.06
+    rate_limits:
+      requests_per_minute: 200
+      tokens_per_minute: 150000
+
+  huggingface:
+    api_base: https://api.huggingface.co
+    capabilities_detector: llm.models.ModelCapabilitiesDetector._detect_huggingface_capabilities
+    models: {}  # Models are deployment-specific
+    features:
+      - streaming
+      - embeddings
+    rate_limits:
+      requests_per_minute: 300
+      tokens_per_minute: 200000

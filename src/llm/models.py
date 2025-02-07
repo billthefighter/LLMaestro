@@ -252,7 +252,7 @@ class ModelDescriptor(BaseModel):
     """Descriptor for a model within a family."""
 
     name: str
-    family: ModelFamily
+    family: str  # Changed from ModelFamily to str to work with registry
     capabilities: ModelCapabilities
     is_preview: bool = False
     is_deprecated: bool = False
@@ -294,7 +294,7 @@ class ModelCapabilitiesTable(Base):
         """Create a database record from a model descriptor."""
         return cls(
             model_name=descriptor.name,
-            family=descriptor.family.value,
+            family=descriptor.family,
             capabilities=descriptor.capabilities.dict(),
             is_preview=descriptor.is_preview,
             is_deprecated=descriptor.is_deprecated,
@@ -321,7 +321,7 @@ class ModelCapabilitiesTable(Base):
 
         return ModelDescriptor(
             name=str(name),
-            family=ModelFamily(str(family)),
+            family=str(family),
             capabilities=ModelCapabilities(**capabilities_dict),
             is_preview=bool(is_preview),
             is_deprecated=bool(is_deprecated),

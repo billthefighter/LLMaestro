@@ -19,16 +19,30 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-MANIFEST
-.env
-.venv
-env/
+
+# Virtual Environment
 venv/
 ENV/
-env.bak/
-venv.bak/
-.python-version
-poetry.lock
+env/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Project specific
+config/user_config.yml
+chain_storage/
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Keep example configs
+!config/user_config.yml.example
+!config/system_config.yml
 
 # IDEs and editors
 .idea/
