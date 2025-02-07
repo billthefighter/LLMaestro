@@ -5,9 +5,61 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union, overload
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.llm.llm_registry import ModelRegistry, ProviderConfig
+
+
+class AgentTypeConfig(BaseModel):
+    """Configuration for a specific agent type."""
+
+    provider: str = Field(default="anthropic")
+    model: str = Field(default="claude-3-sonnet-20240229")
+    max_tokens: int = Field(default=8192)
+    temperature: float = Field(default=0.7)
+    description: Optional[str] = None
+    settings: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
+class AgentPoolConfig(BaseModel):
+    """Configuration for the agent pool."""
+
+    max_agents: int = Field(default=10, ge=1, le=100)
+    default_agent_type: str = Field(default="general")
+    agent_types: Dict[str, AgentTypeConfig] = Field(
+        default_factory=lambda: {
+            "general": AgentTypeConfig(
+                provider="anthropic", model="claude-3-sonnet-20240229", description="General purpose agent"
+            ),
+            "fast": AgentTypeConfig(
+                provider="anthropic",
+                model="claude-3-haiku-20240229",
+                description="Fast, lightweight agent for simple tasks",
+            ),
+            "specialist": AgentTypeConfig(
+                provider="anthropic", model="claude-3-opus-20240229", description="Specialist agent for complex tasks"
+            ),
+        }
+    )
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    def get_agent_config(self, agent_type: Optional[str] = None) -> AgentTypeConfig:
+        """
+        Get the configuration for a specific agent type.
+
+        Args:
+            agent_type: The type of agent. If None, uses the default agent type.
+
+        Returns:
+            AgentTypeConfig for the specified or default agent type
+        """
+        type_to_use = agent_type or self.default_agent_type
+        if type_to_use not in self.agent_types:
+            raise ValueError(f"Agent type '{type_to_use}' not found in configuration")
+        return self.agent_types[type_to_use]
 
 
 class UserConfig(BaseModel):
@@ -86,6 +138,36 @@ class UserConfig(BaseModel):
             "temperature": float(os.getenv(f"{env_prefix}_TEMPERATURE", "0.7")),
         }
 
+        # Extend agent configuration to support multiple agent types
+        agents_config = {
+            "max_agents": int(os.getenv("LLM_MAX_AGENTS", "10")),
+            "default_agent_type": os.getenv("LLM_DEFAULT_AGENT_TYPE", "general"),
+            "agent_types": {
+                "general": {
+                    "provider": default_provider,
+                    "model": default_model,
+                    "max_tokens": int(os.getenv("LLM_AGENT_MAX_TOKENS", "8192")),
+                    "temperature": float(os.getenv("LLM_AGENT_TEMPERATURE", "0.7")),
+                    "description": "Default general-purpose agent",
+                },
+                # Optional additional agent types from environment
+                "fast": {
+                    "provider": os.getenv("LLM_FAST_AGENT_PROVIDER", default_provider),
+                    "model": os.getenv("LLM_FAST_AGENT_MODEL", "claude-3-haiku-20240229"),
+                    "max_tokens": int(os.getenv("LLM_FAST_AGENT_MAX_TOKENS", "4096")),
+                    "temperature": float(os.getenv("LLM_FAST_AGENT_TEMPERATURE", "0.7")),
+                    "description": "Fast, lightweight agent for simple tasks",
+                },
+                "specialist": {
+                    "provider": os.getenv("LLM_SPECIALIST_AGENT_PROVIDER", default_provider),
+                    "model": os.getenv("LLM_SPECIALIST_AGENT_MODEL", "claude-3-opus-20240229"),
+                    "max_tokens": int(os.getenv("LLM_SPECIALIST_AGENT_MAX_TOKENS", "16384")),
+                    "temperature": float(os.getenv("LLM_SPECIALIST_AGENT_TEMPERATURE", "0.7")),
+                    "description": "Specialist agent for complex tasks",
+                },
+            },
+        }
+
         return cls(
             api_keys=api_keys,
             default_model={
@@ -93,17 +175,7 @@ class UserConfig(BaseModel):
                 "name": default_model,
                 "settings": model_settings,
             },
-            agents={
-                "max_agents": int(os.getenv("LLM_MAX_AGENTS", "10")),
-                "default_agent": {
-                    "provider": default_provider,
-                    "model": default_model,
-                    "settings": {
-                        "max_tokens": int(os.getenv("LLM_AGENT_MAX_TOKENS", "8192")),
-                        "temperature": float(os.getenv("LLM_AGENT_TEMPERATURE", "0.7")),
-                    },
-                },
-            },
+            agents=agents_config,
             storage={
                 "path": os.getenv("LLM_STORAGE_PATH", "chain_storage"),
                 "format": os.getenv("LLM_STORAGE_FORMAT", "json"),
@@ -136,6 +208,20 @@ class UserConfig(BaseModel):
         with open(path) as f:
             data = yaml.safe_load(f)
         return cls(**data)
+
+    def _register_user_models(self) -> None:
+        """Register models specified in user configuration."""
+        if not self._user_config or not self._model_registry:
+            return
+
+        # Register default model
+        self._model_registry.register_model(
+            self._user_config.default_model["provider"], self._user_config.default_model["name"]
+        )
+
+        # Register agent models
+        for _, agent_config in self._user_config.agents.get("agent_types", {}).items():
+            self._model_registry.register_model(agent_config["provider"], agent_config["model"])
 
 
 class SystemConfig(BaseModel):
@@ -195,6 +281,7 @@ class ConfigurationManager:
         self._user_config: Optional[UserConfig] = None
         self._system_config: Optional[SystemConfig] = None
         self._model_registry: Optional[ModelRegistry] = None
+        self._agent_pool_config: Optional[AgentPoolConfig] = None
 
     def initialize(
         self,
@@ -313,19 +400,41 @@ class ConfigurationManager:
         # Register models from user config
         self._register_user_models()
 
-    def _register_user_models(self) -> None:
-        """Register models specified in user configuration."""
-        if not self._user_config or not self._model_registry:
-            return
+    def _create_agent_pool_config(self) -> AgentPoolConfig:
+        """Create AgentPoolConfig from user configuration."""
+        if not self._user_config:
+            return AgentPoolConfig()
 
-        # Register default model
-        self._model_registry.register_model(
-            self._user_config.default_model["provider"], self._user_config.default_model["name"]
+        # Convert user config agent types to AgentTypeConfig
+        agent_types = {}
+        for type_name, agent_config in self._user_config.agents.get("agent_types", {}).items():
+            agent_types[type_name] = AgentTypeConfig(
+                provider=agent_config.get("provider", "anthropic"),
+                model=agent_config.get("model", "claude-3-sonnet-20240229"),
+                max_tokens=agent_config.get("max_tokens", 8192),
+                temperature=agent_config.get("temperature", 0.7),
+                description=agent_config.get("description", f"{type_name} purpose agent"),
+                settings=agent_config.get("settings", {}),
+            )
+
+        return AgentPoolConfig(
+            max_agents=self._user_config.agents.get("max_agents", 10),
+            default_agent_type=self._user_config.agents.get("default_agent_type", "general"),
+            agent_types=agent_types,
         )
 
-        # Register agent models
-        for agent_config in self._user_config.agents.get("agent_types", {}).values():
-            self._model_registry.register_model(agent_config["provider"], agent_config["model"])
+    @property
+    def agents(self) -> AgentPoolConfig:
+        """Get the agent pool configuration."""
+        if self._agent_pool_config is None:
+            # Ensure configs are loaded
+            if self._user_config is None:
+                self.load_configs()
+
+            # Create agent pool config
+            self._agent_pool_config = self._create_agent_pool_config()
+
+        return self._agent_pool_config
 
     @property
     def user_config(self) -> UserConfig:
@@ -380,6 +489,29 @@ class ConfigurationManager:
             base_config.update(self.user_config.default_model.get("settings", {}))
 
         return base_config
+
+    def get_agent_config(self, agent_type: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get the configuration for a specific agent type.
+
+        Args:
+            agent_type: The type of agent. If None, uses the default agent type.
+
+        Returns:
+            Dictionary with agent configuration
+        """
+        if not self._user_config:
+            self.load_configs()
+
+        agent_types = self._user_config.agents.get("agent_types", {})
+        default_agent_type = self._user_config.agents.get("default_agent_type", "general")
+
+        type_to_use = agent_type or default_agent_type
+
+        if type_to_use not in agent_types:
+            raise ValueError(f"Agent type '{type_to_use}' not found in configuration")
+
+        return agent_types[type_to_use]
 
 
 # Global configuration instance
