@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Union, overload
 
 import yaml
-from llm.llm_registry import ModelRegistry, ProviderConfig
 from pydantic import BaseModel, ConfigDict
+
+from src.llm.llm_registry import ModelRegistry, ProviderConfig
 
 
 class UserConfig(BaseModel):
