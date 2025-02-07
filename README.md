@@ -198,3 +198,132 @@ For detailed configuration documentation, see:
 
 1. Install dependencies:
 ```
+
+## Prompt System
+
+The BasePrompt interface provides a powerful, flexible way to create and manage prompt templates across different LLM providers. Key features include:
+
+### Core Features
+
+1. **Structured Prompt Definition**
+   ```python
+   prompt = BasePrompt(
+       name="Code Analysis Task",
+       description="Analyze Python code for potential improvements",
+       system_prompt="You are an expert Python code reviewer.",
+       user_prompt="Review the following code and suggest optimizations: {code}",
+       metadata=PromptMetadata(
+           tags=["code", "optimization"],
+           type="code_review",
+           expected_response="Structured code improvement suggestions"
+       ),
+       current_version=VersionInfo(
+           number="1.0.0",
+           author="system",
+           description="Initial code review prompt"
+       )
+   )
+   ```
+
+2. **Flexible Rendering**
+   ```python
+   # Render prompt with variables
+   system_prompt, user_prompt, attachments = prompt.render(
+       code="def slow_function(n):\n    return sum(range(n))"
+   )
+   ```
+
+3. **Token Estimation**
+   ```python
+   # Estimate tokens across different model families
+   token_counts = prompt.estimate_tokens(
+       model_family=ModelFamily.GPT,
+       model_name="gpt-4",
+       variables={"code": "sample code here"}
+   )
+   ```
+
+4. **Multi-Provider Compatibility**
+   The BasePrompt works seamlessly across different LLM providers:
+   ```python
+   # Works with OpenAI
+   openai_response = await openai_interface.process(
+       prompt=code_review_prompt,
+       variables={"code": "def example(): pass"}
+   )
+
+   # Works with Anthropic
+   claude_response = await claude_interface.process(
+       prompt=code_review_prompt,
+       variables={"code": "def example(): pass"}
+   )
+   ```
+
+5. **Batch Processing**
+   ```python
+   # Process multiple prompts in a single batch
+   responses = await llm_interface.batch_process(
+       prompts=[prompt1, prompt2, prompt3],
+       variables=[
+           {"code": "def func1(): pass"},
+           {"code": "def func2(): pass"},
+           {"code": "def func3(): pass"}
+       ]
+   )
+   ```
+
+### Advanced Features
+
+- **Version Control**: Track prompt versions with semantic versioning
+- **Git Integration**: Automatically track prompt changes with git metadata
+- **Validation**: Built-in template and response validation
+- **Extensible Metadata**: Add custom tags, types, and expectations
+
+### Best Practices
+
+1. Use descriptive names and metadata
+2. Include comprehensive examples
+3. Validate prompts before use
+4. Leverage version control features
+5. Design prompts to be model-agnostic
+
+### Storage Options
+
+- Local YAML files
+- Git repositories
+- Cloud storage (S3)
+
+### Example: Complex Prompt
+
+```python
+code_review_prompt = BasePrompt(
+    name="Comprehensive Code Review",
+    description="Perform a multi-dimensional code analysis",
+    system_prompt="You are an expert software engineer...",
+    user_prompt="Analyze this code for: {analysis_type}\n{code}",
+    metadata=PromptMetadata(
+        tags=["code", "review", "optimization"],
+        type="code_analysis",
+        expected_response="Structured analysis report"
+    ),
+    current_version=VersionInfo(
+        number="1.1.0",
+        author="code_quality_team",
+        description="Enhanced code review with more detailed checks"
+    ),
+    examples=[
+        {
+            "input": {
+                "analysis_type": "Performance",
+                "code": "def inefficient_function(): ..."
+            },
+            "expected_output": {
+                "performance_issues": ["High time complexity", "Redundant computations"],
+                "suggested_improvements": ["Use list comprehension", "Memoize results"]
+            }
+        }
+    ]
+)
+```
+
+This new prompt system provides a robust, flexible interface for creating, managing, and processing prompts across different LLM providers.
