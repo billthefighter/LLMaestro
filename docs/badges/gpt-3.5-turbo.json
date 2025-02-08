@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "label": "gpt-4-turbo-preview",
+  "label": "gpt-3.5-turbo",
   "message": "no API key",
   "color": "yellow"
 }
