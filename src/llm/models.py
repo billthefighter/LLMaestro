@@ -17,8 +17,9 @@ Base = declarative_base()
 class ModelFamily(str, Enum):
     """Supported model families."""
 
-    GPT = "gpt"
     CLAUDE = "claude"
+    GPT = "gpt"
+    GEMINI = "gemini"
     HUGGINGFACE = "huggingface"
 
 

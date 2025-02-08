@@ -8,43 +8,143 @@
     "llm": {
       "type": "object",
       "description": "LLM provider configuration",
-      "required": ["provider", "model", "api_key"],
+      "required": ["default_provider", "providers"],
       "properties": {
-        "provider": {
+        "default_provider": {
           "type": "string",
-          "description": "The LLM provider to use",
-          "enum": ["anthropic"],
+          "description": "The default LLM provider to use",
+          "enum": ["anthropic", "google"],
           "default": "anthropic"
         },
-        "model": {
-          "type": "string",
-          "description": "The specific model to use from the provider",
-          "enum": [
-            "claude-3-opus-20240229",
-            "claude-3-sonnet-20240229",
-            "claude-3-haiku-20240229"
-          ],
-          "default": "claude-3-sonnet-20240229"
+        "providers": {
+          "type": "object",
+          "description": "Configuration for each provider",
+          "properties": {
+            "anthropic": {
+              "type": "object",
+              "description": "Anthropic-specific configuration",
+              "required": ["api_key"],
+              "properties": {
+                "api_key": {
+                  "type": "string",
+                  "description": "Anthropic API key",
+                  "pattern": "^sk-ant-[a-zA-Z0-9._-]+$"
+                },
+                "models": {
+                  "type": "array",
+                  "description": "Available Anthropic models",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "claude-3-opus-latest",
+                      "claude-3-5-sonnet-latest",
+                      "claude-3-haiku-latest"
+                    ]
+                  },
+                  "default": ["claude-3-5-sonnet-latest"]
+                }
+              }
+            },
+            "google": {
+              "type": "object",
+              "description": "Google-specific configuration",
+              "required": ["api_key"],
+              "properties": {
+                "api_key": {
+                  "type": "string",
+                  "description": "Google API key"
+                },
+                "models": {
+                  "type": "array",
+                  "description": "Available Google models",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "gemini-pro",
+                      "gemini-1.5-flash"
+                    ]
+                  },
+                  "default": ["gemini-pro"]
+                }
+              }
+            }
+          }
         },
-        "api_key": {
-          "type": "string",
-          "description": "API key for authentication with the provider",
-          "pattern": "^sk-ant-[a-zA-Z0-9._-]+$",
-          "examples": ["sk-ant-xxxx..."]
-        },
-        "max_tokens": {
+        "default_settings": {
+          "type": "object",
+          "description": "Default settings for all models",
+          "properties": {
+            "max_tokens": {
+              "type": "integer",
+              "description": "Maximum number of tokens to generate in responses",
+              "minimum": 1,
+              "maximum": 4096,
+              "default": 1024
+            },
+            "temperature": {
+              "type": "number",
+              "description": "Sampling temperature for response generation",
+              "minimum": 0,
+              "maximum": 1,
+              "default": 0.7
+            }
+          }
+        }
+      }
+    },
+    "agents": {
+      "type": "object",
+      "description": "Agent pool configuration",
+      "properties": {
+        "max_agents": {
           "type": "integer",
-          "description": "Maximum number of tokens to generate in responses",
+          "description": "Maximum number of concurrent agents",
           "minimum": 1,
-          "maximum": 4096,
-          "default": 1024
+          "maximum": 100,
+          "default": 10
         },
-        "temperature": {
-          "type": "number",
-          "description": "Sampling temperature for response generation",
-          "minimum": 0,
-          "maximum": 1,
-          "default": 0.7
+        "default_agent_type": {
+          "type": "string",
+          "description": "Default agent type to use",
+          "default": "general"
+        },
+        "agent_types": {
+          "type": "object",
+          "description": "Configuration for different agent types",
+          "properties": {
+            "general": {
+              "type": "object",
+              "description": "General purpose agent configuration",
+              "properties": {
+                "provider": {
+                  "type": "string",
+                  "enum": ["anthropic", "google"]
+                },
+                "model": {
+                  "type": "string"
+                },
+                "max_tokens": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "temperature": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            },
+            "fast": {
+              "type": "object",
+              "description": "Fast, lightweight agent configuration",
+              "$ref": "#/properties/agents/properties/agent_types/properties/general"
+            },
+            "specialist": {
+              "type": "object",
+              "description": "Specialist agent configuration",
+              "$ref": "#/properties/agents/properties/agent_types/properties/general"
+            }
+          }
         }
       }
     },

@@ -1,6 +1,9 @@
 {
   "claude-3-opus-20240229": "success",
+  "claude-3-5-sonnet-latest": "success",
   "claude-3-haiku-20240307": "success",
   "gpt-4-turbo-preview": "skip",
-  "gpt-3.5-turbo": "skip"
+  "gpt-3.5-turbo": "skip",
+  "gemini-pro": "success",
+  "gemini-1.5-flash": "success"
 }

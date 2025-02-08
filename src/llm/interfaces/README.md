@@ -1,11 +1,12 @@
 # LLM Provider Interfaces
 
-This directory contains implementations for different LLM providers (OpenAI, Anthropic, etc.). Each implementation inherits from the `BaseLLMInterface` class and provides standardized access to the underlying LLM service.
+This directory contains implementations for different LLM providers (OpenAI, Anthropic, Google, etc.). Each implementation inherits from the `BaseLLMInterface` class and provides standardized access to the underlying LLM service.
 
 ## Current Providers
 
 - **OpenAI** (`openai.py`): Implementation for GPT models via OpenAI's API
 - **Anthropic** (`anthropic.py`): Implementation for Claude models via Anthropic's API
+- **Google** (`gemini.py`): Implementation for Gemini models via Google's API
 
 ## Adding a New Provider
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "label": "claude-3-5-sonnet-latest",
+  "label": "gemini-pro",
   "message": "operational",
   "color": "brightgreen"
 }

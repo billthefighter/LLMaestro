@@ -101,19 +101,15 @@ class RateLimitConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Configuration for an LLM agent."""
 
-    provider: str = Field(description="The LLM provider (e.g., 'openai', 'anthropic')")
-    model_name: str = Field(description="The specific model to use (e.g., 'gpt-4', 'claude-2')")
-    max_tokens: int = Field(description="Maximum tokens to generate in responses")
-    temperature: float = Field(default=0.7, description="Temperature for response generation (0.0-1.0)")
-    top_p: float = Field(default=1.0, description="Top-p sampling parameter (0.0-1.0)")
-    api_key: Optional[str] = Field(default=None, description="API key for the LLM provider")
-    max_context_tokens: int = Field(default=8192, description="Maximum tokens allowed in context window")
-    token_tracking: bool = Field(default=True, description="Whether to track token usage and costs")
-    cost_per_1k_tokens: Optional[float] = Field(default=None, description="Cost per 1000 tokens (if tracking costs)")
-    summarization: SummarizationConfig = Field(
-        default_factory=SummarizationConfig, description="Configuration for context summarization"
-    )
-    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig, description="Configuration for rate limiting")
+    provider: str
+    model_name: str
+    api_key: str
+    google_api_key: Optional[str] = None  # For Google models
+    max_tokens: int = Field(default=1024, ge=1)
+    temperature: float = Field(default=0.7, ge=0.0, le=1.0)
+    rate_limit: RateLimitConfig = Field(default_factory=RateLimitConfig)
+    summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
+    max_context_tokens: int = Field(default=32000, ge=1)
 
     model_config = ConfigDict(validate_assignment=True)
 

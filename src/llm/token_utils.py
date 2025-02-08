@@ -1,7 +1,8 @@
 """Unified token estimation utilities for LLM interfaces."""
+import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import tiktoken
 
@@ -82,7 +83,13 @@ class TiktokenTokenizer(BaseTokenizer):
 class AnthropicTokenizer(BaseTokenizer):
     """Token counter for Anthropic models."""
 
-    def __init__(self, model_name: str, api_key: str):
+    def __init__(self, model_name: str, *, api_key: str):
+        """Initialize the tokenizer.
+
+        Args:
+            model_name: Name of the model to use
+            api_key: Anthropic API key
+        """
         super().__init__(model_name)
         if AsyncAnthropic is None:
             raise ImportError("Anthropic package is not installed")
@@ -140,45 +147,69 @@ class HuggingFaceTokenizer(BaseTokenizer):
         return model_family == ModelFamily.HUGGINGFACE
 
 
-class TokenizerRegistry:
-    """Registry for model-specific tokenizers."""
+class SimpleWordTokenizer(BaseTokenizer):
+    """Simple word-based tokenizer for models without specific tokenization."""
 
-    # Define a type alias for tokenizer constructors
-    TokenizerType = Type[Union[TiktokenTokenizer, AnthropicTokenizer, HuggingFaceTokenizer]]
-
-    _tokenizers: Dict[str, TokenizerType] = {
-        ModelFamily.GPT.value: TiktokenTokenizer,
-        ModelFamily.CLAUDE.value: AnthropicTokenizer,
-        ModelFamily.HUGGINGFACE.value: HuggingFaceTokenizer,
-    }
+    def __init__(self, model_name: str):
+        """Initialize the tokenizer."""
+        super().__init__(model_name)
 
     @classmethod
-    def register(cls, model_family: ModelFamily, tokenizer_cls: TokenizerType) -> None:
-        """Register a new tokenizer for a model family."""
-        if not issubclass(tokenizer_cls, BaseTokenizer):
-            raise ValueError(f"{tokenizer_cls.__name__} must inherit from BaseTokenizer")
-        if not tokenizer_cls.supports_model(model_family):
-            raise ValueError(f"{tokenizer_cls.__name__} does not support {model_family}")
-        cls._tokenizers[model_family.value] = tokenizer_cls
+    def supports_model(cls, model_family: ModelFamily) -> bool:
+        """Check if this tokenizer supports the given model family."""
+        return model_family == ModelFamily.GEMINI
+
+    def count_tokens(self, text: str) -> int:
+        """Count tokens in text using simple word-based approach."""
+        # Split on whitespace and punctuation
+        words = re.findall(r"\w+|\S", text)
+        # Rough estimate: 4 characters per token on average
+        return sum(len(word) + 1 for word in words) // 4
+
+    def encode(self, text: str) -> List[int]:
+        """Encode text into token IDs."""
+        # Not implemented for simple tokenizer
+        raise NotImplementedError("SimpleWordTokenizer does not support encoding")
+
+    def decode(self, token_ids: List[int]) -> str:
+        """Decode token IDs into text."""
+        # Not implemented for simple tokenizer
+        raise NotImplementedError("SimpleWordTokenizer does not support decoding")
+
+
+class TokenizerRegistry:
+    """Registry of tokenizers for different model families."""
+
+    _tokenizers: Dict[ModelFamily, Type[BaseTokenizer]] = {}
+
+    @classmethod
+    def register(cls, model_family: ModelFamily, tokenizer_class: Type[BaseTokenizer]) -> None:
+        """Register a tokenizer for a model family."""
+        cls._tokenizers[model_family] = tokenizer_class
 
     @classmethod
     def get_tokenizer(cls, model_family: ModelFamily, model_name: str, api_key: Optional[str] = None) -> BaseTokenizer:
-        """Get the appropriate tokenizer for a model family."""
-        tokenizer_cls = cls._tokenizers.get(model_family.value)
-        if not tokenizer_cls:
+        """Get a tokenizer for a model family."""
+        if model_family not in cls._tokenizers:
             raise ValueError(f"No tokenizer registered for {model_family}")
 
-        # Validate model exists
-        if not _model_registry.get_model(model_name):
-            raise ValueError(f"Unknown model {model_name} in family {model_family.name}")
+        tokenizer_class = cls._tokenizers[model_family]
 
         # Create tokenizer instance based on model family
-        if model_family == ModelFamily.CLAUDE and issubclass(tokenizer_cls, AnthropicTokenizer):
+        if model_family == ModelFamily.CLAUDE:
             if not api_key:
                 raise ValueError("API key is required for Anthropic tokenizer")
-            return tokenizer_cls(model_name, api_key)  # type: ignore
+            return AnthropicTokenizer(model_name, api_key=api_key)
+        else:
+            # Other tokenizers only need model_name
+            return tokenizer_class(model_name)
 
-        return tokenizer_cls(model_name)  # type: ignore
+
+# Register tokenizers
+TokenizerRegistry.register(ModelFamily.GPT, TiktokenTokenizer)
+TokenizerRegistry.register(ModelFamily.CLAUDE, AnthropicTokenizer)
+TokenizerRegistry.register(ModelFamily.HUGGINGFACE, HuggingFaceTokenizer)
+TokenizerRegistry.register(ModelFamily.GEMINI, SimpleWordTokenizer)
 
 
 class TokenCounter:

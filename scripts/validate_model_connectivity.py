@@ -67,6 +67,16 @@ def get_model_registry() -> ModelRegistry:
             for model in models:
                 registry.register(model)
 
+    # Load Gemini models
+    gemini_path = Path("src/llm/models/gemini.yaml")
+    if gemini_path.exists():
+        gemini_registry = ModelRegistry.from_yaml(gemini_path)
+        # Add Gemini models to the registry
+        for family in ModelFamily:
+            models = gemini_registry.get_family_models(family)
+            for model in models:
+                registry.register(model)
+
     return registry
 
 
@@ -76,6 +86,8 @@ def get_api_key(family: ModelFamily) -> Optional[str]:
         return os.getenv("ANTHROPIC_API_KEY")
     elif family == ModelFamily.GPT:
         return os.getenv("OPENAI_API_KEY")
+    elif family == ModelFamily.GEMINI:
+        return os.getenv("GOOGLE_API_KEY")
     return None
 
 
@@ -98,11 +110,16 @@ def load_config() -> Optional[Config]:
             config_path.parent.mkdir(exist_ok=True)
             minimal_config = {
                 "llm": {
-                    "provider": "anthropic",
-                    "model_name": "claude-3-sonnet-20240229",
-                    "api_key": "dummy-key",
-                    "max_tokens": 100,
-                },
+                    "default_provider": "anthropic",
+                    "providers": {
+                        "anthropic": {
+                            "api_key": os.getenv("ANTHROPIC_API_KEY", "dummy-key"),
+                            "models": ["claude-3-sonnet-20240229"],
+                        },
+                        "google": {"api_key": os.getenv("GOOGLE_API_KEY", "dummy-key"), "models": ["gemini-pro"]},
+                    },
+                    "default_settings": {"max_tokens": 100, "temperature": 0.7},
+                }
             }
             with open(config_path, "w") as f:
                 yaml.safe_dump(minimal_config, f)
@@ -110,11 +127,20 @@ def load_config() -> Optional[Config]:
         with open(config_path) as f:
             config_data = yaml.safe_load(f)
 
-        # Convert 'model' to 'model_name' if needed
-        if "llm" in config_data and "model" in config_data["llm"]:
-            config_data["llm"]["model_name"] = config_data["llm"].pop("model")
+        # Extract the relevant provider config based on model family
+        llm_config = config_data.get("llm", {})
+        default_settings = llm_config.get("default_settings", {})
 
-        return Config(llm=AgentConfig(**config_data["llm"]))
+        # Create AgentConfig with default provider settings
+        agent_config = AgentConfig(
+            provider=llm_config.get("default_provider", "anthropic"),
+            model_name="claude-3-sonnet-20240229",  # Default model
+            api_key="dummy-key",  # Will be overridden by environment variables
+            max_tokens=default_settings.get("max_tokens", 100),
+            temperature=default_settings.get("temperature", 0.7),
+        )
+
+        return Config(llm=agent_config)
     except Exception as e:
         print(f"Warning: Failed to load config: {e}")
         return None
@@ -142,6 +168,7 @@ async def test_model(model: ModelDescriptor, config: Optional[Config], registry:
             provider=model.family.lower(),
             model_name=model.name,  # Ensure model name is set
             api_key=api_key,
+            google_api_key=os.getenv("GOOGLE_API_KEY"),  # Add Google API key
             max_tokens=100,
         )
         interface = create_interface_for_model(model, model_config, registry)
@@ -235,6 +262,10 @@ async def main():
     # Test OpenAI models
     openai_path = Path("src/llm/models/openai.yaml")
     await test_model_family(ModelFamily.GPT, config, openai_path)
+
+    # Test Gemini models
+    gemini_path = Path("src/llm/models/gemini.yaml")
+    await test_model_family(ModelFamily.GEMINI, config, gemini_path)
 
     # Save results and generate badges
     save_results()
