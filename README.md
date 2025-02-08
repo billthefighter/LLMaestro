@@ -5,6 +5,7 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 ## Model Status
 
 ### Anthropic Models
+![claude-3-5-sonnet-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/claude-3-5-sonnet-latest.json)
 ![claude-3-haiku-20240307](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/claude-3-haiku-20240307.json)
 ![claude-3-opus-20240229](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/claude-3-opus-20240229.json)
 
