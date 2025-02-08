@@ -1,8 +1,6 @@
 {
-  "claude-3-opus-20240229": "skip",
-  "claude-3-sonnet-20240229": "skip",
-  "claude-3-haiku-20240229": "skip",
-  "claude-2.1": "skip",
-  "claude-instant-1.2": "skip",
-  "claude-3-5-sonnet-latest": "skip"
+  "claude-3-opus-20240229": "success",
+  "claude-3-haiku-20240307": "success",
+  "gpt-4-turbo-preview": "skip",
+  "gpt-3.5-turbo": "skip"
 }

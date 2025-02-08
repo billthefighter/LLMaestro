@@ -1,10 +1,9 @@
 """Unified token estimation utilities for LLM interfaces."""
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import tiktoken
-import yaml
 
 try:
     from transformers import AutoTokenizer
@@ -13,10 +12,11 @@ except ImportError:
 
 try:
     import anthropic
+    from anthropic import AsyncAnthropic
 except ImportError:
     anthropic = None
+    AsyncAnthropic = None
 
-from anthropic.types import MessageParam, TextBlockParam
 
 from src.llm.models import ModelFamily, ModelRegistry
 
@@ -36,10 +36,9 @@ if _models_dir.exists():
 class BaseTokenizer(ABC):
     """Abstract base class for model-specific tokenizers."""
 
-    @abstractmethod
-    def __init__(self, model_name: Optional[str] = None):
-        """Initialize tokenizer, optionally with a specific model name."""
-        pass
+    def __init__(self, model_name: str):
+        """Initialize tokenizer with a specific model name."""
+        self.model_name = model_name
 
     @abstractmethod
     def count_tokens(self, text: str) -> int:
@@ -81,29 +80,40 @@ class TiktokenTokenizer(BaseTokenizer):
 
 
 class AnthropicTokenizer(BaseTokenizer):
-    """Tokenizer for Anthropic models."""
+    """Token counter for Anthropic models."""
 
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: str, api_key: str):
         super().__init__(model_name)
-        if not anthropic:
-            raise ImportError("anthropic package is required for Anthropic models")
-        # Load API key from config
-        config_path = Path("config/config.yaml")
-        with open(config_path) as f:
-            config_data = yaml.safe_load(f)
-        api_key = config_data["llm"]["api_key"]
-        self.client = anthropic.Anthropic(api_key=api_key)
-        self.model_name = model_name or "claude-3-sonnet-20240229"
+        if AsyncAnthropic is None:
+            raise ImportError("Anthropic package is not installed")
+        self.client = AsyncAnthropic(api_key=api_key)
 
     def count_tokens(self, text: str) -> int:
-        # Convert text to a properly typed message format
-        message = MessageParam(role="user", content=[TextBlockParam(type="text", text=text)])
-        result = self.client.messages.count_tokens(model=self.model_name, messages=[message])
-        return result.input_tokens
+        """Estimate token count for text using a simple approximation.
+
+        This is a fallback method when the API token counting endpoint is not available.
+        It uses a simple approximation of 4 characters per token.
+        """
+        # Simple approximation: ~4 characters per token
+        return len(text) // 4 + 1
+
+    def count_messages(self, messages: List[Dict[str, Any]]) -> int:
+        """Estimate token count for messages."""
+        total_tokens = 0
+        for message in messages:
+            content = message.get("content", "")
+            if isinstance(content, list):
+                # Handle content blocks
+                for block in content:
+                    if isinstance(block, dict) and "text" in block:
+                        total_tokens += self.count_tokens(block["text"])
+            else:
+                total_tokens += self.count_tokens(str(content))
+        return total_tokens
 
     def encode(self, text: str) -> List[int]:
-        # Anthropic doesn't expose token IDs directly
-        raise NotImplementedError("Anthropic doesn't support token ID encoding")
+        """Anthropic doesn't expose token IDs directly."""
+        raise NotImplementedError("Anthropic doesn't expose token IDs")
 
     @classmethod
     def supports_model(cls, model_family: ModelFamily) -> bool:
@@ -133,25 +143,28 @@ class HuggingFaceTokenizer(BaseTokenizer):
 class TokenizerRegistry:
     """Registry for model-specific tokenizers."""
 
-    _tokenizers: Dict[ModelFamily, Type[BaseTokenizer]] = {
-        ModelFamily.GPT: TiktokenTokenizer,
-        ModelFamily.CLAUDE: AnthropicTokenizer,
-        ModelFamily.HUGGINGFACE: HuggingFaceTokenizer,
+    # Define a type alias for tokenizer constructors
+    TokenizerType = Type[Union[TiktokenTokenizer, AnthropicTokenizer, HuggingFaceTokenizer]]
+
+    _tokenizers: Dict[str, TokenizerType] = {
+        ModelFamily.GPT.value: TiktokenTokenizer,
+        ModelFamily.CLAUDE.value: AnthropicTokenizer,
+        ModelFamily.HUGGINGFACE.value: HuggingFaceTokenizer,
     }
 
     @classmethod
-    def register(cls, model_family: ModelFamily, tokenizer_cls: Type[BaseTokenizer]) -> None:
+    def register(cls, model_family: ModelFamily, tokenizer_cls: TokenizerType) -> None:
         """Register a new tokenizer for a model family."""
         if not issubclass(tokenizer_cls, BaseTokenizer):
             raise ValueError(f"{tokenizer_cls.__name__} must inherit from BaseTokenizer")
         if not tokenizer_cls.supports_model(model_family):
             raise ValueError(f"{tokenizer_cls.__name__} does not support {model_family}")
-        cls._tokenizers[model_family] = tokenizer_cls
+        cls._tokenizers[model_family.value] = tokenizer_cls
 
     @classmethod
-    def get_tokenizer(cls, model_family: ModelFamily, model_name: str) -> BaseTokenizer:
+    def get_tokenizer(cls, model_family: ModelFamily, model_name: str, api_key: Optional[str] = None) -> BaseTokenizer:
         """Get the appropriate tokenizer for a model family."""
-        tokenizer_cls = cls._tokenizers.get(model_family)
+        tokenizer_cls = cls._tokenizers.get(model_family.value)
         if not tokenizer_cls:
             raise ValueError(f"No tokenizer registered for {model_family}")
 
@@ -159,20 +172,32 @@ class TokenizerRegistry:
         if not _model_registry.get_model(model_name):
             raise ValueError(f"Unknown model {model_name} in family {model_family.name}")
 
-        return tokenizer_cls(model_name)
+        # Create tokenizer instance based on model family
+        if model_family == ModelFamily.CLAUDE and issubclass(tokenizer_cls, AnthropicTokenizer):
+            if not api_key:
+                raise ValueError("API key is required for Anthropic tokenizer")
+            return tokenizer_cls(model_name, api_key)  # type: ignore
+
+        return tokenizer_cls(model_name)  # type: ignore
 
 
 class TokenCounter:
     """Unified token counting and estimation."""
 
-    def __init__(self):
+    def __init__(self, api_key: Optional[str] = None):
+        """Initialize token counter.
+
+        Args:
+            api_key: Optional API key for providers that require it (e.g. Anthropic)
+        """
         self._tokenizers: Dict[str, BaseTokenizer] = {}
+        self._api_key = api_key
 
     def get_tokenizer(self, model_family: ModelFamily, model_name: str) -> BaseTokenizer:
         """Get or create a tokenizer for the specified model."""
         cache_key = f"{model_family.name}:{model_name}"
         if cache_key not in self._tokenizers:
-            self._tokenizers[cache_key] = TokenizerRegistry.get_tokenizer(model_family, model_name)
+            self._tokenizers[cache_key] = TokenizerRegistry.get_tokenizer(model_family, model_name, self._api_key)
         return self._tokenizers[cache_key]
 
     def count_tokens(self, text: str, model_family: ModelFamily, model_name: str) -> int:

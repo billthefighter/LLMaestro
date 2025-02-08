@@ -13,6 +13,7 @@ from PIL import Image
 
 from src.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse, MediaType, TokenUsage
 from src.llm.models import ModelFamily
+from src.llm.token_utils import TokenCounter
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -29,6 +30,7 @@ class AnthropicLLM(BaseLLMInterface):
         super().__init__(*args, **kwargs)
         self.client = AsyncAnthropic(api_key=self.config.api_key)
         self.stream = getattr(self.config, "stream", False)  # Default to False if not specified
+        self._token_counter = TokenCounter(api_key=self.config.api_key)  # Initialize with API key
         logger.info(f"Initialized AnthropicLLM with model: {self.config.model_name}")
 
     @property
@@ -88,6 +90,17 @@ class AnthropicLLM(BaseLLMInterface):
 
         return content_blocks
 
+    def _format_messages(
+        self, input_data: str, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
+    ) -> List[Dict[str, Any]]:
+        """Format messages for Anthropic API."""
+        messages = []
+
+        # Add user message
+        messages.append({"role": "user", "content": input_data})
+
+        return messages
+
     async def process(
         self, prompt: Union[BasePrompt, "BasePrompt"], variables: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
@@ -111,8 +124,8 @@ class AnthropicLLM(BaseLLMInterface):
                 else None
             )
 
-            # Format messages
-            messages = self._format_messages(input_data=user_prompt, system_prompt=system_prompt, images=images)
+            # Format messages - only include user message, system prompt is handled separately
+            messages = self._format_messages(input_data=user_prompt, images=images)
             logger.debug(f"Formatted messages: {messages}")
 
             # Get image dimensions for token counting
@@ -153,7 +166,7 @@ class AnthropicLLM(BaseLLMInterface):
                 "stream": self.stream,
             }
 
-            # Only add system parameter if we have a system prompt
+            # Add system prompt as a top-level parameter
             if system_prompt:
                 create_params["system"] = system_prompt
 

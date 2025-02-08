@@ -17,20 +17,36 @@ from src.llm.models import (
     ModelRegistry,
 )
 from src.prompts.base import BasePrompt
-from src.prompts.types import PromptMetadata, VersionInfo
+from src.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+
+
+class TestPrompt(BasePrompt):
+    """Test prompt implementation."""
+
+    async def save(self) -> bool:
+        """Mock save implementation."""
+        return True
+
+    @classmethod
+    async def load(cls, identifier: str) -> Optional["BasePrompt"]:
+        """Mock load implementation."""
+        return None
+
 
 # Type for test results
 TestResult = Literal["success", "failure", "skip"]
 TEST_RESULTS: Dict[str, TestResult] = {}
 
 # Test message that should work across all models
-HELLO_WORLD_PROMPT = BasePrompt(
+HELLO_WORLD_PROMPT = TestPrompt(
     name="Hello World Test",
     description="Simple test prompt for model connectivity",
     system_prompt="You are a helpful assistant. Keep responses brief.",
     user_prompt="Say hello world",
-    metadata=PromptMetadata(tags=["test"]),
-    current_version=VersionInfo(number="1.0.0", author="system", timestamp=datetime.now()),
+    metadata=PromptMetadata(type="test", expected_response=ResponseFormat(format="text", schema=None), tags=["test"]),
+    current_version=VersionInfo(
+        number="1.0.0", author="system", timestamp=datetime.now(), description="Initial version", change_type="create"
+    ),
 )
 EXPECTED_RESPONSE_SUBSTRING = "hello world"
 
@@ -49,7 +65,7 @@ def get_model_registry() -> ModelRegistry:
         for family in ModelFamily:
             models = openai_registry.get_family_models(family)
             for model in models:
-                registry.add_model(model)
+                registry.register(model)
 
     return registry
 
@@ -83,7 +99,7 @@ def load_config() -> Optional[Config]:
             minimal_config = {
                 "llm": {
                     "provider": "anthropic",
-                    "model": "claude-3-sonnet-latest",
+                    "model_name": "claude-3-sonnet-20240229",
                     "api_key": "dummy-key",
                     "max_tokens": 100,
                 },
@@ -94,6 +110,10 @@ def load_config() -> Optional[Config]:
         with open(config_path) as f:
             config_data = yaml.safe_load(f)
 
+        # Convert 'model' to 'model_name' if needed
+        if "llm" in config_data and "model" in config_data["llm"]:
+            config_data["llm"]["model_name"] = config_data["llm"].pop("model")
+
         return Config(llm=AgentConfig(**config_data["llm"]))
     except Exception as e:
         print(f"Warning: Failed to load config: {e}")
@@ -102,16 +122,16 @@ def load_config() -> Optional[Config]:
 
 def create_badge_data(model_name: str, result: TestResult) -> Dict:
     """Create badge data for a model."""
-    status_colors = {"success": "brightgreen", "failure": "red", "skip": "yellow"}
+    status_colors: Dict[TestResult, str] = {"success": "brightgreen", "failure": "red", "skip": "yellow"}
 
-    status_messages = {"success": "operational", "failure": "failed", "skip": "no API key"}
+    status_messages: Dict[TestResult, str] = {"success": "operational", "failure": "failed", "skip": "no API key"}
 
     return {"schemaVersion": 1, "label": model_name, "message": status_messages[result], "color": status_colors[result]}
 
 
 async def test_model(model: ModelDescriptor, config: Optional[Config], registry: ModelRegistry) -> TestResult:
     """Test connectivity for a specific model with detailed error handling."""
-    api_key = get_api_key(model.family)
+    api_key = get_api_key(ModelFamily(model.family))
     if not api_key:
         print(f"⚠️  Skipping {model.name}: API key not set for {model.family}")
         return "skip"
@@ -119,7 +139,7 @@ async def test_model(model: ModelDescriptor, config: Optional[Config], registry:
     try:
         # Create interface using factory with proper config
         model_config = AgentConfig(
-            provider=model.family.name,
+            provider=model.family.lower(),
             model_name=model.name,  # Ensure model name is set
             api_key=api_key,
             max_tokens=100,
@@ -133,7 +153,11 @@ async def test_model(model: ModelDescriptor, config: Optional[Config], registry:
             print(f"❌ {model.name}: No response content")
             return "failure"
 
-        if EXPECTED_RESPONSE_SUBSTRING in response.content.lower():
+        # Case-insensitive comparison and ignore punctuation
+        response_text = "".join(c.lower() for c in response.content if c.isalnum() or c.isspace())
+        expected_text = "".join(c.lower() for c in EXPECTED_RESPONSE_SUBSTRING if c.isalnum() or c.isspace())
+
+        if expected_text in response_text:
             print(f"✅ {model.name}: Success")
             return "success"
         else:
