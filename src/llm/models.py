@@ -255,6 +255,7 @@ class ModelDescriptor(BaseModel):
     name: str
     family: str  # Changed from ModelFamily to str to work with registry
     capabilities: ModelCapabilities
+    description: Optional[str] = None
     is_preview: bool = False
     is_deprecated: bool = False
     min_api_version: Optional[str] = None
