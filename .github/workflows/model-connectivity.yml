@@ -146,7 +146,7 @@ jobs:
         for f in docs/badges/*.json; do
           if [ -f "$f" ]; then
             model_name=$(basename "$f" .json)
-            badge_url="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/lucaswhipple/llm_orchestrator/main/docs/badges/$(basename "$f")"
+            badge_url="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/$(basename "$f")"
             echo "<div class='badge-container'><span class='badge-name'>$model_name:</span><img src='$badge_url' alt='$model_name status'></div>" >> docs/index.html
           fi
         done
