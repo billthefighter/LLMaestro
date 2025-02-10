@@ -5,17 +5,17 @@ A system for orchestrating large-scale LLM tasks that exceed token limits throug
 ## Model Status
 
 ### Anthropic Models
-![claude-3-5-sonnet-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/claude-3-5-sonnet-latest.json) - Balanced Claude 3 model offering strong performance at a lower cost than Opus
-![claude-3-haiku-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/claude-3-haiku-latest.json) - Fastest and most cost-effective Claude 3 model, optimized for simpler tasks
-![claude-3-opus-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/claude-3-opus-latest.json) - Most capable Claude 3 model, best for complex tasks requiring deep analysis, coding, and reasoning
+![claude-3-5-sonnet-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/claude-3-5-sonnet-latest.json) - Balanced Claude 3 model offering strong performance at a lower cost than Opus
+![claude-3-haiku-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/claude-3-haiku-latest.json) - Fastest and most cost-effective Claude 3 model, optimized for simpler tasks
+![claude-3-opus-latest](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/claude-3-opus-latest.json) - Most capable Claude 3 model, best for complex tasks requiring deep analysis, coding, and reasoning
 
 ### OpenAI Models
-![gpt-3.5-turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/gpt-3.5-turbo.json) - Fast and cost-effective GPT-3.5 model for most tasks
-![gpt-4-turbo-preview](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/gpt-4-turbo-preview.json) - Most capable and up-to-date GPT-4 model with 128k context
+![gpt-3.5-turbo](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/gpt-3.5-turbo.json) - Fast and cost-effective GPT-3.5 model for most tasks
+![gpt-4-turbo-preview](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/gpt-4-turbo-preview.json) - Most capable and up-to-date GPT-4 model with 128k context
 
 ### Google Models
-![gemini-1.5-flash](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/gemini-1.5-flash.json)
-![gemini-pro](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/llm_orchestrator/main/docs/badges/gemini-pro.json)
+![gemini-1.5-flash](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/gemini-1.5-flash.json)
+![gemini-pro](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/billthefighter/LLMaestro/main/docs/badges/gemini-pro.json)
 
 ## Getting Started
 

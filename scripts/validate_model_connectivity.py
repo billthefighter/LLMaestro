@@ -2,10 +2,11 @@
 import asyncio
 import json
 import os
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Literal, Optional, Tuple
+from typing import Dict, Literal, Optional
 
 import yaml
 
@@ -47,27 +48,26 @@ HELLO_WORLD_PROMPT = TestPrompt(
 EXPECTED_RESPONSE_SUBSTRING = "hello world"
 
 
-def get_model_registry() -> Tuple[ModelRegistry, List[Path]]:
-    """Initialize model registry with all available models and return paths to model files."""
+def get_model_registry() -> ModelRegistry:
+    """Initialize model registry with all available models."""
     registry = ModelRegistry()
-    model_files = []
     models_dir = Path("src/llm/models")
 
     if not models_dir.exists():
         print(f"⚠️  Models directory not found at {models_dir}")
-        return registry, model_files
+        return registry
 
     # Load all YAML files in the models directory
     for yaml_path in models_dir.glob("*.yaml"):
         try:
-            model_files.append(yaml_path)
             loaded_registry = ModelRegistry.from_yaml(yaml_path)
             for model in loaded_registry._models.values():
                 registry.register(model)
+            print(f"✅ Loaded models from {yaml_path}")
         except Exception as e:
             print(f"❌ Error loading {yaml_path}: {str(e)}")
 
-    return registry, model_files
+    return registry
 
 
 def get_api_key(family: ModelFamily) -> Optional[str]:
@@ -171,8 +171,6 @@ def save_results(registry: ModelRegistry):
     """Save test results and generate badges."""
     results_dir = Path("test-results")
     results_dir.mkdir(exist_ok=True)
-    badges_dir = results_dir / "badges"
-    badges_dir.mkdir(exist_ok=True)
 
     # Save test results with model metadata
     results_with_metadata = {}
@@ -193,6 +191,12 @@ def save_results(registry: ModelRegistry):
     for model_name, data in results_with_metadata.items():
         print(f"{model_name} ({data['family']}): {data['result']}")
 
+    # Run badge generation script
+    try:
+        subprocess.run(["python", "scripts/generate_model_badges.py"], check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to generate badges: {e}")
+
 
 async def test_model_family(family: ModelFamily, config: Optional[Config], registry: ModelRegistry):
     """Test all models in a specific family."""
@@ -210,13 +214,13 @@ async def test_model_family(family: ModelFamily, config: Optional[Config], regis
 async def main():
     """Main function to run model connectivity validation."""
     config = load_config()
-    registry, _ = get_model_registry()
+    registry = get_model_registry()
 
     # Test all model families from the registry
     for family in ModelFamily:
         await test_model_family(family, config, registry)
 
-    # Save results with model metadata
+    # Save results and generate badges
     save_results(registry)
 
 

@@ -3,9 +3,9 @@
 import json
 import shutil
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Dict, Literal, Optional
 
-from src.llm.models import ModelFamily
+from src.llm.models import ModelFamily, ModelRegistry
 
 TestResult = Literal["success", "failure", "skip"]
 
@@ -15,9 +15,9 @@ def generate_badge_json(
 ) -> dict:
     """Generate badge JSON for shields.io endpoint."""
     status_config = {
-        "success": ("Connected", "success"),
-        "failure": ("Disconnected", "critical"),
-        "skip": ("Skipped", "yellow"),
+        "success": ("operational", "brightgreen"),
+        "failure": ("error", "red"),
+        "skip": ("untested", "yellow"),
     }
 
     message, color = status_config[status]
@@ -50,31 +50,63 @@ def get_family_color(family: Optional[str]) -> str:
     }.get(family, "gray")
 
 
+def load_test_results() -> Dict[str, TestResult]:
+    """Load test results from file, returning empty dict if file doesn't exist."""
+    results_file = Path("test-results/model_connectivity.json")
+    if not results_file.exists():
+        return {}
+
+    try:
+        with open(results_file) as f:
+            data = json.load(f)
+            return {model: info["result"] for model, info in data.items()}
+    except (json.JSONDecodeError, KeyError, FileNotFoundError):
+        print("⚠️  Warning: Invalid or missing test results file")
+        return {}
+
+
 def main():
-    """Generate badge JSON files from test results."""
+    """Generate badge JSON files from test results and model registry."""
+    # Initialize directories
     results_dir = Path("test-results")
     test_badges_dir = results_dir / "badges"
     docs_badges_dir = Path("docs/badges")
 
-    # Create directories
     test_badges_dir.mkdir(parents=True, exist_ok=True)
     docs_badges_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read test results with metadata
-    try:
-        with open(results_dir / "model_connectivity.json") as f:
-            test_results = json.load(f)
-    except FileNotFoundError:
-        print("❌ No test results found. Run validate_model_connectivity.py first.")
+    # Load test results
+    test_results = load_test_results()
+
+    # Initialize model registry and load all models
+    registry = ModelRegistry()
+    models_dir = Path("src/llm/models")
+
+    if not models_dir.exists():
+        print("❌ Models directory not found")
         return
 
-    # Generate badge JSON files
-    for model_name, data in test_results.items():
-        status = data["result"]
-        family = data.get("family")
-        description = data.get("description")
+    # Load all model files
+    for yaml_path in models_dir.glob("*.yaml"):
+        try:
+            loaded_registry = ModelRegistry.from_yaml(yaml_path)
+            for model in loaded_registry._models.values():
+                registry.register(model)
+        except Exception as e:
+            print(f"❌ Error loading {yaml_path}: {str(e)}")
 
-        badge_data = generate_badge_json(model_name, status, family, description)
+    # Generate badges for all models in registry
+    badge_count = 0
+    for model_name, model in registry._models.items():
+        # Get test result if available, otherwise mark as skipped
+        status = test_results.get(model_name, "skip")
+
+        badge_data = generate_badge_json(
+            model_name=model_name,
+            status=status,
+            family=model.family,
+            description=model.description if hasattr(model, "description") else None,
+        )
 
         # Save to test-results/badges
         test_badge_file = test_badges_dir / f"{model_name}.json"
@@ -84,8 +116,12 @@ def main():
         # Copy to docs/badges
         docs_badge_file = docs_badges_dir / f"{model_name}.json"
         shutil.copy2(test_badge_file, docs_badge_file)
+        badge_count += 1
 
-    print(f"✅ Generated badges for {len(test_results)} models")
+    print(f"✅ Generated badges for {badge_count} models from registry")
+    if len(test_results) > 0:
+        print(f"  - {len(test_results)} models had test results")
+        print(f"  - {badge_count - len(test_results)} models marked as untested")
 
 
 if __name__ == "__main__":
