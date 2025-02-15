@@ -530,3 +530,10 @@ class BaseLLMInterface(ABC):
 
         except Exception as e:
             return self._handle_error(e)
+
+    @abstractmethod
+    async def process_async(
+        self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None
+    ) -> LLMResponse:
+        """Asynchronous prompt processing."""
+        pass

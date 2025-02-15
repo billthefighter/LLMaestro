@@ -92,3 +92,70 @@ When adding a new provider:
 3. Verify error handling
 4. Check token tracking and context management
 5. Validate response format standardization
+
+### Core Component Integration
+
+The interface system integrates with two core components for resource management:
+
+#### Rate Limiter Integration
+
+The rate limiter (`rate_limiter.py`) is integrated into the base interface to manage API usage:
+
+1. **Initialization**:
+   ```python
+   self.rate_limiter = RateLimiter(
+       config=RateLimitConfig(
+           requests_per_minute=config.rate_limit.requests_per_minute,
+           requests_per_hour=config.rate_limit.requests_per_hour,
+           max_daily_tokens=config.rate_limit.max_daily_tokens,
+           alert_threshold=config.rate_limit.alert_threshold,
+       )
+   )
+   ```
+
+2. **Usage Flow**:
+   - Request received → Token estimation → Rate limit check → Process or reject
+   - Automatic tracking of token usage and request frequency
+   - Alert system for approaching limits
+
+#### Token Utilities Integration
+
+The token utilities (`token_utils.py`) provide token counting and management:
+
+1. **Token Counter Usage**:
+   ```python
+   self._token_counter = TokenCounter()
+   estimates = self._token_counter.estimate_messages(messages, self.model_family, self.config.model_name)
+   ```
+
+2. **Context Management**:
+   - Automatic token counting for context windows
+   - Smart context summarization based on token limits
+   - Token-aware cost estimation
+
+#### Integration Flow
+
+The system integrates these components in the following way:
+
+```
+Request → BaseLLMInterface
+  ↓
+1. Token Estimation (TokenCounter)
+  ↓
+2. Rate Limit Check (RateLimiter)
+  ↓
+3. Context Management
+  ↓
+4. Process Request
+  ↓
+5. Update Usage Stats
+```
+
+This integration ensures:
+- Accurate token usage tracking
+- Enforced rate limits
+- Respected context windows
+- Accurate cost calculation
+- Provider-specific limitation enforcement
+
+The architecture allows for flexible scaling and addition of new models while maintaining consistent token counting and rate limiting across the system.

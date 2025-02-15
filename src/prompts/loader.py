@@ -1,4 +1,5 @@
 """Prompt loading and management utilities."""
+import asyncio
 import json
 from pathlib import Path
 from typing import Dict, Optional, TypeVar
@@ -70,6 +71,14 @@ class PromptLoader:
         for task_type, prompt in self.prompts.items():
             results[task_type] = await prompt.save()
         return results
+
+    async def load_async(self, identifier: str) -> Optional[BasePrompt]:
+        """Asynchronous prompt loading."""
+        return await asyncio.to_thread(self.load_prompt, None, identifier)
+
+    async def save_async(self, prompt: BasePrompt) -> bool:
+        """Asynchronous prompt saving."""
+        return await asyncio.to_thread(prompt.save)
 
 
 # Optional implementations that require additional dependencies

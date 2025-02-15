@@ -1,6 +1,7 @@
 import asyncio
 import functools
 import json
+from pathlib import Path
 from typing import Optional
 
 import click
@@ -51,44 +52,65 @@ def set(
     storage_path: Optional[str],
 ):
     """Set configuration values"""
-    config = get_config()
+    config_manager = get_config()
+    user_config = config_manager.user_config
 
+    # Update API keys
     if openai_key is not None:
-        config.api_credentials.openai_api_key = openai_key
+        user_config.api_keys["openai"] = openai_key
     if anthropic_key is not None:
-        config.api_credentials.anthropic_api_key = anthropic_key
+        user_config.api_keys["anthropic"] = anthropic_key
     if azure_key is not None:
-        config.api_credentials.azure_api_key = azure_key
+        user_config.api_keys["azure"] = azure_key
     if azure_endpoint is not None:
-        config.api_credentials.azure_endpoint = azure_endpoint
-    if default_model is not None:
-        config.default_model = default_model
-    if storage_path is not None:
-        config.storage_path = storage_path
+        user_config.api_keys["azure_endpoint"] = azure_endpoint
 
-    config.save_to_file()
+    # Update default model if specified
+    if default_model is not None:
+        provider, model = default_model.split("/", 1) if "/" in default_model else ("anthropic", default_model)
+        user_config.default_model = {
+            "provider": provider,
+            "name": model,
+            "settings": user_config.default_model.get("settings", {}),
+        }
+
+    # Update storage path if specified
+    if storage_path is not None:
+        user_config.storage["path"] = storage_path
+
+    # Save updated configuration
+    config_path = Path.home() / ".llmaestro" / "config.yaml"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w") as f:
+        json.dump(user_config.model_dump(), f, indent=2)
+
     click.echo("Configuration updated successfully")
 
 
 @config.command()
 def show():
     """Show current configuration"""
-    config = get_config()
-    # Mask API keys in output
-    config_dict = config.model_dump()
-    creds = config_dict["api_credentials"]
-    for key in creds:
-        if creds[key] and "key" in key:
-            creds[key] = "*" * 8 + creds[key][-4:]
+    config_manager = get_config()
+    user_config = config_manager.user_config
+
+    # Create a copy of the config for display
+    config_dict = user_config.model_dump()
+
+    # Mask API keys
+    for provider, key in config_dict["api_keys"].items():
+        if isinstance(key, str) and "key" in provider.lower():
+            config_dict["api_keys"][provider] = "*" * 8 + key[-4:] if len(key) > 4 else "*" * len(key)
+
     click.echo(json.dumps(config_dict, indent=2))
 
 
 @cli.command()
 @click.argument("chain_name")
 @click.option("--input", "-i", multiple=True, help="Input in the format key=value")
-@click.option("--model", help="Override default model")
+@click.option("--model", help="Override default model (format: provider/model)")
+@click.option("--agent-type", help="Agent type to use (e.g., general, fast, specialist)")
 @coro
-async def run(chain_name: str, input: tuple[str, ...], model: Optional[str]):
+async def run(chain_name: str, input: tuple[str, ...], model: Optional[str], agent_type: Optional[str]):
     """Run a chain with the given inputs"""
     # Parse input parameters
     inputs = {}
@@ -100,18 +122,42 @@ async def run(chain_name: str, input: tuple[str, ...], model: Optional[str]):
             click.echo(f"Error: Invalid input format '{inp}'. Use key=value format.")
             return
 
-    config = get_config()
-    storage = StorageManager(config.storage_path)
+    config_manager = get_config()
+    storage = StorageManager(config_manager.user_config.storage["path"])
     prompt_loader = PromptLoader()
 
     try:
-        # Create LLM interface
-        llm_config = AgentConfig(
-            model_name=model or config.default_model,
-            max_tokens=4096,  # Default max tokens
-            api_key=config.api_credentials.openai_api_key,
+        # Get agent configuration
+        agent_config_dict = config_manager.get_agent_config(agent_type)
+
+        # Override model if specified
+        if model:
+            provider, model_name = model.split("/", 1) if "/" in model else ("anthropic", model)
+            # model_config = config_manager.get_model_config(provider, model_name)
+            agent_config_dict.update(
+                {
+                    "provider": provider,
+                    "model_name": model_name,
+                }
+            )
+
+        # Get API key for the provider
+        provider = agent_config_dict["provider"]
+        api_key = config_manager.user_config.api_keys.get(provider)
+        if not api_key:
+            raise ValueError(f"No API key found for provider: {provider}")
+
+        # Convert dictionary to AgentConfig
+        agent_config = AgentConfig(
+            provider=provider,
+            model_name=agent_config_dict["model"],
+            api_key=api_key,
+            max_tokens=agent_config_dict["max_tokens"],
+            temperature=agent_config_dict["temperature"],
         )
-        llm = create_llm_interface(llm_config)
+
+        # Create LLM interface
+        llm = create_llm_interface(agent_config)
 
         # Create and run the chain
         chain = SequentialChain(

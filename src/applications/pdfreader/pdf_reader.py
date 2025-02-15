@@ -5,25 +5,24 @@ import io
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Type, Union
+from typing import Any, Dict, List, Optional, Type, Union
 
 import yaml
 from pdf2image import convert_from_path
 from pydantic import BaseModel, Field
 
-from src.core.models import AgentConfig
-from src.llm.interfaces.anthropic import AnthropicLLM
+from src.core.models import AgentConfig, BaseResponse
 from src.llm.interfaces.base import ImageInput, MediaType
 from src.llm.models import ModelRegistry
 from src.prompts.base import BasePrompt
 
 
-class PDFReaderResponse(BaseModel):
+class PDFReaderResponse(BaseResponse):
     """Standard response format for PDF reader."""
 
     extracted_data: Dict[str, Any] = Field(..., description="The structured data extracted from the PDF")
     confidence: float = Field(..., ge=0, le=1, description="Confidence score for the extraction")
-    warnings: Optional[list[str]] = Field(default=None, description="Any warnings or issues encountered")
+    warnings: Optional[List[str]] = Field(default=None, description="Any warnings or issues encountered")
 
 
 class PDFReaderPrompt(BasePrompt):
@@ -106,7 +105,8 @@ class PDFReader:
         )
 
         # Create LLM interface
-        self.llm = AnthropicLLM(config=self.llm_config, model_registry=self.model_registry)
+        provider_class = self.model_registry.get_provider_class(self.llm_config.provider)
+        self.llm = provider_class(config=self.llm_config, model_registry=self.model_registry)
 
     async def process_pdf(self, pdf_path: Union[str, Path]) -> PDFReaderResponse:
         """Process a PDF file and extract structured data.
@@ -142,10 +142,13 @@ class PDFReader:
             variables = {"output_schema": json.dumps(schema_str, indent=2)}
 
             # Render prompt
-            system_prompt, user_prompt = self.prompt.render(**variables)
+            system_prompt, user_prompt, attachments = self.prompt.render(**variables)
 
-            # Format messages
-            messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}]
+            # Format messages with attachments
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt, "attachments": attachments},
+            ]
 
             # Process with LLM
             response = await self.llm.process(input_data=messages, images=[image_input])
