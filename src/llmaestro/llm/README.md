@@ -45,8 +45,8 @@ The LLM module now provides tight integration with the prompt system through the
 ### Using Structured Prompts
 
 ```python
-from src.prompts.base import BasePrompt
-from src.llm.models import MediaType
+from llmaestro.prompts.base import BasePrompt
+from llmaestro.llm.models import MediaType
 
 # Create a prompt with file attachments
 prompt = BasePrompt(

@@ -6,8 +6,8 @@ from unittest.mock import Mock, patch
 from llmaestro.core.models import AgentConfig
 from llmaestro.llm.interfaces.factory import create_llm_interface, create_interface_for_model
 from llmaestro.llm.interfaces.base import BaseLLMInterface
-from llmaestro.llm.interfaces.anthropic import AnthropicLLM
-from llmaestro.llm.interfaces.openai import OpenAIInterface
+from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
+from llmaestro.llm.interfaces.provider_interfaces.openai import OpenAIInterface
 from llmaestro.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
 
 # Test data
@@ -46,7 +46,7 @@ def agent_config():
 class TestCreateLLMInterface:
     """Tests for the provider-based factory function."""
 
-    @patch('src.llm.interfaces.base.ModelRegistry')
+    @patch('src.llmaestro.llm.interfaces.base.ModelRegistry')
     def test_create_anthropic_interface(self, mock_registry_cls, mock_registry, agent_config):
         """Should create an Anthropic interface when provider is 'anthropic'."""
         mock_registry_cls.return_value = mock_registry
@@ -56,7 +56,7 @@ class TestCreateLLMInterface:
         assert isinstance(interface, AnthropicLLM)
         assert interface.config == agent_config
 
-    @patch('src.llm.interfaces.base.ModelRegistry')
+    @patch('src.llmaestro.llm.interfaces.base.ModelRegistry')
     def test_create_openai_interface(self, mock_registry_cls, mock_registry, agent_config):
         """Should create an OpenAI interface when provider is 'openai'."""
         mock_registry_cls.return_value = mock_registry
@@ -72,7 +72,7 @@ class TestCreateLLMInterface:
         with pytest.raises(ValueError, match="Unsupported LLM provider: unsupported"):
             create_llm_interface(agent_config)
 
-    @patch('src.llm.interfaces.base.ModelRegistry')
+    @patch('src.llmaestro.llm.interfaces.base.ModelRegistry')
     def test_case_insensitive_provider(self, mock_registry_cls, mock_registry, agent_config):
         """Should handle provider names case-insensitively."""
         mock_registry_cls.return_value = mock_registry
@@ -85,7 +85,7 @@ class TestCreateLLMInterface:
 class TestCreateInterfaceForModel:
     """Tests for the model-based factory function."""
 
-    @patch('src.llm.interfaces.base.ModelRegistry')
+    @patch('src.llmaestro.llm.interfaces.base.ModelRegistry')
     def test_create_anthropic_interface(self, mock_registry_cls, mock_registry, mock_model_descriptor, agent_config):
         """Should create an Anthropic interface for Claude models."""
         mock_registry_cls.return_value = mock_registry
@@ -95,7 +95,7 @@ class TestCreateInterfaceForModel:
         assert isinstance(interface, AnthropicLLM)
         assert interface.config == agent_config
 
-    @patch('src.llm.interfaces.base.ModelRegistry')
+    @patch('src.llmaestro.llm.interfaces.base.ModelRegistry')
     def test_create_openai_interface(self, mock_registry_cls, mock_registry, mock_model_descriptor, agent_config):
         """Should create an OpenAI interface for GPT models."""
         mock_registry_cls.return_value = mock_registry
@@ -117,7 +117,7 @@ class TestCreateInterfaceForModel:
         with pytest.raises(ValueError, match="Unsupported model family"):
             create_interface_for_model(mock_model_descriptor, agent_config)
 
-    @patch('src.llm.interfaces.base.ModelRegistry')
+    @patch('src.llmaestro.llm.interfaces.base.ModelRegistry')
     def test_interface_inheritance(self, mock_registry_cls, mock_registry, mock_model_descriptor, agent_config):
         """Should ensure all created interfaces inherit from BaseLLMInterface."""
         mock_registry_cls.return_value = mock_registry
@@ -126,7 +126,7 @@ class TestCreateInterfaceForModel:
             interface = create_interface_for_model(mock_model_descriptor, agent_config)
             assert isinstance(interface, BaseLLMInterface)
 
-    @patch('src.llm.interfaces.base.ModelRegistry')
+    @patch('src.llmaestro.llm.interfaces.base.ModelRegistry')
     def test_config_propagation(self, mock_registry_cls, mock_registry, mock_model_descriptor, agent_config):
         """Should ensure config is properly propagated to created interfaces."""
         mock_registry_cls.return_value = mock_registry

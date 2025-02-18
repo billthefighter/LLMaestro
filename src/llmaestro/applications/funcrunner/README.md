@@ -15,7 +15,7 @@ A flexible system for executing functions through natural language requests usin
 
 1. Create a runner instance:
 ```python
-from src.applications.funcrunner import FunctionRunner
+from llmaestro.applications.funcrunner import FunctionRunner
 
 runner = FunctionRunner(
     api_key="your-api-key",  # Optional, defaults to config.yaml

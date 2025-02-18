@@ -41,7 +41,7 @@ class InvoiceData(BaseModel):
 
 2. Create a reader instance:
 ```python
-from src.applications.pdfreader import PDFReader
+from llmaestro.applications.pdfreader import PDFReader
 
 reader = PDFReader(
     output_model=InvoiceData,

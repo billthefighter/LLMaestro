@@ -84,7 +84,7 @@ def mock_model_registry(monkeypatch):
     def mock_get_model(*args):
         return mock_descriptor
 
-    monkeypatch.setattr("src.llm.token_utils._model_registry.get_model", mock_get_model)
+    monkeypatch.setattr("llmaestro.llm.token_utils._model_registry.get_model", mock_get_model)
     return mock_descriptor
 
 

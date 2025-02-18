@@ -72,7 +72,7 @@ def mock_pdf_image():
 @pytest.fixture
 def mock_convert_from_path():
     """Mock convert_from_path function."""
-    with patch("src.applications.pdfreader.pdf_reader.convert_from_path") as mock:
+    with patch("src.llmaestro.applications.pdfreader.pdf_reader.convert_from_path") as mock:
         yield mock
 
 
@@ -94,7 +94,7 @@ prompt:
 @pytest.fixture
 def pdf_reader(mock_llm):
     """Create a PDFReader instance for testing."""
-    with patch("src.applications.pdfreader.pdf_reader.AnthropicLLM") as mock_llm_class:
+    with patch("llmaestro.applications.pdfreader.pdf_reader.AnthropicLLM") as mock_llm_class:
         mock_llm_class.return_value = mock_llm
         reader = PDFReader(output_model=TestInvoiceData)
         return reader
@@ -202,7 +202,7 @@ async def test_custom_result_combination(mock_llm, test_config_path, tmp_path, m
             }
 
     # Create reader with custom combination logic
-    with patch("src.applications.pdfreader.pdf_reader.AnthropicLLM") as mock_llm_class:
+    with patch("llmaestro.applications.pdfreader.pdf_reader.AnthropicLLM") as mock_llm_class:
         mock_llm_class.return_value = mock_llm
         reader = CustomPDFReader(
             output_model=TestInvoiceData,
@@ -213,7 +213,7 @@ async def test_custom_result_combination(mock_llm, test_config_path, tmp_path, m
         pdf_path = tmp_path / "multipage.pdf"
         create_test_pdf(pdf_path, num_pages=2)
 
-        with patch("src.applications.pdfreader.pdf_reader.convert_from_path") as mock_convert:
+        with patch("llmaestro.applications.pdfreader.pdf_reader.convert_from_path") as mock_convert:
             mock_convert.return_value = [mock_pdf_image, mock_pdf_image]
             result = await reader.process_pdf(pdf_path)
 

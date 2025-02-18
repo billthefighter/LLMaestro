@@ -25,7 +25,7 @@ The `Session` class provides a centralized, flexible management system for LLM (
 
 ### Creating a Session
 ```python
-from src.session.session import Session
+from llmaestro.session.session import Session
 
 # Default session
 session = Session()
@@ -76,7 +76,7 @@ is_suitable = session.validate_model_for_task({
 
 ### Tracking Responses
 ```python
-from src.core.models import BaseResponse
+from llmaestro.core.models import BaseResponse
 
 # Create and track a response
 response = BaseResponse(
