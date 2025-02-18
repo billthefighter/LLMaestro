@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
 
-from src.llm.models import ModelFamily
+from llmaestro.llm.models import ModelFamily
 
 TestResult = Literal["success", "failure", "skip"]
 

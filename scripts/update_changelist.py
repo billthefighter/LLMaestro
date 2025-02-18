@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 from typing import List, Tuple
 
-from src.applications.changelistmanager.app import ChangelistEntry, ChangelistManager
+from llmaestro.applications.changelistmanager.app import ChangelistEntry, ChangelistManager
 
 
 def get_git_diff() -> Tuple[str, List[str]]:

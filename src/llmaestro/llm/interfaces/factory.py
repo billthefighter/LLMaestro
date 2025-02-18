@@ -2,12 +2,12 @@
 
 from typing import Optional
 
-from src.core.models import AgentConfig
-from src.llm.interfaces.base import BaseLLMInterface
-from src.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
-from src.llm.interfaces.provider_interfaces.gemini import GeminiLLM
-from src.llm.interfaces.provider_interfaces.openai import OpenAIInterface
-from src.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
+from llmaestro.core.models import AgentConfig
+from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
+from llmaestro.llm.interfaces.provider_interfaces.gemini import GeminiLLM
+from llmaestro.llm.interfaces.provider_interfaces.openai import OpenAIInterface
+from llmaestro.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
 
 
 def create_llm_interface(config: AgentConfig) -> BaseLLMInterface:

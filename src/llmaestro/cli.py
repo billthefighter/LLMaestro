@@ -6,12 +6,12 @@ from typing import Optional
 
 import click
 
-from src.core.config import get_config
-from src.core.models import AgentConfig
-from src.llm.chains import ChainStep, SequentialChain
-from src.llm.interfaces import create_llm_interface
-from src.prompts.loader import PromptLoader
-from src.utils.storage import StorageManager
+from llmaestro.core.config import get_config
+from llmaestro.core.models import AgentConfig
+from llmaestro.llm.chains import ChainStep, SequentialChain
+from llmaestro.llm.interfaces import create_llm_interface
+from llmaestro.prompts.loader import PromptLoader
+from llmaestro.utils.storage import StorageManager
 
 
 def coro(f):

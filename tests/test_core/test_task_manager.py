@@ -4,13 +4,13 @@ from typing import Any, Dict, List, Tuple
 from unittest.mock import Mock
 from datetime import datetime
 
-from src.core.task_manager import (
+from llmaestro.core.task_manager import (
     TaskManager, Task, SubTask, TaskStatus,
     DecompositionConfig, DynamicStrategy
 )
-from src.prompts.loader import PromptLoader
-from src.agents.agent_pool import AgentPool
-from src.prompts.types import PromptMetadata, ResponseFormat
+from llmaestro.prompts.loader import PromptLoader
+from llmaestro.agents.agent_pool import AgentPool
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat
 
 
 @pytest.fixture

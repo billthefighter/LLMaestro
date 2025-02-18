@@ -3,10 +3,10 @@ import json
 from pathlib import Path
 from datetime import datetime, timedelta
 
-from src.session.session import Session
-from src.core.config import get_config
-from src.core.models import BaseResponse
-from src.llm.models import ModelConfig
+from llmaestro.session.session import Session
+from llmaestro.core.config import get_config
+from llmaestro.core.models import BaseResponse
+from llmaestro.llm.models import ModelConfig
 
 class TestSession:
     @pytest.fixture

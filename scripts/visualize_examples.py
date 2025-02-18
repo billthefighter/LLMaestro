@@ -2,8 +2,8 @@
 import asyncio
 from pathlib import Path
 
-from src.visualization.examples import create_example_chains
-from src.visualization.visualize import ChainVisualizationManager
+from llmaestro.visualization.examples import create_example_chains
+from llmaestro.visualization.visualize import ChainVisualizationManager
 
 
 async def main():

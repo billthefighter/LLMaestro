@@ -7,15 +7,15 @@ from typing import Optional
 
 import pytest
 
-from src.prompts.loader import PromptLoader, FilePrompt
-from src.llm.interfaces.anthropic import AnthropicLLM
-from src.llm.interfaces.base import ConversationContext
-from src.core.models import AgentConfig
-from src.prompts.types import VersionInfo
-from src.llm.models import ModelRegistry
-from src.llm.token_utils import TokenCounter
-from src.llm.rate_limiter import RateLimiter, RateLimitConfig, SQLiteQuotaStorage
-from src.llm.interfaces.anthropic import AnthropicLLM
+from llmaestro.prompts.loader import PromptLoader, FilePrompt
+from llmaestro.llm.interfaces.anthropic import AnthropicLLM
+from llmaestro.llm.interfaces.base import ConversationContext
+from llmaestro.core.models import AgentConfig
+from llmaestro.prompts.types import VersionInfo
+from llmaestro.llm.models import ModelRegistry
+from llmaestro.llm.token_utils import TokenCounter
+from llmaestro.llm.rate_limiter import RateLimiter, RateLimitConfig, SQLiteQuotaStorage
+from llmaestro.llm.interfaces.anthropic import AnthropicLLM
 
 
 def pytest_addoption(parser):

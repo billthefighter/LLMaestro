@@ -11,10 +11,10 @@ import yaml
 from pdf2image import convert_from_path
 from pydantic import BaseModel, Field
 
-from src.core.models import AgentConfig, BaseResponse
-from src.llm.interfaces.base import ImageInput, MediaType
-from src.llm.models import ModelRegistry
-from src.prompts.base import BasePrompt
+from llmaestro.core.models import AgentConfig, BaseResponse
+from llmaestro.llm.interfaces.base import ImageInput, MediaType
+from llmaestro.llm.models import ModelRegistry
+from llmaestro.prompts.base import BasePrompt
 
 
 class PDFReaderResponse(BaseResponse):

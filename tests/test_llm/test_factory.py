@@ -3,12 +3,12 @@ import pytest
 from typing import Dict
 from unittest.mock import Mock, patch
 
-from src.core.models import AgentConfig
-from src.llm.interfaces.factory import create_llm_interface, create_interface_for_model
-from src.llm.interfaces.base import BaseLLMInterface
-from src.llm.interfaces.anthropic import AnthropicLLM
-from src.llm.interfaces.openai import OpenAIInterface
-from src.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
+from llmaestro.core.models import AgentConfig
+from llmaestro.llm.interfaces.factory import create_llm_interface, create_interface_for_model
+from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.interfaces.anthropic import AnthropicLLM
+from llmaestro.llm.interfaces.openai import OpenAIInterface
+from llmaestro.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
 
 # Test data
 TEST_API_KEY = "test-api-key-123"

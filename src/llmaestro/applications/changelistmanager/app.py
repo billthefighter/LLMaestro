@@ -8,13 +8,13 @@ from typing import Dict, List, Optional, Set, Type, cast
 
 from pydantic import BaseModel
 
-from src.agents.agent_pool import AgentPool
-from src.core.config import get_config
-from src.core.models import AgentConfig
-from src.llm.chains import ChainStep, OutputTransform, SequentialChain
-from src.llm.interfaces.base import BaseLLMInterface
-from src.llm.interfaces.factory import create_llm_interface
-from src.prompts.loader import PromptLoader
+from llmaestro.agents.agent_pool import AgentPool
+from llmaestro.core.config import get_config
+from llmaestro.core.models import AgentConfig
+from llmaestro.llm.chains import ChainStep, OutputTransform, SequentialChain
+from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.interfaces.factory import create_llm_interface
+from llmaestro.prompts.loader import PromptLoader
 
 
 class ChangelistEntry(BaseModel):

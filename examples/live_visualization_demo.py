@@ -8,12 +8,12 @@ from pathlib import Path
 src_path = Path(__file__).parent.parent / "src"
 sys.path.append(str(src_path))
 
-from src.core.config import Config
-from src.core.logging_config import configure_logging
-from src.core.models import AgentConfig
-from src.llm.chains import ChainStep, SequentialChain
-from src.llm.interfaces import AnthropicLLM
-from src.visualization.live_visualizer import LiveChainVisualizer
+from llmaestro.core.config import Config
+from llmaestro.core.logging_config import configure_logging
+from llmaestro.core.models import AgentConfig
+from llmaestro.llm.chains import ChainStep, SequentialChain
+from llmaestro.llm.interfaces import AnthropicLLM
+from llmaestro.visualization.live_visualizer import LiveChainVisualizer
 
 # Configure module logger
 logger = configure_logging(module_name=__name__)

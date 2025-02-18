@@ -2,8 +2,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from litellm import acompletion
 
-from src.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse
-from src.llm.models import ModelFamily
+from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse
+from llmaestro.llm.models import ModelFamily
 
 
 class OpenAIInterface(BaseLLMInterface):

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from anthropic import Anthropic
 from openai import AsyncOpenAI
 
-from src.llm.models import (
+from llmaestro.llm.models import (
     ModelCapabilitiesDetector,
     ModelRegistry,
     ModelFamily,

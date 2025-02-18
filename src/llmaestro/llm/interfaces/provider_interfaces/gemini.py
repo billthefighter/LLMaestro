@@ -8,9 +8,9 @@ from typing import Any, Dict, List, Optional, Union
 import google.generativeai as genai
 from PIL import Image
 
-from src.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse, MediaType, TokenUsage
-from src.llm.models import ModelFamily
-from src.llm.token_utils import TokenCounter
+from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse, MediaType, TokenUsage
+from llmaestro.llm.models import ModelFamily
+from llmaestro.llm.token_utils import TokenCounter
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)

@@ -7,9 +7,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from pydantic import BaseModel, Field
 
-from src.llm.models import MediaType, ModelFamily
-from src.llm.token_utils import TokenCounter
-from src.prompts.types import PromptMetadata, VersionInfo
+from llmaestro.llm.models import MediaType, ModelFamily
+from llmaestro.llm.token_utils import TokenCounter
+from llmaestro.prompts.types import PromptMetadata, VersionInfo
 
 
 class FileAttachment(BaseModel):

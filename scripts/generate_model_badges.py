@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
-from src.llm.models import ModelFamily, ModelRegistry
+from llmaestro.llm.models import ModelFamily, ModelRegistry
 
 TestResult = Literal["success", "failure", "skip"]
 

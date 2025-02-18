@@ -6,9 +6,9 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generic, List, Optional, Protocol, TypeVar, cast
 from uuid import uuid4
 
-from src.llm.interfaces import BaseLLMInterface, LLMResponse
-from src.prompts.loader import PromptLoader
-from src.utils.storage import StorageManager
+from llmaestro.llm.interfaces import BaseLLMInterface, LLMResponse
+from llmaestro.prompts.loader import PromptLoader
+from llmaestro.utils.storage import StorageManager
 
 T = TypeVar("T")
 ChainResult = TypeVar("ChainResult")

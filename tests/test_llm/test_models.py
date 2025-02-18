@@ -6,7 +6,7 @@ import tempfile
 import json
 import yaml
 
-from src.llm.models import (
+from llmaestro.llm.models import (
     ModelFamily,
     RangeConfig,
     ModelCapabilities,

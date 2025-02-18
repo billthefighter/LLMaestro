@@ -8,16 +8,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from pydantic import BaseModel
 
-from src.applications.funcrunner.app import (
+from llmaestro.applications.funcrunner.app import (
     FunctionRunner,
     FunctionRegistry,
     FunctionDefinition,
     FunctionCallRequest,
     FunctionCallResponse
 )
-from src.llm.interfaces.base import LLMResponse
-from src.core.models import AgentConfig
-from src.prompts.base import BasePrompt
+from llmaestro.llm.interfaces.base import LLMResponse
+from llmaestro.core.models import AgentConfig
+from llmaestro.prompts.base import BasePrompt
 
 
 class MockPrompt:

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Dict, Optional, TypeVar
 
-from src.prompts.base import BasePrompt
+from llmaestro.prompts.base import BasePrompt
 
 T = TypeVar("T", bound=BasePrompt)
 

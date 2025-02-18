@@ -5,14 +5,14 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from src.core.config import ConfigurationManager, get_config
-from src.core.models import AgentConfig, Artifact, BaseResponse
-from src.llm.interfaces.base import BaseLLMInterface
-from src.llm.interfaces.factory import create_llm_interface
-from src.llm.llm_registry import ModelRegistry
-from src.llm.models import ModelDescriptor
-from src.prompts.loader import PromptLoader
-from src.utils.storage import FileSystemArtifactStorage
+from llmaestro.core.config import ConfigurationManager, get_config
+from llmaestro.core.models import AgentConfig, Artifact, BaseResponse
+from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.interfaces.factory import create_llm_interface
+from llmaestro.llm.llm_registry import ModelRegistry
+from llmaestro.llm.models import ModelDescriptor
+from llmaestro.prompts.loader import PromptLoader
+from llmaestro.utils.storage import FileSystemArtifactStorage
 
 
 class Session(BaseModel):

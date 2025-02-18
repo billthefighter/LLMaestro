@@ -1,6 +1,6 @@
 """Setup script for registering models before running connectivity tests."""
 import os
-from src.llm.models import register_all_models
+from llmaestro.llm.models import register_all_models
 
 def setup_model_registry():
     """Register all models with their respective API keys."""

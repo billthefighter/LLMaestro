@@ -10,12 +10,12 @@ from datetime import datetime
 from anthropic import Anthropic
 from anthropic.types import Message, MessageParam, TextBlock
 
-from src.llm.interfaces.anthropic import AnthropicLLM
-from src.llm.interfaces.base import MediaType, ImageInput
-from src.core.models import AgentConfig, TokenUsage, RateLimitConfig
-from src.llm.models import ModelFamily, ModelRegistry, ModelDescriptor, ModelCapabilities, RangeConfig
-from src.llm.token_utils import TokenCounter, TokenizerRegistry, BaseTokenizer
-from src.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
+from llmaestro.llm.interfaces.anthropic import AnthropicLLM
+from llmaestro.llm.interfaces.base import MediaType, ImageInput
+from llmaestro.core.models import AgentConfig, TokenUsage, RateLimitConfig
+from llmaestro.llm.models import ModelFamily, ModelRegistry, ModelDescriptor, ModelCapabilities, RangeConfig
+from llmaestro.llm.token_utils import TokenCounter, TokenizerRegistry, BaseTokenizer
+from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
 
 # Test Data
 @pytest.fixture

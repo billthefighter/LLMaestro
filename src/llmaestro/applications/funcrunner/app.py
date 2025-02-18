@@ -5,11 +5,11 @@ from typing import Any, Callable, Dict, List, Optional, get_type_hints
 
 from pydantic import BaseModel
 
-from src.core.models import AgentConfig
-from src.llm.interfaces.factory import create_interface_for_model
-from src.llm.models import ModelRegistry
-from src.prompts.base import BasePrompt
-from src.prompts.loader import PromptLoader
+from llmaestro.core.models import AgentConfig
+from llmaestro.llm.interfaces.factory import create_interface_for_model
+from llmaestro.llm.models import ModelRegistry
+from llmaestro.prompts.base import BasePrompt
+from llmaestro.prompts.loader import PromptLoader
 
 logger = logging.getLogger(__name__)
 

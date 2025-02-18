@@ -7,7 +7,7 @@ import tiktoken
 import anthropic
 from transformers import AutoTokenizer
 
-from src.llm.token_utils import (
+from llmaestro.llm.token_utils import (
     BaseTokenizer,
     TiktokenTokenizer,
     AnthropicTokenizer,
@@ -15,7 +15,7 @@ from src.llm.token_utils import (
     TokenizerRegistry,
     TokenCounter,
 )
-from src.llm.models import ModelFamily, ModelCapabilities, ModelDescriptor
+from llmaestro.llm.models import ModelFamily, ModelCapabilities, ModelDescriptor
 
 
 # Fixtures

@@ -7,14 +7,14 @@ from typing import Any, Dict, List, Optional, Union
 import pytest
 from pydantic import BaseModel
 
-from src.applications.changelistmanager.app import (
+from llmaestro.applications.changelistmanager.app import (
     ChangelistEntry,
     ChangelistManager,
     ChangelistResponse,
 )
-from src.llm.interfaces import LLMResponse
-from src.llm.interfaces.base import BaseLLMInterface
-from src.llm.models import ModelRegistry, ModelDescriptor, ModelFamily, ModelCapabilities
+from llmaestro.llm.interfaces import LLMResponse
+from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.models import ModelRegistry, ModelDescriptor, ModelFamily, ModelCapabilities
 from tests.test_applications.test_utils import MockLLM
 
 

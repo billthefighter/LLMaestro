@@ -7,16 +7,16 @@ from pathlib import Path
 import subprocess
 import yaml
 
-from src.llm.models import (
+from llmaestro.llm.models import (
     ModelRegistry,
     register_all_models,
     ModelFamily,
     ModelDescriptor,
     ModelCapabilities,
 )
-from src.llm.interfaces.factory import create_interface_for_model, BaseLLMInterface
-from src.core.models import AgentConfig
-from src.core.config import get_config, Config, StorageConfig, VisualizationConfig, LoggingConfig
+from llmaestro.llm.interfaces.factory import create_interface_for_model, BaseLLMInterface
+from llmaestro.core.models import AgentConfig
+from llmaestro.core.config import get_config, Config, StorageConfig, VisualizationConfig, LoggingConfig
 
 # Test message that should work across all models
 HELLO_WORLD_PROMPT = "Say hello world"

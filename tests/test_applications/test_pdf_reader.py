@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 
-from src.applications.pdfreader.pdf_reader import PDFReader, PDFReaderPrompt, PDFReaderResponse
-from src.llm.interfaces.base import ImageInput, LLMResponse
+from llmaestro.applications.pdfreader.pdf_reader import PDFReader, PDFReaderPrompt, PDFReaderResponse
+from llmaestro.llm.interfaces.base import ImageInput, LLMResponse
 
 
 # Test Models

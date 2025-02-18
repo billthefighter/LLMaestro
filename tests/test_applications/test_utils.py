@@ -2,9 +2,9 @@
 import json
 from typing import Any, Dict, Optional
 
-from src.llm.interfaces import LLMResponse
-from src.llm.interfaces.base import BaseLLMInterface
-from src.llm.models import ModelCapabilities, ModelFamily, ModelRegistry
+from llmaestro.llm.interfaces import LLMResponse
+from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.models import ModelCapabilities, ModelFamily, ModelRegistry
 
 
 class MockLLM(BaseLLMInterface):

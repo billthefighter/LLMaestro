@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 import pytest
 
-from src.llm.interfaces import LLMResponse
+from llmaestro.llm.interfaces import LLMResponse
 
 
 @pytest.fixture

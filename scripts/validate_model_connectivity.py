@@ -10,11 +10,11 @@ from typing import Dict, Literal, Optional
 
 import yaml
 
-from src.core.models import AgentConfig
-from src.llm.interfaces.factory import create_interface_for_model
-from src.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
-from src.prompts.base import BasePrompt
-from src.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from llmaestro.core.models import AgentConfig
+from llmaestro.llm.interfaces.factory import create_interface_for_model
+from llmaestro.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
+from llmaestro.prompts.base import BasePrompt
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 
 
 class TestPrompt(BasePrompt):

@@ -19,7 +19,7 @@ except ImportError:
     AsyncAnthropic = None
 
 
-from src.llm.models import ModelFamily, ModelRegistry
+from llmaestro.llm.models import ModelFamily, ModelRegistry
 
 # Initialize and load model registry
 _model_registry = ModelRegistry()

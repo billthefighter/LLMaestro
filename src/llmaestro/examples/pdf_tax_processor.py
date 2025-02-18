@@ -6,12 +6,12 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, validator, field_validator
 
-from src.agents.agent_pool import Agent, AgentPool
-from src.core.models import AgentConfig, SubTask, Task
-from src.core.task_manager import FileStrategy, TaskManager
-from src.llm.chains import ChainStep, SequentialChain
-from src.llm.interfaces import BaseLLMInterface, ImageInput, LLMResponse, MediaType
-from src.prompts.loader import PromptLoader
+from llmaestro.agents.agent_pool import Agent, AgentPool
+from llmaestro.core.models import AgentConfig, SubTask, Task
+from llmaestro.core.task_manager import FileStrategy, TaskManager
+from llmaestro.llm.chains import ChainStep, SequentialChain
+from llmaestro.llm.interfaces import BaseLLMInterface, ImageInput, LLMResponse, MediaType
+from llmaestro.prompts.loader import PromptLoader
 
 
 class TaxableItem(BaseModel):

@@ -6,9 +6,9 @@ from typing import Any, Dict, Optional, Set
 import websockets.legacy.server
 from websockets.legacy.server import WebSocketServer, WebSocketServerProtocol, serve
 
-from src.core.logging_config import configure_logging
-from src.llm.chains import ChainStep
-from src.visualization.chain_visualizer import ChainVisualizer
+from llmaestro.core.logging_config import configure_logging
+from llmaestro.llm.chains import ChainStep
+from llmaestro.visualization.chain_visualizer import ChainVisualizer
 
 # Configure module logger
 logger = configure_logging(module_name=__name__)
