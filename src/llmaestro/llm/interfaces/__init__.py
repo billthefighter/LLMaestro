@@ -1,20 +1,6 @@
-"""LLM interface implementations."""
+"""LLM interface definitions."""
 
-from src.llm.models import MediaType
+from llmaestro.llm.models import MediaType
+from .base import LLMResponse, BaseLLMInterface
 
-from .base import (
-    BaseLLMInterface,
-    ImageInput,
-    LLMResponse,
-    TokenUsage,
-)
-from .factory import create_llm_interface
-
-__all__ = [
-    "BaseLLMInterface",
-    "ImageInput",
-    "LLMResponse",
-    "MediaType",
-    "TokenUsage",
-    "create_llm_interface",
-]
+__all__ = ["LLMResponse", "BaseLLMInterface", "MediaType"]
