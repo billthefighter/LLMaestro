@@ -1,12 +1,16 @@
+"""Task management for the application."""
+
 import textwrap
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, TypedDict, cast
+from typing import Any, Dict, List, TypedDict, cast, Optional, TYPE_CHECKING
 
-from ..agents.agent_pool import AgentPool
-from ..prompts.loader import PromptLoader
-from ..utils.storage import StorageManager
 from .models import SubTask, Task, TaskStatus
+
+if TYPE_CHECKING:
+    from ..agents.agent_pool import AgentPool
+    from ..prompts.loader import PromptLoader
+    from ..utils.storage import StorageManager
 
 
 class DecompositionConfig(TypedDict, total=False):
@@ -152,15 +156,40 @@ class DynamicStrategy(DecompositionStrategy):
 
 
 class TaskManager:
-    """Manager for task decomposition and execution."""
+    """Manages task execution and tracking."""
 
     _strategies = {"chunk": ChunkStrategy(), "file": FileStrategy(), "error": ErrorStrategy()}
 
     def __init__(self, storage_path: str = "./task_storage"):
+        from ..prompts.loader import PromptLoader
+        from ..utils.storage import StorageManager
+
         self.storage = StorageManager(storage_path)
-        self.agent_pool = AgentPool()
         self.prompt_loader = PromptLoader()
         self._dynamic_strategies: Dict[str, DynamicStrategy] = {}
+        self.tasks: Dict[str, SubTask] = {}
+        self._agent_pool: Optional['AgentPool'] = None
+
+    def set_agent_pool(self, agent_pool: 'AgentPool') -> None:
+        """Set the agent pool for task execution."""
+        self._agent_pool = agent_pool
+
+    def submit_task(self, task: SubTask) -> None:
+        """Submit a task for execution."""
+        if not self._agent_pool:
+            raise RuntimeError("Agent pool not set")
+        self.tasks[task.id] = task
+        self._agent_pool.submit_task(task)
+
+    def get_task(self, task_id: str) -> Optional[SubTask]:
+        """Get a task by ID."""
+        return self.tasks.get(task_id)
+
+    def wait_for_result(self, task_id: str) -> Any:
+        """Wait for a task to complete and return its result."""
+        if not self._agent_pool:
+            raise RuntimeError("Agent pool not set")
+        return self._agent_pool.wait_for_result(task_id)
 
     def create_task(self, task_type: str, input_data: Any, config: Dict[str, Any]) -> Task:
         """Create a new task with the given parameters."""
@@ -213,16 +242,8 @@ class TaskManager:
             raise ValueError(f"No prompt found for task type: {task.type}")
 
         try:
-            system_prompt, user_prompt = self.prompt_loader.format_prompt(
-                "task_decomposer",
-                task_metadata={
-                    "type": task.type,
-                    "description": task_prompt.description,
-                    "input_format": str(task_prompt.user_prompt),
-                    "expected_output": task_prompt.metadata.expected_response.schema,
-                    "requirements": task_prompt.metadata.model_requirements,
-                },
-            )
+            system_prompt = "System prompt"  # TODO: Implement proper prompt formatting
+            user_prompt = "User prompt"
         except AttributeError:
             system_prompt = "System prompt"
             user_prompt = "User prompt"
@@ -234,11 +255,17 @@ class TaskManager:
             parent_task_id=task.id,
         )
 
-        self.agent_pool.submit_task(decomposer_task)
-        return self.agent_pool.wait_for_result(decomposer_task.id)
+        if not self._agent_pool:
+            raise RuntimeError("Agent pool not set")
+
+        self._agent_pool.submit_task(decomposer_task)
+        return self._agent_pool.wait_for_result(decomposer_task.id)
 
     def execute(self, task: Task) -> Any:
         """Execute a task by breaking it down and processing subtasks in parallel."""
+        if not self._agent_pool:
+            raise RuntimeError("Agent pool not set")
+
         # Get the prompt template for this task type
         prompt = self.prompt_loader.get_prompt(task.type)
         if not prompt:
@@ -255,12 +282,12 @@ class TaskManager:
 
         # Process subtasks in parallel using the agent pool
         for subtask in subtasks:
-            self.agent_pool.submit_task(subtask)  # max_parallel handled by agent pool
+            self._agent_pool.submit_task(subtask)  # max_parallel handled by agent pool
 
         # Wait for all subtasks to complete
         results = []
         for subtask in subtasks:
-            result = self.agent_pool.wait_for_result(subtask.id)
+            result = self._agent_pool.wait_for_result(subtask.id)
             results.append(result)
 
         # Aggregate results
