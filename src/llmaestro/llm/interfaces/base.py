@@ -1,6 +1,5 @@
 """Base interfaces for LLM providers."""
 
-import abc
 import base64
 import json
 import os
@@ -10,13 +9,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from litellm import acompletion
-from pydantic import BaseModel
-
 from llmaestro.core.models import AgentConfig, ContextMetrics, TokenUsage
 from llmaestro.llm.models import MediaType, ModelDescriptor, ModelFamily, ModelRegistry
 from llmaestro.llm.rate_limiter import RateLimitConfig, RateLimiter, SQLiteQuotaStorage
 from llmaestro.llm.token_utils import TokenCounter
-from llmaestro.prompts.prompt_template import PromptTemplate
+from llmaestro.prompts.base import BasePrompt
+from pydantic import BaseModel
 
 
 @dataclass
@@ -413,13 +411,13 @@ class BaseLLMInterface(ABC):
     @abstractmethod
     async def process(
         self,
-        prompt: Union[PromptTemplate, "PromptTemplate"],  # Allow for subclasses and forward references
+        prompt: Union[BasePrompt, "BasePrompt"],  # Allow for subclasses and forward references
         variables: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
-        """Process a PromptTemplate and return a response.
+        """Process a BasePrompt and return a response.
 
         Args:
-            prompt: The PromptTemplate to process
+            prompt: The BasePrompt to process
             variables: Optional variables to render the prompt with
 
         Returns:
@@ -430,14 +428,14 @@ class BaseLLMInterface(ABC):
     @abstractmethod
     async def batch_process(
         self,
-        prompts: List[Union[PromptTemplate, "PromptTemplate"]],  # Allow for subclasses and forward references
+        prompts: List[Union[BasePrompt, "BasePrompt"]],  # Allow for subclasses and forward references
         variables: Optional[List[Optional[Dict[str, Any]]]] = None,
     ) -> List[LLMResponse]:
         """
-        Process multiple PromptTemplates in a batch.
+        Process multiple BasePrompts in a batch.
 
         Args:
-            prompts: A list of PromptTemplate objects to process
+            prompts: A list of BasePrompt objects to process
             variables: Optional list of variable dictionaries corresponding to each prompt.
                        If None, no variables will be used for that prompt.
                        If not provided, no variables will be used for any prompt.
@@ -482,11 +480,11 @@ class BaseLLMInterface(ABC):
             media_type = MediaType.from_mime_type(media_type)
         return media_type in self.SUPPORTED_MEDIA_TYPES
 
-    async def process_prompt(self, prompt: PromptTemplate, variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
-        """Process a PromptTemplate object and return a response.
+    async def process_prompt(self, prompt: BasePrompt, variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
+        """Process a BasePrompt object and return a response.
 
         Args:
-            prompt: The PromptTemplate object to process
+            prompt: The BasePrompt object to process
             variables: Optional variables to render the prompt with
 
         Returns:
@@ -536,7 +534,7 @@ class BaseLLMInterface(ABC):
 
     @abstractmethod
     async def process_async(
-        self, prompt: Union[PromptTemplate, str], variables: Optional[Dict[str, Any]] = None
+        self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None
     ) -> LLMResponse:
         """Asynchronous prompt processing."""
         pass
