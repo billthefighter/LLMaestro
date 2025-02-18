@@ -13,7 +13,7 @@ authors = [
 ]
 readme = "README.md"
 packages = [
-    { include = "src", from = "." },
+    { include = "llmaestro", from = "src" },
 ]
 license = "MIT"
 homepage = "https://github.com/billthefighter/llmaestro"
