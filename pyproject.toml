@@ -42,6 +42,7 @@ transformers = "^4.36.0"
 pillow = "^11.1.0"
 pdf2image = "^1.17.0"
 tiktoken = "^0.8.0"
+sqlalchemy = "^2.0.0"
 
 [tool.poetry.dependencies.anthropic]
 version = "^0.45.2"
