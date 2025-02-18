@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Union, overload
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from src.llm.llm_registry import ModelRegistry, ProviderConfig
+from llmaestro.llm.llm_registry import ModelRegistry, ProviderConfig
 
 
 class AgentTypeConfig(BaseModel):
