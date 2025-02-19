@@ -3,14 +3,15 @@
 import textwrap
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, TypedDict, cast, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, TypedDict, Union, cast
 
+from llmaestro.prompts.base import BasePrompt
+
+from .conversations import ConversationGraph
 from .models import SubTask, Task, TaskStatus
 
 if TYPE_CHECKING:
     from ..agents.agent_pool import AgentPool
-    from ..prompts.loader import PromptLoader
-    from ..utils.storage import StorageManager
 
 
 class DecompositionConfig(TypedDict, total=False):
@@ -168,34 +169,43 @@ class TaskManager:
         self.prompt_loader = PromptLoader()
         self._dynamic_strategies: Dict[str, DynamicStrategy] = {}
         self.tasks: Dict[str, SubTask] = {}
-        self._agent_pool: Optional['AgentPool'] = None
+        self._agent_pool: Optional["AgentPool"] = None
 
-    def set_agent_pool(self, agent_pool: 'AgentPool') -> None:
+    def set_agent_pool(self, agent_pool: "AgentPool") -> None:
         """Set the agent pool for task execution."""
         self._agent_pool = agent_pool
 
-    def submit_task(self, task: SubTask) -> None:
+    async def submit_task(self, task: SubTask) -> None:
         """Submit a task for execution."""
         if not self._agent_pool:
             raise RuntimeError("Agent pool not set")
         self.tasks[task.id] = task
-        self._agent_pool.submit_task(task)
+        await self._agent_pool.submit_task(task)
 
     def get_task(self, task_id: str) -> Optional[SubTask]:
         """Get a task by ID."""
         return self.tasks.get(task_id)
 
-    def wait_for_result(self, task_id: str) -> Any:
+    async def wait_for_result(self, task_id: str) -> Any:
         """Wait for a task to complete and return its result."""
         if not self._agent_pool:
             raise RuntimeError("Agent pool not set")
-        return self._agent_pool.wait_for_result(task_id)
+        return await self._agent_pool.wait_for_result(task_id)
 
-    def create_task(self, task_type: str, input_data: Any, config: Dict[str, Any]) -> Task:
+    def create_task(
+        self, task_type: str, input_data: Union[BasePrompt, Dict[str, Any]], config: Dict[str, Any]
+    ) -> Task:
         """Create a new task with the given parameters."""
         # Validate task type exists in prompt loader
         if not self.prompt_loader.get_prompt(task_type):
             raise ValueError(f"Unknown task type: {task_type}")
+
+        # Convert dict input to BasePrompt if needed
+        if isinstance(input_data, dict):
+            # This would need to be implemented based on your prompt system
+            input_data = self.prompt_loader.create_prompt(task_type, input_data)
+        elif not isinstance(input_data, BasePrompt):
+            raise ValueError("Input data must be BasePrompt or dict")
 
         task = Task(id=str(uuid.uuid4()), type=task_type, input_data=input_data, config=config)
         self.storage.save_task(task)
@@ -231,7 +241,7 @@ class TaskManager:
             self._dynamic_strategies[task.type] = DynamicStrategy(strategy_code)
         return self._dynamic_strategies[task.type]
 
-    def _generate_dynamic_strategy(self, task: Task) -> Dict[str, Any]:
+    async def _generate_dynamic_strategy(self, task: Task) -> Dict[str, Any]:
         """Generate a new dynamic strategy using the task decomposer."""
         decomposer = self.prompt_loader.get_prompt("task_decomposer")
         if not decomposer:
@@ -258,20 +268,23 @@ class TaskManager:
         if not self._agent_pool:
             raise RuntimeError("Agent pool not set")
 
-        self._agent_pool.submit_task(decomposer_task)
-        return self._agent_pool.wait_for_result(decomposer_task.id)
+        await self._agent_pool.submit_task(decomposer_task)
+        return await self._agent_pool.wait_for_result(decomposer_task.id)
 
-    def execute(self, task: Task) -> Any:
-        """Execute a task by breaking it down and processing subtasks in parallel."""
+    async def execute(self, task: Task, conversation: Optional[ConversationGraph] = None) -> Any:
+        """Execute a task and optionally integrate with a conversation graph."""
         if not self._agent_pool:
             raise RuntimeError("Agent pool not set")
 
-        # Get the prompt template for this task type
+        # Create conversation if none provided
+        if not conversation:
+            conversation = ConversationGraph(id=str(uuid.uuid4()))
+
+        # Get the prompt template and decomposition config
         prompt = self.prompt_loader.get_prompt(task.type)
         if not prompt:
             raise ValueError(f"No prompt template found for task type: {task.type}")
 
-        # Get decomposition config from metadata
         decomp_config = cast(DecompositionConfig, prompt.metadata.decomposition)
 
         # Decompose task into subtasks
@@ -280,15 +293,24 @@ class TaskManager:
         task.status = TaskStatus.IN_PROGRESS
         self.storage.save_task(task)
 
-        # Process subtasks in parallel using the agent pool
-        for subtask in subtasks:
-            self._agent_pool.submit_task(subtask)  # max_parallel handled by agent pool
-
-        # Wait for all subtasks to complete
+        # Process subtasks and track in conversation
         results = []
         for subtask in subtasks:
-            result = self._agent_pool.wait_for_result(subtask.id)
+            # Add subtask prompt to conversation
+            prompt_node_id = conversation.add_node(
+                content=subtask.input_data, node_type="prompt", metadata={"task_id": subtask.id}
+            )
+
+            # Process subtask
+            await self._agent_pool.submit_task(subtask)
+            result = await self._agent_pool.wait_for_result(subtask.id)
             results.append(result)
+
+            # Add result to conversation
+            response_node_id = conversation.add_node(
+                content=result, node_type="response", metadata={"task_id": subtask.id}
+            )
+            conversation.add_edge(prompt_node_id, response_node_id, "response_to")
 
         # Aggregate results
         task.result = self._aggregate_results(task, results)

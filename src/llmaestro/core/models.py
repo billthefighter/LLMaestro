@@ -42,107 +42,20 @@ class BaseResponse(BaseModel):
 
 
 class LLMResponse(BaseResponse):
-    """Standardized response from LLM processing."""
+    """Response from an LLM model."""
 
-    content: str = Field(..., description="The content returned by the LLM")
-    token_usage: Optional[TokenUsage] = Field(default=None, description="Token usage information if applicable")
-    context_metrics: Optional[ContextMetrics] = Field(default=None, description="Context window usage metrics")
-    provider: str = Field(..., description="The LLM provider (e.g., 'anthropic', 'gemini', 'openai')")
-    provider_response_id: Optional[str] = Field(default=None, description="Provider-specific response ID")
-    provider_metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Provider-specific metadata (e.g., Anthropic message ID, Gemini safety ratings)",
-    )
+    content: str
+    model: str
+    token_usage: TokenUsage
+    context_metrics: Optional[ContextMetrics] = None
 
-    @classmethod
-    def from_anthropic_response(cls, response: Any, content: str, token_estimates: Dict[str, int]) -> "LLMResponse":
-        """Create LLMResponse from Anthropic API response."""
-        return cls(
-            content=content,
-            provider="anthropic",
-            provider_response_id=getattr(response, "id", None),
-            provider_metadata={"cost": 0.0, "image_tokens": token_estimates.get("image_tokens", 0)},
-            token_usage=TokenUsage(
-                prompt_tokens=getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0,
-                completion_tokens=getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0,
-                total_tokens=sum(
-                    [
-                        getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0,
-                        getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0,
-                    ]
-                ),
-            ),
-            success=True,
-        )
-
-    @classmethod
-    def from_gemini_response(cls, response: Any, content: str, token_estimates: Dict[str, int]) -> "LLMResponse":
-        """Create LLMResponse from Gemini API response."""
-        completion_tokens = len(content.split()) * 4  # Rough estimate
-        return cls(
-            content=content,
-            provider="gemini",
-            provider_response_id=getattr(response, "id", None),
-            provider_metadata={
-                "cost": 0.0,
-                "image_tokens": token_estimates.get("image_tokens", 0),
-                "safety_ratings": getattr(response, "safety_ratings", None),
-            },
-            token_usage=TokenUsage(
-                prompt_tokens=token_estimates["prompt_tokens"],
-                completion_tokens=completion_tokens,
-                total_tokens=token_estimates["total_tokens"] + completion_tokens,
-            ),
-            success=True,
-        )
-
-    @classmethod
-    def from_openai_response(cls, response: Any, messages: List[Dict[str, Any]]) -> "LLMResponse":
-        """Create LLMResponse from OpenAI API response."""
-        return cls(
-            content=response.choices[0].message.content,
-            provider="openai",
-            provider_response_id=response.id,
-            provider_metadata={
-                "model": response.model,
-                "finish_reason": response.choices[0].finish_reason,
-            },
-            token_usage=TokenUsage(
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
-            ),
-            success=True,
-        )
-
-    def model_dump(self) -> Dict[str, Any]:
-        base_data = super().model_dump()
-        base_data.update(
-            {
-                "content": self.content,
-                "token_usage": self.token_usage.model_dump() if self.token_usage else None,
-                "context_metrics": self.context_metrics.model_dump() if self.context_metrics else None,
-                "provider": self.provider,
-                "provider_response_id": self.provider_response_id,
-                "provider_metadata": self.provider_metadata,
-            }
-        )
-        return base_data
-
-
-class PromptResponsePair(BaseModel):
-    """Represents a prompt and its corresponding response."""
-
-    id: str = Field(..., description="Unique identifier for this prompt-response pair")
-    prompt: Any = Field(..., description="The prompt object that was used")
-    response: LLMResponse = Field(..., description="The LLM response received")
-    created_at: datetime = Field(default_factory=datetime.now)
-    context: Dict[str, Any] = Field(
-        default_factory=dict, description="Additional context or variables used in prompt rendering"
-    )
-    model_info: Dict[str, str] = Field(..., description="Information about the model used (provider, model name, etc.)")
-
-    model_config = ConfigDict(validate_assignment=True)
+    def __init__(
+        self, content: str, model: str, token_usage: TokenUsage, context_metrics: Optional[ContextMetrics] = None
+    ):
+        self.content = content
+        self.model = model
+        self.token_usage = token_usage
+        self.context_metrics = context_metrics
 
 
 class TaskStatus(str, Enum):

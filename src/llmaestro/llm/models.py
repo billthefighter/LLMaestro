@@ -11,6 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String
 from sqlalchemy.orm import declarative_base
 
+from llmaestro.llm.provider_registry import ProviderConfig, ProviderRegistry
+
 Base = declarative_base()
 
 
@@ -337,12 +339,49 @@ class ModelCapabilitiesTable(Base):
 class ModelRegistry:
     """Registry of available LLM models and their capabilities."""
 
-    def __init__(self):
+    def __init__(self, provider_registry: Optional[ProviderRegistry] = None):
         self._models: Dict[str, ModelDescriptor] = {}
+        self._provider_registry = provider_registry or ProviderRegistry()
 
     def register(self, descriptor: ModelDescriptor) -> None:
         """Register a model descriptor."""
         self._models[descriptor.name] = descriptor
+
+    def register_from_provider(self, provider: str, model_name: str) -> None:
+        """Register a model using provider configuration.
+
+        Args:
+            provider: Provider name
+            model_name: Model name to register
+
+        Raises:
+            ValueError: If provider or model configuration not found
+        """
+        model_config = self._provider_registry.get_provider_model_config(provider, model_name)
+        if not model_config:
+            raise ValueError(f"No configuration found for model {model_name} from provider {provider}")
+
+        # Create basic capabilities from provider model config
+        capabilities = ModelCapabilities(
+            max_context_window=model_config.context_window,
+            typical_speed=model_config.typical_speed,
+            input_cost_per_1k_tokens=model_config.cost.get("input_per_1k", 0.0),
+            output_cost_per_1k_tokens=model_config.cost.get("output_per_1k", 0.0),
+            supported_languages={"en"},  # Default to English
+            supports_streaming=True,  # Most modern models support this
+        )
+
+        # Add features from provider config
+        for feature in model_config.features:
+            if hasattr(capabilities, feature):
+                setattr(capabilities, feature, True)
+
+        descriptor = ModelDescriptor(
+            name=model_name,
+            family=model_config.family,
+            capabilities=capabilities,
+        )
+        self.register(descriptor)
 
     def get_model(self, name: str) -> Optional[ModelDescriptor]:
         """Get a model by name."""
@@ -403,9 +442,12 @@ class ModelRegistry:
 
         return True, None
 
+    def get_provider_config(self, provider: str) -> Optional[ProviderConfig]:
+        """Get configuration for a provider."""
+        return self._provider_registry.get_provider(provider)
+
     async def detect_and_register_model(self, provider: str, model_name: str, api_key: str) -> ModelDescriptor:
-        """
-        Detects capabilities of a model and registers it in the registry.
+        """Detects capabilities of a model and registers it in the registry.
 
         Args:
             provider: The LLM provider (e.g., "anthropic", "openai")
@@ -415,30 +457,29 @@ class ModelRegistry:
         Returns:
             ModelDescriptor for the registered model
         """
-        # Map provider to model family
-        provider_to_family = {
-            "anthropic": ModelFamily.CLAUDE,
-            "openai": ModelFamily.GPT,
-        }
-        family = provider_to_family.get(provider.lower())
-        if not family:
-            raise ValueError(f"Unsupported provider: {provider}")
+        # First check if provider configuration exists
+        provider_config = self.get_provider_config(provider)
+        if provider_config:
+            try:
+                self.register_from_provider(provider, model_name)
+                model = self.get_model(model_name)
+                if model:
+                    return model
+            except ValueError:
+                pass  # Fall through to dynamic detection if provider registration fails
 
-        # Detect capabilities
+        # Detect capabilities dynamically
         capabilities = await ModelCapabilitiesDetector.detect_capabilities(provider, model_name, api_key)
 
-        # Create model descriptor with proper datetime
+        # Create and register descriptor
         descriptor = ModelDescriptor(
             name=model_name,
-            family=family,
+            family=provider,  # Use provider as family when not in provider registry
             capabilities=capabilities,
-            min_api_version="2024-02-29",  # Use current latest version
+            min_api_version="2024-02-29",
             release_date=datetime.now(),
         )
-
-        # Register the model
         self.register(descriptor)
-
         return descriptor
 
     @classmethod

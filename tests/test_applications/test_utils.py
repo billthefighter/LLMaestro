@@ -5,6 +5,7 @@ from typing import Any, Dict, Optional
 from llmaestro.llm.interfaces import LLMResponse
 from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.models import ModelCapabilities, ModelFamily, ModelRegistry
+import pytest
 
 
 class MockLLM(BaseLLMInterface):
@@ -41,3 +42,25 @@ class MockLLM(BaseLLMInterface):
             content=json.dumps(self._response),
             metadata={"tokens": 100, "model": "test-model"},
         )
+
+def test_extract_json_from_llm_response():
+    """Test extracting JSON from LLM response."""
+    # Test with valid JSON response
+    response = LLMResponse(
+        content='{"key": "value"}',
+        success=True,
+        provider="mock",
+        provider_metadata={"test": True},
+    )
+    result = extract_json_from_llm_response(response)
+    assert result == {"key": "value"}
+
+    # Test with invalid JSON response
+    response = LLMResponse(
+        content="Not a JSON string",
+        success=True,
+        provider="mock",
+        provider_metadata={"test": True},
+    )
+    with pytest.raises(ValueError):
+        extract_json_from_llm_response(response)

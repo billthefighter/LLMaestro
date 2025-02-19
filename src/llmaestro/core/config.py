@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Union, overload
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from llmaestro.llm.llm_registry import ModelRegistry, ProviderConfig
+from llmaestro.llm import ModelRegistry, ProviderConfig, ProviderRegistry
 
 
 class AgentTypeConfig(BaseModel):
@@ -209,20 +209,6 @@ class UserConfig(BaseModel):
             data = yaml.safe_load(f)
         return cls(**data)
 
-    def _register_user_models(self) -> None:
-        """Register models specified in user configuration."""
-        if not self._user_config or not self._model_registry:
-            return
-
-        # Register default model
-        self._model_registry.register_model(
-            self._user_config.default_model["provider"], self._user_config.default_model["name"]
-        )
-
-        # Register agent models
-        for _, agent_config in self._user_config.agents.get("agent_types", {}).items():
-            self._model_registry.register_model(agent_config["provider"], agent_config["model"])
-
 
 class SystemConfig(BaseModel):
     """System-wide configuration for all providers and models."""
@@ -280,6 +266,7 @@ class ConfigurationManager:
     def __init__(self):
         self._user_config: Optional[UserConfig] = None
         self._system_config: Optional[SystemConfig] = None
+        self._provider_registry: Optional[ProviderRegistry] = None
         self._model_registry: Optional[ModelRegistry] = None
         self._agent_pool_config: Optional[AgentPoolConfig] = None
 
@@ -299,8 +286,27 @@ class ConfigurationManager:
         """
         self._user_config = user_config
         self._system_config = system_config
-        self._model_registry = ModelRegistry(self._system_config.providers)
-        self._register_user_models()
+
+        # Initialize registries
+        self._provider_registry = ProviderRegistry()
+        for name, config in system_config.providers.items():
+            self._provider_registry.register_provider(name, config)
+
+        self._model_registry = ModelRegistry(self._provider_registry)
+        self._register_models()
+
+    def _register_models(self) -> None:
+        """Register models from configuration."""
+        if not self._user_config or not self._model_registry:
+            return
+
+        # Register default model
+        default = self._user_config.default_model
+        self._model_registry.register_from_provider(default["provider"], default["name"])
+
+        # Register agent models
+        for agent_config in self._user_config.agents.get("agent_types", {}).values():
+            self._model_registry.register_from_provider(agent_config["provider"], agent_config["model"])
 
     def load_from_env(self, system_config_path: Optional[Union[str, Path]] = None) -> None:
         """Load configuration from environment variables.
@@ -317,11 +323,17 @@ class ConfigurationManager:
             system_config_path = Path(__file__).parent.parent.parent / "config" / "system_config.yml"
 
         self._system_config = SystemConfig.from_yaml(system_config_path)
-        self._model_registry = ModelRegistry(self._system_config.providers)
+
+        # Initialize registries
+        self._provider_registry = ProviderRegistry()
+        for name, config in self._system_config.providers.items():
+            self._provider_registry.register_provider(name, config)
+
+        self._model_registry = ModelRegistry(self._provider_registry)
 
         # Load user config from environment
         self._user_config = UserConfig.from_env()
-        self._register_user_models()
+        self._register_models()
 
     @overload
     def load_configs(
@@ -398,7 +410,7 @@ class ConfigurationManager:
                 self._user_config = UserConfig.from_yaml(user_path)
 
         # Register models from user config
-        self._register_user_models()
+        self._register_models()
 
     def _create_agent_pool_config(self) -> AgentPoolConfig:
         """Create AgentPoolConfig from user configuration."""
@@ -455,11 +467,20 @@ class ConfigurationManager:
         return self._system_config
 
     @property
+    def provider_registry(self) -> ProviderRegistry:
+        """Get the provider registry."""
+        if self._provider_registry is None:
+            self.load_configs()
+        if self._provider_registry is None:
+            raise RuntimeError("Failed to initialize provider registry")
+        return self._provider_registry
+
+    @property
     def model_registry(self) -> ModelRegistry:
         """Get the model registry."""
         if self._model_registry is None:
             self.load_configs()
-        if self._model_registry is None:  # This should never happen after load_configs
+        if self._model_registry is None:
             raise RuntimeError("Failed to initialize model registry")
         return self._model_registry
 
@@ -476,8 +497,8 @@ class ConfigurationManager:
         Raises:
             ValueError: If provider or model is not found
         """
-        # Get base model config from registry
-        base_config = self.model_registry.get_model_config(
+        # Get base model config from provider registry
+        base_config = self.provider_registry.get_provider_api_config(
             provider=provider, model_name=model_name, api_key=self.user_config.api_keys.get(provider)
         )
 
@@ -491,15 +512,7 @@ class ConfigurationManager:
         return base_config
 
     def get_agent_config(self, agent_type: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Get the configuration for a specific agent type.
-
-        Args:
-            agent_type: The type of agent. If None, uses the default agent type.
-
-        Returns:
-            Dictionary with agent configuration
-        """
+        """Get the configuration for a specific agent type."""
         if not self._user_config:
             self.load_configs()
 
@@ -507,7 +520,6 @@ class ConfigurationManager:
         default_agent_type = self._user_config.agents.get("default_agent_type", "general")
 
         type_to_use = agent_type or default_agent_type
-
         if type_to_use not in agent_types:
             raise ValueError(f"Agent type '{type_to_use}' not found in configuration")
 
@@ -523,6 +535,4 @@ def get_config() -> ConfigurationManager:
     global _config_manager
     if _config_manager is None:
         _config_manager = ConfigurationManager()
-    return _config_manager
-
     return _config_manager

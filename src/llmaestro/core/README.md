@@ -1,32 +1,99 @@
 # Core Components
 
-This directory contains the core components of the LLMaestro system. These components provide the foundational functionality for configuration management, task handling, and logging.
+This directory contains the core components of the LLMaestro system. These components provide the foundational functionality for configuration management, task handling, conversation management, and logging.
 
-## Configuration Management
+## Architecture Overview
 
-The configuration system in LLMaestro is designed to handle both system-wide and user-specific settings in a type-safe and maintainable way.
+The core system is built around several key components that work together:
 
-### Configuration Structure
+1. **Task Management** (`task_manager.py`)
+   - Handles task decomposition and execution
+   - Integrates with conversation tracking
+   - Supports multiple decomposition strategies
+   - Manages async task processing
 
-The configuration system is split into two main parts:
+2. **Conversation Management** (`conversations.py`)
+   - Graph-based conversation representation
+   - Tracks prompts and responses
+   - Maintains conversation history
+   - Supports conversation summarization
+
+3. **Core Models** (`models.py`)
+   - Base data structures and types
+   - Task and subtask definitions
+   - Token usage and metrics tracking
+   - Response standardization
+
+4. **Configuration Management** (`config.py`)
+   - System and user configuration
+   - Model registry integration
+   - Environment variable support
+   - Type-safe configuration access
+
+## Task Management System
+
+The task management system is designed to handle complex, decomposable tasks with conversation tracking.
+
+### Task Decomposition Strategies
+
+```python
+from llmaestro.core.task_manager import TaskManager, Task
+from llmaestro.core.conversations import ConversationGraph
+
+# Create a task manager
+task_manager = TaskManager()
+
+# Create and execute a task with conversation tracking
+task = task_manager.create_task(
+    task_type="code_review",
+    input_data=review_prompt,
+    config={"max_parallel": 3}
+)
+
+# Execute with conversation tracking
+conversation = ConversationGraph(id="review-session")
+result = await task_manager.execute(task, conversation)
+```
+
+Available strategies:
+- **Chunk Strategy**: Breaks down large inputs into manageable chunks
+- **File Strategy**: Processes multiple files in parallel
+- **Error Strategy**: Handles multiple error cases
+- **Dynamic Strategy**: Generates custom strategies at runtime
+
+### Conversation Integration
+
+Tasks are automatically integrated with the conversation system:
+- Each subtask creates prompt and response nodes
+- Relationships between nodes are tracked
+- Full conversation history is maintained
+- Support for summarization and context management
+
+```python
+# Access conversation history
+history = conversation.get_node_history(node_id)
+summary = conversation.get_conversation_summary()
+```
+
+## Configuration System
+
+The configuration system remains split into system and user configurations:
 
 1. **System Configuration** (`system_config.yml`):
    - Provider definitions and capabilities
    - Model specifications and features
    - Rate limits and API endpoints
-   - Located at `src/llm/system_config.yml`
 
 2. **User Configuration** (`config.yaml`):
-   - API keys
+   - API keys and credentials
    - Default model settings
    - Agent pool configuration
-   - Storage and visualization preferences
-   - Located at `config/config.yaml`
+   - Storage preferences
 
 ### Usage Examples
 
 ```python
-from core.config import get_config
+from llmaestro.core.config import get_config
 
 # Get the configuration manager
 config = get_config()
@@ -43,80 +110,62 @@ model_capabilities = provider_config.models["claude-3-sonnet-20240229"]
 model_config = config.get_model_config("anthropic", "claude-3-sonnet-20240229")
 ```
 
-### Configuration Sources
+## Async Support
 
-The system supports multiple ways to provide configuration:
+The system is built with async support throughout:
 
-1. **Environment Variables**:
-   ```bash
-   export ANTHROPIC_API_KEY=your-api-key
-   export ANTHROPIC_MODEL=claude-3-sonnet-20240229
-   export ANTHROPIC_MAX_TOKENS=1024
-   export ANTHROPIC_TEMPERATURE=0.7
-   ```
+```python
+async def process_task():
+    # Create and configure task
+    task = task_manager.create_task(...)
 
-2. **Configuration Files**:
-   ```yaml
-   # config.yaml
-   api_keys:
-     anthropic: your-api-key
-   default_model:
-     provider: anthropic
-     name: claude-3-sonnet-20240229
-     settings:
-       max_tokens: 1024
-       temperature: 0.7
-   ```
+    # Execute with conversation tracking
+    conversation = ConversationGraph(...)
+    result = await task_manager.execute(task, conversation)
 
-### Configuration Manager
+    # Wait for specific subtask results
+    subtask_result = await task_manager.wait_for_result(subtask_id)
+```
 
-The `ConfigurationManager` class provides a centralized interface for:
+## Best Practices
 
-- Loading and validating configurations
-- Managing the model registry
-- Combining system and user settings
-- Providing type-safe access to configuration values
+1. **Task Management**:
+   - Use appropriate decomposition strategies
+   - Always provide conversation tracking
+   - Handle task results asynchronously
+   - Clean up resources properly
 
-Key features:
-- Automatic configuration loading
-- Environment variable support
-- Type validation using Pydantic
-- Lazy initialization
-- Thread-safe singleton pattern
+2. **Conversation Handling**:
+   - Use conversation graphs for all interactions
+   - Implement proper error handling
+   - Consider context window limitations
+   - Use summarization when appropriate
 
-### Model Registry
-
-The configuration system integrates with the Model Registry to:
-
-- Track available models and their capabilities
-- Manage provider configurations
-- Handle model registration and validation
-- Provide access to model-specific settings
-
-### Best Practices
-
-1. **API Key Security**:
+3. **Configuration**:
    - Never commit API keys to version control
    - Use environment variables in production
    - Keep `config.yaml` in `.gitignore`
+   - Use type-safe configuration access
 
-2. **Configuration Updates**:
-   - System configuration changes require code review
-   - User configuration can be modified without code changes
-   - Use the example config as a template
+4. **Type Safety**:
+   - Use proper type hints throughout
+   - Validate inputs at boundaries
+   - Handle async operations correctly
+   - Use standardized response types
 
-3. **Type Safety**:
-   - Always use the configuration manager interface
-   - Avoid direct dictionary access
-   - Leverage Pydantic validation
+## Module Dependencies
 
-## Other Core Components
+```
+core/
+├── task_manager.py     # Task handling and decomposition
+├── conversations.py    # Conversation graph management
+├── models.py          # Core data structures
+├── config.py          # Configuration management
+└── logging_config.py  # Logging configuration
+```
 
-### Task Manager (`task_manager.py`)
-Handles task decomposition, scheduling, and result aggregation.
-
-### Logging Configuration (`logging_config.py`)
-Configures logging behavior and output formatting.
-
-### Core Models (`models.py`)
-Base models and data structures used throughout the system.
+Key relationships:
+- `task_manager.py` depends on `conversations.py` for tracking
+- All modules use types from `models.py`
+- Configuration from `config.py` is used throughout
+- Logging is configured via `logging_config.py`

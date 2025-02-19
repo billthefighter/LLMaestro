@@ -1,7 +1,6 @@
 """Base interfaces for LLM providers."""
 
 import base64
-import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -9,12 +8,17 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from litellm import acompletion
-from llmaestro.core.models import AgentConfig, ContextMetrics, TokenUsage
+
+from llmaestro.core.models import (
+    AgentConfig,
+    ContextMetrics,
+    LLMResponse,  # Updated to import from core.models
+    TokenUsage,
+)
 from llmaestro.llm.models import MediaType, ModelDescriptor, ModelFamily, ModelRegistry
 from llmaestro.llm.rate_limiter import RateLimitConfig, RateLimiter, SQLiteQuotaStorage
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.base import BasePrompt
-from pydantic import BaseModel
 
 
 @dataclass
@@ -60,26 +64,6 @@ class ImageInput:
         content = base64.b64encode(data).decode()
         media_type = mime_type if isinstance(mime_type, MediaType) else MediaType.from_mime_type(mime_type)
         return cls(content=content, media_type=media_type, file_name=file_name)
-
-
-class LLMResponse(BaseModel):
-    """Standardized response from LLM processing."""
-
-    content: str
-    metadata: Dict[str, Any] = {}
-    token_usage: Optional[TokenUsage] = None
-    context_metrics: Optional[ContextMetrics] = None
-
-    def model_dump(self) -> Dict[str, Any]:
-        return {
-            "content": self.content,
-            "metadata": self.metadata,
-            "token_usage": self.token_usage.model_dump() if self.token_usage else None,
-            "context_metrics": self.context_metrics.model_dump() if self.context_metrics else None,
-        }
-
-    def model_dump_json(self) -> str:
-        return json.dumps(self.model_dump())
 
 
 class BaseLLMInterface(ABC):
@@ -171,27 +155,15 @@ class BaseLLMInterface(ABC):
         return input_cost + output_cost
 
     async def _check_rate_limits(
-        self, messages: List[Dict[str, str]], estimated_tokens: Optional[int] = None
-    ) -> tuple[bool, Optional[str]]:
-        """Check rate limits before processing a request"""
-        if not self.rate_limiter:
+        self, messages: List[Dict[str, Any]], estimated_tokens: Optional[int] = None
+    ) -> Tuple[bool, Optional[str]]:
+        """Check if the request would exceed rate limits."""
+        if not self.config.rate_limit.enabled:
             return True, None
 
-        # Use provided token estimate or calculate it
-        if estimated_tokens is None:
-            estimates = self.estimate_tokens(messages)
-            estimated_tokens = estimates["total_tokens"]
-
-        can_proceed, error_msg = await self.rate_limiter.check_and_update(estimated_tokens)
+        can_proceed = await self.rate_limiter.check_limits(estimated_tokens)
         if not can_proceed:
-            # Get current quota status for better error reporting
-            status = await self.rate_limiter.get_quota_status()
-            return False, f"{error_msg}. Current status: {status}"
-
-        # Check if we're approaching limits
-        status = await self.rate_limiter.get_quota_status()
-        if status["quota_used_percentage"] >= self.config.rate_limit.alert_threshold * 100:
-            print(f"Warning: Approaching rate limits. Current usage: {status['quota_used_percentage']:.1f}%")
+            return False, "Rate limit exceeded"
 
         return True, None
 
@@ -403,10 +375,15 @@ class BaseLLMInterface(ABC):
             return self._handle_error(e)
 
     def _handle_error(self, e: Exception) -> LLMResponse:
-        """Handle errors in LLM processing."""
-        error_message = f"Error processing LLM request: {str(e)}"
-        print(error_message)  # Log the error
-        return LLMResponse(content=error_message, metadata={"error": str(e)})
+        """Handle errors and return a standardized error response."""
+        error_msg = str(e)
+        return LLMResponse(
+            content="",
+            success=False,
+            provider=self.config.provider,
+            error=error_msg,
+            provider_metadata={"error_type": type(e).__name__},
+        )
 
     @abstractmethod
     async def process(
@@ -414,16 +391,49 @@ class BaseLLMInterface(ABC):
         prompt: Union[BasePrompt, "BasePrompt"],  # Allow for subclasses and forward references
         variables: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
-        """Process a BasePrompt and return a response.
+        """Process a prompt through the LLM and return a standardized response."""
+        try:
+            # Default implementation using litellm
+            system_prompt, user_prompt, _ = prompt.render(**(variables or {}))
 
-        Args:
-            prompt: The BasePrompt to process
-            variables: Optional variables to render the prompt with
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": user_prompt})
 
-        Returns:
-            LLMResponse containing the model's response
-        """
-        pass
+            # Check rate limits
+            can_proceed, error_msg = await self._check_rate_limits(messages)
+            if not can_proceed:
+                return LLMResponse(
+                    content="",
+                    success=False,
+                    provider=self.config.provider,
+                    error=error_msg,
+                    provider_metadata={"error": "rate_limit_exceeded"},
+                )
+
+            response = await acompletion(
+                model=self.config.model_name,
+                messages=messages,
+                max_tokens=self.config.max_tokens,
+                temperature=self.config.temperature,
+                api_key=self.config.api_key,
+            )
+
+            return LLMResponse(
+                content=response.choices[0].message.content,
+                success=True,
+                provider=self.config.provider,
+                provider_metadata={"model": response.model},
+                token_usage=TokenUsage(
+                    prompt_tokens=response.usage.prompt_tokens,
+                    completion_tokens=response.usage.completion_tokens,
+                    total_tokens=response.usage.total_tokens,
+                ),
+            )
+
+        except Exception as e:
+            return self._handle_error(e)
 
     @abstractmethod
     async def batch_process(

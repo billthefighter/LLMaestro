@@ -24,7 +24,7 @@ class ArtifactModel(Base):
     data = Column(JSON, nullable=False)
     path = Column(String, nullable=True)
     timestamp = Column(DateTime, nullable=False)
-    metadata = Column(JSON, nullable=False)
+    artifact_metadata = Column(JSON, nullable=False)
 
 
 class DatabaseArtifactStorage(ArtifactStorage):
@@ -50,7 +50,7 @@ class DatabaseArtifactStorage(ArtifactStorage):
                     data=artifact.serialize(),
                     path=str(artifact.path) if artifact.path else None,
                     timestamp=artifact.timestamp,
-                    metadata=artifact.metadata,
+                    artifact_metadata=artifact.metadata,
                 )
                 session.merge(db_artifact)  # Use merge instead of add to handle updates
                 session.commit()
@@ -84,7 +84,9 @@ class DatabaseArtifactStorage(ArtifactStorage):
                     data=dict(db_artifact.data) if isinstance(db_artifact.data, dict) else db_artifact.data,
                     path=path,
                     timestamp=timestamp,
-                    metadata=dict(db_artifact.metadata) if isinstance(db_artifact.metadata, dict) else {},
+                    metadata=dict(db_artifact.artifact_metadata)
+                    if isinstance(db_artifact.artifact_metadata, dict)
+                    else {},
                 )
         except SQLAlchemyError as e:
             print(f"Error loading artifact from database: {e}")
@@ -136,7 +138,9 @@ class DatabaseArtifactStorage(ArtifactStorage):
                             data=dict(db_artifact.data) if isinstance(db_artifact.data, dict) else db_artifact.data,
                             path=path,
                             timestamp=timestamp,
-                            metadata=dict(db_artifact.metadata) if isinstance(db_artifact.metadata, dict) else {},
+                            metadata=dict(db_artifact.artifact_metadata)
+                            if isinstance(db_artifact.artifact_metadata, dict)
+                            else {},
                         )
                     )
                 return artifacts

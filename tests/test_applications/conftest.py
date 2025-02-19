@@ -8,17 +8,14 @@ from llmaestro.llm.interfaces import LLMResponse
 
 
 @pytest.fixture
-def mock_llm_response() -> Dict[str, Any]:
+def mock_llm_response():
     """Mock LLM response for testing."""
-    return {
-        "summary": "Updated Config class to use Pydantic BaseModel",
-        "affected_readmes": ["README.md", "docs/api/config.md"],
-        "needs_readme_updates": True,
-        "suggested_updates": {
-            "README.md": "Update configuration section to reflect new Pydantic model usage",
-            "docs/api/config.md": "Add documentation for new Dict-based configuration",
-        },
-    }
+    return LLMResponse(
+        content="Mock response",
+        success=True,
+        provider="mock",
+        provider_metadata={"test": True},
+    )
 
 
 @pytest.fixture
