@@ -21,23 +21,6 @@ TEST_API_KEY = "test_api_key"
 TEST_MODEL_NAME = "claude-3-5-sonnet-latest"
 
 
-@pytest.fixture
-def mock_anthropic_client():
-    """Create a mock Anthropic client."""
-    with patch("anthropic.Anthropic", autospec=True) as mock:
-        mock_instance = MagicMock()
-        mock.return_value = mock_instance
-        yield mock_instance
-
-
-@pytest.fixture
-def mock_openai_client():
-    """Create a mock OpenAI client."""
-    with patch("openai.AsyncOpenAI", autospec=True) as mock:
-        mock_instance = AsyncMock()
-        mock_instance.models.retrieve = AsyncMock()
-        mock.return_value = mock_instance
-        yield mock_instance
 
 
 @pytest.mark.asyncio

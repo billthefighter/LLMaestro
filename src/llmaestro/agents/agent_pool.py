@@ -4,10 +4,8 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, Protocol, Set, TypeVar, cast
 
-from llmaestro.agents.models.config import AgentPoolConfig, AgentTypeConfig
 from llmaestro.agents.models.models import Agent, AgentCapability, AgentMetrics, AgentState
-from llmaestro.core.config import get_config
-from llmaestro.core.models import AgentConfig
+from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig
 from llmaestro.llm.interfaces import LLMResponse
 from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.llm.llm_registry import ModelRegistry
@@ -16,26 +14,18 @@ from llmaestro.prompts.base import BasePrompt
 T = TypeVar("T")
 
 
+def get_config():
+    """Get the global configuration instance."""
+    from llmaestro.core.config import get_config as core_get_config
+
+    return core_get_config()
+
+
 class JsonOutputTransform(Protocol):
     """Protocol for JSON output transformers."""
 
     def transform(self, response: LLMResponse) -> Dict[str, Any]:
         ...
-
-
-def _convert_to_agent_config(type_config: AgentTypeConfig) -> AgentConfig:
-    """Convert AgentTypeConfig to AgentConfig for LLM interface."""
-    runtime = type_config.runtime.model_dump()
-    return AgentConfig(
-        provider=type_config.provider,
-        model_name=type_config.model,
-        api_key=get_config().user_config.api_keys.get(type_config.provider, ""),
-        max_tokens=runtime.get("max_tokens", 1024),
-        temperature=runtime.get("temperature", 0.7),
-        rate_limit=runtime.get("rate_limit", {}),
-        summarization=runtime.get("summarization", {}),
-        max_context_tokens=runtime.get("max_context_tokens", 32000),
-    )
 
 
 class RuntimeAgent:
@@ -56,14 +46,16 @@ class RuntimeAgent:
             type=config.description or "unknown",
             provider=config.provider,
             model=config.model,
-            capabilities=config.capabilities,
+            capabilities=set()
+            if config.capabilities is None
+            else {AgentCapability(cap) for cap in config.capabilities},
         )
         self.config = config
         self.active_prompts: Dict[str, asyncio.Task[Any]] = {}
 
-        # Convert config and create LLM interface
-        llm_config = _convert_to_agent_config(config)
-        self.llm = create_llm_interface(llm_config)
+        # Create LLM interface with runtime config
+        runtime = config.runtime.model_dump()
+        self.llm = create_llm_interface(runtime)
 
     async def process_prompt(self, prompt: BasePrompt) -> LLMResponse:
         """Process a prompt using this agent's LLM.

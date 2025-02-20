@@ -13,35 +13,7 @@ from llmaestro.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
 # Test data
 TEST_API_KEY = "test-api-key-123"
 
-@pytest.fixture
-def mock_model_descriptor():
-    """Create a mock model descriptor."""
-    mock = Mock(spec=ModelDescriptor)
-    mock.name = "test-model"
-    mock.capabilities = Mock()
-    mock.capabilities.supported_media_types = []
-    return mock
 
-@pytest.fixture
-def mock_registry(mock_model_descriptor):
-    """Create a mock model registry that returns our test model."""
-    mock = Mock(spec=ModelRegistry)
-    mock.get_model.return_value = mock_model_descriptor
-    return mock
-
-@pytest.fixture
-def agent_config():
-    """Create a basic agent config for testing."""
-    return AgentConfig(
-        provider="anthropic",
-        model_name="test-model",
-        api_key=TEST_API_KEY,
-        max_tokens=100,
-        temperature=0.7,
-        top_p=1.0,
-        max_context_tokens=8192,
-        token_tracking=True,
-    )
 
 class TestCreateLLMInterface:
     """Tests for the provider-based factory function."""

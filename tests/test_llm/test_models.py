@@ -16,56 +16,8 @@ from llmaestro.llm.models import (
 )
 
 # Test data based on claude.yaml
-@pytest.fixture
-def claude_2_data():
-    return {
-        "name": "claude-2",
-        "family": "claude",
-        "capabilities": {
-            "supports_streaming": True,
-            "supports_function_calling": False,
-            "supports_vision": False,
-            "supports_embeddings": False,
-            "max_context_window": 100000,
-            "max_output_tokens": 4096,
-            "typical_speed": 70.0,
-            "input_cost_per_1k_tokens": 0.008,
-            "output_cost_per_1k_tokens": 0.024,
-            "daily_request_limit": 150000,
-            "supports_json_mode": False,
-            "supports_system_prompt": True,
-            "supports_message_role": True,
-            "supports_tools": False,
-            "supports_parallel_requests": True,
-            "supported_languages": ["en"],
-            "supported_mime_types": [],
-            "temperature": {
-                "min_value": 0.0,
-                "max_value": 1.0,
-                "default_value": 0.7
-            },
-            "top_p": {
-                "min_value": 0.0,
-                "max_value": 1.0,
-                "default_value": 1.0
-            },
-            "supports_frequency_penalty": False,
-            "supports_presence_penalty": False,
-            "supports_stop_sequences": True,
-            "supports_semantic_search": True,
-            "supports_code_completion": True,
-            "supports_chat_memory": False,
-            "supports_few_shot_learning": True
-        },
-        "is_preview": False,
-        "is_deprecated": False,
-        "min_api_version": "2023-09-01",
-        "release_date": "2023-07-11"
-    }
 
-@pytest.fixture
-def model_registry():
-    return ModelRegistry()
+
 
 def test_model_family_enum():
     assert ModelFamily.GPT == "gpt"

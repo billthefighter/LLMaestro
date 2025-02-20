@@ -3,17 +3,17 @@ import io
 import json
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 from anthropic import AsyncAnthropic
 from anthropic.types import (
     MessageStreamEvent,
 )
-from PIL import Image
-
-from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse, MediaType, TokenUsage
-from llmaestro.llm.models import ModelFamily
+from llmaestro.core.models import LLMResponse, TokenUsage
+from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, MediaType
+from llmaestro.llm.models import ModelDescriptor, ModelFamily
 from llmaestro.llm.token_utils import TokenCounter
+from PIL import Image
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -24,7 +24,7 @@ class AnthropicLLM(BaseLLMInterface):
     """Anthropic Claude LLM implementation."""
 
     # Override supported media types for Anthropic-specific support
-    SUPPORTED_MEDIA_TYPES = {MediaType.JPEG, MediaType.PNG, MediaType.GIF, MediaType.WEBP}
+    SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG, MediaType.GIF, MediaType.WEBP}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -32,6 +32,8 @@ class AnthropicLLM(BaseLLMInterface):
         self.stream = getattr(self.config, "stream", False)  # Default to False if not specified
         self._token_counter = TokenCounter(api_key=self.config.api_key)  # Initialize with API key
         logger.info(f"Initialized AnthropicLLM with model: {self.config.model_name}")
+        # _model_descriptor is guaranteed to be non-None by base class __init__
+        self._model_descriptor: ModelDescriptor
 
     @property
     def model_family(self) -> ModelFamily:
@@ -106,6 +108,9 @@ class AnthropicLLM(BaseLLMInterface):
     ) -> LLMResponse:
         """Process input data through Claude and return a standardized response."""
         try:
+            # Ensure model descriptor is available (it should be from base class __init__)
+            assert self._model_descriptor is not None, "Model descriptor not initialized"
+
             logger.debug(f"Processing prompt: {prompt}")
             logger.debug(f"Variables: {variables}")
 
@@ -198,6 +203,8 @@ class AnthropicLLM(BaseLLMInterface):
                     # Create response with accumulated content
                     return LLMResponse(
                         content=content,
+                        success=True,
+                        model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
                         metadata={
                             "id": getattr(final_message, "id", "stream"),
                             "cost": 0.0,
@@ -234,6 +241,8 @@ class AnthropicLLM(BaseLLMInterface):
                     json.loads(content)
                     return LLMResponse(
                         content=content,
+                        success=True,
+                        model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
                         metadata={
                             "id": getattr(response, "id", "unknown"),
                             "cost": 0.0,
@@ -259,6 +268,8 @@ class AnthropicLLM(BaseLLMInterface):
                     formatted_response = {"message": content.strip(), "timestamp": datetime.utcnow().isoformat() + "Z"}
                     return LLMResponse(
                         content=json.dumps(formatted_response),
+                        success=True,
+                        model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
                         metadata={
                             "id": getattr(response, "id", "unknown"),
                             "cost": 0.0,
@@ -311,12 +322,10 @@ class AnthropicLLM(BaseLLMInterface):
         error_message = f"Error processing LLM request: {str(e)}"
         logger.error(error_message, exc_info=True)
         return LLMResponse(
-            content=json.dumps(
-                {
-                    "error": str(e),
-                    "message": "An error occurred while processing the request",
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                }
-            ),
-            metadata={"error": str(e)},
+            content="",
+            success=False,
+            model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
+            error=str(e),
+            metadata={"error_type": type(e).__name__},
+            token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
         )

@@ -2,13 +2,13 @@
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Union, overload
+from typing import Any, Dict, Optional, Union
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from llmaestro.core.models import AgentConfig
 from llmaestro.llm import ModelRegistry, ProviderConfig, ProviderRegistry
+from llmaestro.llm.models import ModelCapabilities
 
 
 class StorageConfig(BaseModel):
@@ -40,13 +40,12 @@ class LoggingConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class Config(BaseModel):
-    """Main configuration class."""
+class DefaultModelConfig(BaseModel):
+    """Configuration for default model."""
 
-    llm: AgentConfig
-    storage: StorageConfig = Field(default_factory=StorageConfig)
-    visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)
-    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    provider: str
+    name: str
+    settings: Dict[str, Any] = Field(default_factory=dict)
 
     model_config = ConfigDict(validate_assignment=True)
 
@@ -60,6 +59,7 @@ class AgentTypeConfig(BaseModel):
     temperature: float = Field(default=0.7)
     description: Optional[str] = None
     settings: Dict[str, Any] = Field(default_factory=dict)
+    capabilities: Optional[ModelCapabilities] = None
 
     model_config = ConfigDict(validate_assignment=True)
 
@@ -88,15 +88,7 @@ class AgentPoolConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     def get_agent_config(self, agent_type: Optional[str] = None) -> AgentTypeConfig:
-        """
-        Get the configuration for a specific agent type.
-
-        Args:
-            agent_type: The type of agent. If None, uses the default agent type.
-
-        Returns:
-            AgentTypeConfig for the specified or default agent type
-        """
+        """Get configuration for a specific agent type."""
         type_to_use = agent_type or self.default_agent_type
         if type_to_use not in self.agent_types:
             raise ValueError(f"Agent type '{type_to_use}' not found in configuration")
@@ -107,32 +99,17 @@ class UserConfig(BaseModel):
     """User-specific configuration."""
 
     api_keys: Dict[str, str]
-    default_model: Dict[str, Any]
-    agents: Dict[str, Any]
-    storage: Dict[str, Any]
-    visualization: Dict[str, Any]
-    logging: Dict[str, Any]
+    default_model: DefaultModelConfig
+    agents: AgentPoolConfig
+    storage: StorageConfig = Field(default_factory=StorageConfig)
+    visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     model_config = ConfigDict(validate_assignment=True)
 
     @classmethod
     def from_env(cls) -> "UserConfig":
-        """Create configuration from environment variables.
-
-        This method reads the system configuration to determine which provider API keys
-        to look for in the environment. For each provider, it looks for:
-        - {PROVIDER_NAME}_API_KEY: The API key
-        - {PROVIDER_NAME}_MODEL: The default model (optional)
-        - {PROVIDER_NAME}_MAX_TOKENS: Max tokens setting (optional)
-        - {PROVIDER_NAME}_TEMPERATURE: Temperature setting (optional)
-
-        Returns:
-            UserConfig: Configuration loaded from environment variables
-
-        Raises:
-            ValueError: If required API keys are not found in environment
-            FileNotFoundError: If system configuration file is not found
-        """
+        """Create configuration from environment variables."""
         # Load system config to get provider information
         root_dir = Path(__file__).parent.parent.parent
         system_config_path = root_dir / "config" / "system_config.yml"
@@ -179,73 +156,61 @@ class UserConfig(BaseModel):
             "temperature": float(os.getenv(f"{env_prefix}_TEMPERATURE", "0.7")),
         }
 
-        # Extend agent configuration to support multiple agent types
-        agents_config = {
-            "max_agents": int(os.getenv("LLM_MAX_AGENTS", "10")),
-            "default_agent_type": os.getenv("LLM_DEFAULT_AGENT_TYPE", "general"),
-            "agent_types": {
-                "general": {
-                    "provider": default_provider,
-                    "model": default_model,
-                    "max_tokens": int(os.getenv("LLM_AGENT_MAX_TOKENS", "8192")),
-                    "temperature": float(os.getenv("LLM_AGENT_TEMPERATURE", "0.7")),
-                    "description": "Default general-purpose agent",
-                },
-                # Optional additional agent types from environment
-                "fast": {
-                    "provider": os.getenv("LLM_FAST_AGENT_PROVIDER", default_provider),
-                    "model": os.getenv("LLM_FAST_AGENT_MODEL", "claude-3-haiku-20240229"),
-                    "max_tokens": int(os.getenv("LLM_FAST_AGENT_MAX_TOKENS", "4096")),
-                    "temperature": float(os.getenv("LLM_FAST_AGENT_TEMPERATURE", "0.7")),
-                    "description": "Fast, lightweight agent for simple tasks",
-                },
-                "specialist": {
-                    "provider": os.getenv("LLM_SPECIALIST_AGENT_PROVIDER", default_provider),
-                    "model": os.getenv("LLM_SPECIALIST_AGENT_MODEL", "claude-3-opus-20240229"),
-                    "max_tokens": int(os.getenv("LLM_SPECIALIST_AGENT_MAX_TOKENS", "16384")),
-                    "temperature": float(os.getenv("LLM_SPECIALIST_AGENT_TEMPERATURE", "0.7")),
-                    "description": "Specialist agent for complex tasks",
-                },
+        # Create agent pool config from environment
+        agent_pool = AgentPoolConfig(
+            max_agents=int(os.getenv("LLM_MAX_AGENTS", "10")),
+            default_agent_type=os.getenv("LLM_DEFAULT_AGENT_TYPE", "general"),
+            agent_types={
+                "general": AgentTypeConfig(
+                    provider=default_provider,
+                    model=default_model,
+                    max_tokens=int(os.getenv("LLM_AGENT_MAX_TOKENS", "8192")),
+                    temperature=float(os.getenv("LLM_AGENT_TEMPERATURE", "0.7")),
+                    description="Default general-purpose agent",
+                ),
+                "fast": AgentTypeConfig(
+                    provider=os.getenv("LLM_FAST_AGENT_PROVIDER", default_provider),
+                    model=os.getenv("LLM_FAST_AGENT_MODEL", "claude-3-haiku-20240229"),
+                    max_tokens=int(os.getenv("LLM_FAST_AGENT_MAX_TOKENS", "4096")),
+                    temperature=float(os.getenv("LLM_FAST_AGENT_TEMPERATURE", "0.7")),
+                    description="Fast, lightweight agent for simple tasks",
+                ),
+                "specialist": AgentTypeConfig(
+                    provider=os.getenv("LLM_SPECIALIST_AGENT_PROVIDER", default_provider),
+                    model=os.getenv("LLM_SPECIALIST_AGENT_MODEL", "claude-3-opus-20240229"),
+                    max_tokens=int(os.getenv("LLM_SPECIALIST_AGENT_MAX_TOKENS", "16384")),
+                    temperature=float(os.getenv("LLM_SPECIALIST_AGENT_TEMPERATURE", "0.7")),
+                    description="Specialist agent for complex tasks",
+                ),
             },
-        }
+        )
 
         return cls(
             api_keys=api_keys,
-            default_model={
-                "provider": default_provider,
-                "name": default_model,
-                "settings": model_settings,
-            },
-            agents=agents_config,
-            storage={
-                "path": os.getenv("LLM_STORAGE_PATH", "chain_storage"),
-                "format": os.getenv("LLM_STORAGE_FORMAT", "json"),
-            },
-            visualization={
-                "enabled": os.getenv("LLM_VISUALIZATION_ENABLED", "true").lower() == "true",
-                "host": os.getenv("LLM_VISUALIZATION_HOST", "localhost"),
-                "port": int(os.getenv("LLM_VISUALIZATION_PORT", "8501")),
-                "debug": os.getenv("LLM_VISUALIZATION_DEBUG", "false").lower() == "true",
-            },
-            logging={
-                "level": os.getenv("LLM_LOG_LEVEL", "INFO"),
-            },
+            default_model=DefaultModelConfig(
+                provider=default_provider,
+                name=default_model,
+                settings=model_settings,
+            ),
+            agents=agent_pool,
+            storage=StorageConfig(
+                path=os.getenv("LLM_STORAGE_PATH", "chain_storage"),
+                format=os.getenv("LLM_STORAGE_FORMAT", "json"),
+            ),
+            visualization=VisualizationConfig(
+                enabled=os.getenv("LLM_VISUALIZATION_ENABLED", "true").lower() == "true",
+                host=os.getenv("LLM_VISUALIZATION_HOST", "localhost"),
+                port=int(os.getenv("LLM_VISUALIZATION_PORT", "8501")),
+                debug=os.getenv("LLM_VISUALIZATION_DEBUG", "false").lower() == "true",
+            ),
+            logging=LoggingConfig(
+                level=os.getenv("LLM_LOG_LEVEL", "INFO"),
+            ),
         )
 
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> "UserConfig":
-        """Create configuration from a YAML file.
-
-        Args:
-            path: Path to the YAML configuration file
-
-        Returns:
-            UserConfig: Configuration loaded from YAML
-
-        Raises:
-            FileNotFoundError: If the file doesn't exist
-            ValueError: If the YAML is invalid
-        """
+        """Create configuration from a YAML file."""
         with open(path) as f:
             data = yaml.safe_load(f)
         return cls(**data)
@@ -260,186 +225,60 @@ class SystemConfig(BaseModel):
 
     @classmethod
     def from_yaml(cls, path: Union[str, Path]) -> "SystemConfig":
-        """Create configuration from a YAML file.
-
-        Args:
-            path: Path to the YAML configuration file
-
-        Returns:
-            SystemConfig: Configuration loaded from YAML
-
-        Raises:
-            FileNotFoundError: If the file doesn't exist
-            ValueError: If the YAML is invalid
-        """
+        """Create configuration from a YAML file."""
         with open(path) as f:
             data = yaml.safe_load(f)
         return cls(**data)
 
 
-class ConfigurationManager:
-    """Global configuration manager.
+class ConfigurationManager(BaseModel):
+    """Configuration manager for the application."""
 
-    This class manages both system-wide and user-specific configurations.
-    It can be initialized in several ways:
-    1. From YAML files (default)
-    2. From environment variables
-    3. From UserConfig and SystemConfig objects
+    user_config: UserConfig
+    system_config: SystemConfig
+    _provider_registry: ProviderRegistry = PrivateAttr()
+    _model_registry: ModelRegistry = PrivateAttr()
+    _agent_pool_config: Optional[AgentPoolConfig] = PrivateAttr(default=None)
 
-    Example:
-        ```python
-        # From YAML files
-        config = ConfigurationManager()
-        config.load_configs("user_config.yml", "system_config.yml")
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-        # From environment variables
-        config = ConfigurationManager()
-        config.load_from_env()
-
-        # From objects
-        user_config = UserConfig(...)
-        system_config = SystemConfig(...)
-        config = ConfigurationManager()
-        config.initialize(user_config, system_config)
-        ```
-    """
-
-    def __init__(self):
-        self._user_config: Optional[UserConfig] = None
-        self._system_config: Optional[SystemConfig] = None
-        self._provider_registry: Optional[ProviderRegistry] = None
-        self._model_registry: Optional[ModelRegistry] = None
-        self._agent_pool_config: Optional[AgentPoolConfig] = None
-
-    def initialize(
-        self,
-        user_config: UserConfig,
-        system_config: SystemConfig,
-    ) -> None:
-        """Initialize the configuration manager with config objects.
-
-        Args:
-            user_config: User-specific configuration
-            system_config: System-wide configuration
-
-        Raises:
-            ValueError: If the configurations are invalid
-        """
-        self._user_config = user_config
-        self._system_config = system_config
-
+    def __init__(self, **data):
+        super().__init__(**data)
         # Initialize registries
         self._provider_registry = ProviderRegistry()
-        for name, config in system_config.providers.items():
+        for name, config in self.system_config.providers.items():
             self._provider_registry.register_provider(name, config)
 
         self._model_registry = ModelRegistry(self._provider_registry)
         self._register_models()
 
-    def _register_models(self) -> None:
-        """Register models from configuration."""
-        if not self._user_config or not self._model_registry:
-            return
-
-        # Register default model
-        default = self._user_config.default_model
-        self._model_registry.register_from_provider(default["provider"], default["name"])
-
-        # Register agent models
-        for agent_config in self._user_config.agents.get("agent_types", {}).values():
-            self._model_registry.register_from_provider(agent_config["provider"], agent_config["model"])
-
-    def load_from_env(self, system_config_path: Optional[Union[str, Path]] = None) -> None:
-        """Load configuration from environment variables.
-
-        Args:
-            system_config_path: Optional path to system config. If None, uses default location.
-
-        Raises:
-            FileNotFoundError: If system config file is not found
-            ValueError: If required environment variables are missing
-        """
-        # Load system config first
-        if system_config_path is None:
-            system_config_path = Path(__file__).parent.parent.parent / "config" / "system_config.yml"
-
-        self._system_config = SystemConfig.from_yaml(system_config_path)
-
-        # Initialize registries
-        self._provider_registry = ProviderRegistry()
-        for name, config in self._system_config.providers.items():
-            self._provider_registry.register_provider(name, config)
-
-        self._model_registry = ModelRegistry(self._provider_registry)
-
-        # Load user config from environment
-        self._user_config = UserConfig.from_env()
-        self._register_models()
-
-    @overload
-    def load_configs(
-        self,
-        user_config: UserConfig,
-        system_config: SystemConfig,
-    ) -> None:
-        ...
-
-    @overload
-    def load_configs(
-        self,
-        user_config: Optional[Union[str, Path]] = None,
-        system_config: Optional[Union[str, Path]] = None,
-    ) -> None:
-        ...
-
-    def load_configs(
-        self,
-        user_config: Union[UserConfig, str, Path, None] = None,
-        system_config: Union[SystemConfig, str, Path, None] = None,
-    ) -> None:
-        """Load both user and system configurations.
-
-        This method supports loading configurations either from files or from objects.
-        If paths are provided, loads from YAML files. If objects are provided, uses them directly.
-        If nothing is provided, attempts to load from default locations.
-
-        Args:
-            user_config: User configuration object or path to user config YAML
-            system_config: System configuration object or path to system config YAML
-
-        Raises:
-            FileNotFoundError: If configuration files are not found
-            ValueError: If configuration is invalid
-        """
-        # Get project root directory for default paths
+    @classmethod
+    def from_yaml_files(
+        cls,
+        user_config_path: Optional[Union[str, Path]] = None,
+        system_config_path: Optional[Union[str, Path]] = None,
+    ) -> "ConfigurationManager":
+        """Create configuration manager from YAML files."""
         root_dir = Path(__file__).parent.parent.parent
 
         # Handle system config
-        if isinstance(system_config, (str, Path)):
-            system_path = Path(system_config)
-            self._system_config = SystemConfig.from_yaml(system_path)
-        elif isinstance(system_config, SystemConfig):
-            self._system_config = system_config
+        if system_config_path:
+            system_path = Path(system_config_path)
         else:
             system_path = root_dir / "config" / "system_config.yml"
             if not system_path.exists():
                 raise FileNotFoundError(f"System configuration file not found at {system_path}")
-            self._system_config = SystemConfig.from_yaml(system_path)
-
-        # Initialize model registry
-        self._model_registry = ModelRegistry(self._system_config.providers)
+        system_config = SystemConfig.from_yaml(system_path)
 
         # Handle user config
-        if isinstance(user_config, (str, Path)):
-            user_path = Path(user_config)
-            self._user_config = UserConfig.from_yaml(user_path)
-        elif isinstance(user_config, UserConfig):
-            self._user_config = user_config
+        if user_config_path:
+            user_path = Path(user_config_path)
+            user_config = UserConfig.from_yaml(user_path)
         else:
             # Try environment variables first
             try:
-                self._user_config = UserConfig.from_env()
-            except ValueError:
+                user_config = UserConfig.from_env()
+            except ValueError as err:
                 # Try default config file
                 user_path = root_dir / "config" / "user_config.yml"
                 if not user_path.exists():
@@ -447,133 +286,71 @@ class ConfigurationManager:
                         f"User configuration file not found at {user_path}. "
                         "Please copy user_config.yml.example to user_config.yml "
                         "or set required environment variables."
-                    ) from None
-                self._user_config = UserConfig.from_yaml(user_path)
+                    ) from err
+                user_config = UserConfig.from_yaml(user_path)
 
-        # Register models from user config
-        self._register_models()
+        return cls(user_config=user_config, system_config=system_config)
+
+    @classmethod
+    def from_env(cls, system_config_path: Optional[Union[str, Path]] = None) -> "ConfigurationManager":
+        """Create configuration manager from environment variables."""
+        if system_config_path is None:
+            system_config_path = Path(__file__).parent.parent.parent / "config" / "system_config.yml"
+
+        system_config = SystemConfig.from_yaml(system_config_path)
+        user_config = UserConfig.from_env()
+
+        return cls(user_config=user_config, system_config=system_config)
+
+    @classmethod
+    def from_configs(cls, user_config: UserConfig, system_config: SystemConfig) -> "ConfigurationManager":
+        """Create configuration manager from config objects."""
+        return cls(user_config=user_config, system_config=system_config)
+
+    def _register_models(self) -> None:
+        """Register models from configuration."""
+        # Register default model
+        default_model = self.user_config.default_model
+        self._model_registry.register_from_provider(default_model.provider, default_model.name)
+
+        # Register agent models
+        for agent_config in self.user_config.agents.agent_types.values():
+            self._model_registry.register_from_provider(agent_config.provider, agent_config.model)
 
     def _create_agent_pool_config(self) -> AgentPoolConfig:
         """Create AgentPoolConfig from user configuration."""
-        if not self._user_config:
-            return AgentPoolConfig()
-
-        # Convert user config agent types to AgentTypeConfig
-        agent_types = {}
-        for type_name, agent_config in self._user_config.agents.get("agent_types", {}).items():
-            agent_types[type_name] = AgentTypeConfig(
-                provider=agent_config.get("provider", "anthropic"),
-                model=agent_config.get("model", "claude-3-sonnet-20240229"),
-                max_tokens=agent_config.get("max_tokens", 8192),
-                temperature=agent_config.get("temperature", 0.7),
-                description=agent_config.get("description", f"{type_name} purpose agent"),
-                settings=agent_config.get("settings", {}),
-            )
-
-        return AgentPoolConfig(
-            max_agents=self._user_config.agents.get("max_agents", 10),
-            default_agent_type=self._user_config.agents.get("default_agent_type", "general"),
-            agent_types=agent_types,
-        )
+        return self.user_config.agents
 
     @property
     def agents(self) -> AgentPoolConfig:
         """Get the agent pool configuration."""
         if self._agent_pool_config is None:
-            # Ensure configs are loaded
-            if self._user_config is None:
-                self.load_configs()
-
-            # Create agent pool config
             self._agent_pool_config = self._create_agent_pool_config()
-
         return self._agent_pool_config
-
-    @property
-    def user_config(self) -> UserConfig:
-        """Get the user configuration."""
-        if self._user_config is None:
-            self.load_configs()
-        if self._user_config is None:  # This should never happen after load_configs
-            raise RuntimeError("Failed to load user configuration")
-        return self._user_config
-
-    @property
-    def system_config(self) -> SystemConfig:
-        """Get the system configuration."""
-        if self._system_config is None:
-            self.load_configs()
-        if self._system_config is None:  # This should never happen after load_configs
-            raise RuntimeError("Failed to load system configuration")
-        return self._system_config
 
     @property
     def provider_registry(self) -> ProviderRegistry:
         """Get the provider registry."""
-        if self._provider_registry is None:
-            self.load_configs()
-        if self._provider_registry is None:
-            raise RuntimeError("Failed to initialize provider registry")
         return self._provider_registry
 
     @property
     def model_registry(self) -> ModelRegistry:
         """Get the model registry."""
-        if self._model_registry is None:
-            self.load_configs()
-        if self._model_registry is None:
-            raise RuntimeError("Failed to initialize model registry")
         return self._model_registry
 
     def get_model_config(self, provider: str, model_name: str) -> dict:
-        """Get the combined configuration for a specific model.
-
-        Args:
-            provider: The provider name (e.g., "anthropic")
-            model_name: The model name (e.g., "claude-3-sonnet-20240229")
-
-        Returns:
-            Dictionary containing both system and user config for the model
-
-        Raises:
-            ValueError: If provider or model is not found
-        """
-        # Get base model config from provider registry
+        """Get the combined configuration for a specific model."""
         base_config = self.provider_registry.get_provider_api_config(
             provider=provider, model_name=model_name, api_key=self.user_config.api_keys.get(provider)
         )
 
         # Add user settings if this is the default model
-        if (
-            self.user_config.default_model["provider"] == provider
-            and self.user_config.default_model["name"] == model_name
-        ):
-            base_config.update(self.user_config.default_model.get("settings", {}))
+        default_model = self.user_config.default_model
+        if default_model.provider == provider and default_model.name == model_name:
+            base_config.update(default_model.settings)
 
         return base_config
 
-    def get_agent_config(self, agent_type: Optional[str] = None) -> Dict[str, Any]:
+    def get_agent_config(self, agent_type: Optional[str] = None) -> AgentTypeConfig:
         """Get the configuration for a specific agent type."""
-        if not self._user_config:
-            self.load_configs()
-
-        agent_types = self._user_config.agents.get("agent_types", {})
-        default_agent_type = self._user_config.agents.get("default_agent_type", "general")
-
-        type_to_use = agent_type or default_agent_type
-        if type_to_use not in agent_types:
-            raise ValueError(f"Agent type '{type_to_use}' not found in configuration")
-
-        return agent_types[type_to_use]
-
-
-# Global configuration instance
-_config_manager: Optional[ConfigurationManager] = None
-
-
-def get_config() -> ConfigurationManager:
-    """Get the global configuration manager."""
-    global _config_manager
-    if _config_manager is None:
-        _config_manager = ConfigurationManager()
-    return _config_manager
+        return self.user_config.agents.get_agent_config(agent_type)

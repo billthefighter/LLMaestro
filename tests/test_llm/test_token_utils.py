@@ -18,74 +18,7 @@ from llmaestro.llm.token_utils import (
 from llmaestro.llm.models import ModelFamily, ModelCapabilities, ModelDescriptor
 
 
-# Fixtures
-@pytest.fixture
-def sample_text() -> str:
-    """Sample text for token counting."""
-    return "Hello world! This is a test message."
 
-@pytest.fixture
-def sample_messages() -> List[Dict[str, str]]:
-    """Sample messages for token estimation."""
-    return [
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Hello! How are you?"}
-    ]
-
-@pytest.fixture
-def mock_tiktoken(monkeypatch):
-    """Mock tiktoken encoding."""
-    mock_encoding = MagicMock()
-    mock_encoding.encode.return_value = [1, 2, 3, 4, 5]  # 5 tokens
-    monkeypatch.setattr(tiktoken, "get_encoding", lambda _: mock_encoding)
-    return mock_encoding
-
-@pytest.fixture
-def mock_anthropic(monkeypatch):
-    """Mock Anthropic client."""
-    mock_client = MagicMock()
-    mock_client.count_tokens.return_value = 5
-    monkeypatch.setattr(anthropic, "Anthropic", lambda: mock_client)
-    return mock_client
-
-@pytest.fixture
-def mock_hf_tokenizer(monkeypatch):
-    """Mock HuggingFace tokenizer."""
-    mock_tokenizer = MagicMock()
-    mock_tokenizer.encode.return_value = [1, 2, 3, 4, 5]  # 5 tokens
-    monkeypatch.setattr(AutoTokenizer, "from_pretrained", lambda _: mock_tokenizer)
-    return mock_tokenizer
-
-@pytest.fixture
-def sample_image_data() -> List[Dict[str, int]]:
-    """Sample image dimension data for token estimation."""
-    return [
-        {"width": 512, "height": 512},  # Small image
-        {"width": 1024, "height": 1024},  # Large image
-    ]
-
-@pytest.fixture
-def mock_model_registry(monkeypatch):
-    """Mock model registry with vision capabilities."""
-    mock_descriptor = MagicMock()
-    mock_descriptor.capabilities = ModelCapabilities(
-        supports_vision=True,
-        vision_config={
-            "max_images_per_request": 2,
-            "supported_formats": ["png", "jpeg"],
-            "max_image_size_mb": 20,
-            "cost_per_image": 0.002,
-        },
-        input_cost_per_1k_tokens=0.01,
-        output_cost_per_1k_tokens=0.03,
-        max_context_window=100000,
-    )
-
-    def mock_get_model(*args):
-        return mock_descriptor
-
-    monkeypatch.setattr("llmaestro.llm.token_utils._model_registry.get_model", mock_get_model)
-    return mock_descriptor
 
 
 # Base Tokenizer Tests

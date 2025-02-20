@@ -2,17 +2,10 @@ import sqlite3
 import threading
 import time
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
-
-@dataclass
-class RateLimitConfig:
-    requests_per_minute: int
-    requests_per_hour: int
-    max_daily_tokens: int
-    alert_threshold: float
+from llmaestro.config.agent import RateLimitConfig
 
 
 class QuotaStorage(ABC):

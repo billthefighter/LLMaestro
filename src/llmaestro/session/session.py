@@ -219,23 +219,29 @@ class Session(BaseModel):
             return self._llm_interface
 
         try:
-            agent_config_dict = self.config.get_agent_config()
-            if not isinstance(agent_config_dict, dict):
+            # Get default model configuration from user config
+            default_model = self.config.user_config.default_model
+            if not default_model:
                 return None
 
-            provider = agent_config_dict.get("provider", "")
-            model = agent_config_dict.get("model", "")
-            api_key = self.api_key or agent_config_dict.get("api_key", "")
+            provider = default_model.get("provider", "")
+            model = default_model.get("name", "")
+            api_key = self.api_key or self.config.user_config.api_keys.get(provider, "")
 
             if not all([provider, model, api_key]):
+                return None
+
+            # Get model configuration from system config
+            model_config = self.config.get_model_config(provider, model)
+            if not model_config:
                 return None
 
             agent_config = AgentConfig(
                 provider=provider,
                 model_name=model,
                 api_key=api_key,
-                max_tokens=agent_config_dict.get("max_tokens", 8192),
-                temperature=agent_config_dict.get("temperature", 0.7),
+                max_tokens=model_config.get("max_tokens", 8192),
+                temperature=model_config.get("temperature", 0.7),
             )
 
             self._llm_interface = create_llm_interface(agent_config)

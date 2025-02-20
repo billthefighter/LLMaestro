@@ -5,11 +5,10 @@ from abc import abstractmethod
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from pydantic import BaseModel, Field
-
 from llmaestro.llm.models import MediaType, ModelFamily
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.types import PromptMetadata, VersionInfo
+from pydantic import BaseModel, Field
 
 
 class FileAttachment(BaseModel):

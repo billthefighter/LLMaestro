@@ -119,3 +119,4 @@ chain_storage/
 config.yaml
 api_keys.yaml
 test_results/
+session_storage/

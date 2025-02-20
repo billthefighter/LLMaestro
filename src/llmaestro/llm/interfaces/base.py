@@ -9,14 +9,14 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from litellm import acompletion
 
+from llmaestro.config.agent import RateLimitConfig
 from llmaestro.core.models import (
-    AgentConfig,
     ContextMetrics,
     LLMResponse,  # Updated to import from core.models
     TokenUsage,
 )
 from llmaestro.llm.models import MediaType, ModelDescriptor, ModelFamily, ModelRegistry
-from llmaestro.llm.rate_limiter import RateLimitConfig, RateLimiter, SQLiteQuotaStorage
+from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.base import BasePrompt
 
@@ -72,23 +72,55 @@ class BaseLLMInterface(ABC):
     # Default supported media types (can be overridden by specific implementations)
     SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG, MediaType.PDF}
 
-    def __init__(self, config: AgentConfig, model_registry: Optional[ModelRegistry] = None):
-        self.config = config
+    def __init__(
+        self,
+        provider: str,
+        model: str,
+        api_key: str,
+        max_tokens: int = 1024,
+        temperature: float = 0.7,
+        rate_limit: Optional[RateLimitConfig] = None,
+        max_context_tokens: int = 32000,
+        stream: bool = True,
+    ):
+        """Initialize the LLM interface.
+
+        Args:
+            provider: The LLM provider (e.g., "anthropic", "openai")
+            model: The model to use
+            api_key: API key for authentication
+            max_tokens: Maximum tokens to generate
+            temperature: Sampling temperature
+            rate_limit: Optional rate limiting configuration
+            max_context_tokens: Maximum context window size
+            stream: Whether to stream responses
+        """
+        self.provider = provider
+        self.model = model
+        self.api_key = api_key
+        self.max_tokens = max_tokens
+        self.temperature = temperature
+        self.max_context_tokens = max_context_tokens
+        self.stream = stream
+
+        # Initialize rate limiter if config provided
+        self.rate_limiter = RateLimiter(rate_limit, provider, model) if rate_limit else None
+        self.token_counter = TokenCounter()
+
         self.context = ConversationContext([])
         self._total_tokens = 0
-        self._token_counter = TokenCounter()
 
         # Validate API key
-        if not self.config.api_key:
-            raise ValueError(f"API key is required for provider {self.config.provider}")
+        if not self.api_key:
+            raise ValueError(f"API key is required for provider {self.provider}")
 
         # Use provided registry or create a new one
-        self._registry = model_registry or ModelRegistry()
+        self._registry = ModelRegistry()
 
         # Try to get model from registry
-        self._model_descriptor = self._registry.get_model(self.config.model_name)
+        self._model_descriptor = self._registry.get_model(self.model)
         if not self._model_descriptor:
-            raise ValueError(f"Could not find model {self.config.model_name} in registry")
+            raise ValueError(f"Could not find model {self.model} in registry")
 
         # Update supported media types from model capabilities if available
         if self._model_descriptor and self._model_descriptor.capabilities:
@@ -98,23 +130,9 @@ class BaseLLMInterface(ABC):
                 )
 
         # Initialize storage and rate limiter
-        db_path = os.path.join("data", f"rate_limiter_{self.config.provider}.db")
+        db_path = os.path.join("data", f"rate_limiter_{self.provider}.db")
         os.makedirs("data", exist_ok=True)
         self.storage = SQLiteQuotaStorage(db_path)
-
-        # Initialize rate limiter if enabled
-        if self.config.rate_limit.enabled:
-            self.rate_limiter = RateLimiter(
-                config=RateLimitConfig(
-                    requests_per_minute=self.config.rate_limit.requests_per_minute,
-                    requests_per_hour=self.config.rate_limit.requests_per_hour,
-                    max_daily_tokens=self.config.rate_limit.max_daily_tokens,
-                    alert_threshold=self.config.rate_limit.alert_threshold,
-                ),
-                storage=self.storage,
-            )
-        else:
-            self.rate_limiter = None
 
     @property
     @abstractmethod
@@ -143,7 +161,7 @@ class BaseLLMInterface(ABC):
 
     def estimate_tokens(self, messages: List[Dict[str, str]]) -> Dict[str, int]:
         """Estimate token usage for a list of messages."""
-        return self._token_counter.estimate_messages(messages, self.model_family, self.config.model_name)
+        return self.token_counter.estimate_messages(messages, self.model_family, self.model)
 
     def estimate_cost(self, token_usage: TokenUsage) -> float:
         """Estimate cost for token usage."""
@@ -158,7 +176,7 @@ class BaseLLMInterface(ABC):
         self, messages: List[Dict[str, Any]], estimated_tokens: Optional[int] = None
     ) -> Tuple[bool, Optional[str]]:
         """Check if the request would exceed rate limits."""
-        if not self.config.rate_limit.enabled:
+        if not self.rate_limit:
             return True, None
 
         can_proceed = await self.rate_limiter.check_limits(estimated_tokens)
@@ -175,12 +193,12 @@ class BaseLLMInterface(ABC):
         # Add reminder every N messages
         if (
             self.context.message_count > 0
-            and self.config.summarization.reminder_frequency > 0
-            and self.context.message_count % self.config.summarization.reminder_frequency == 0
+            and self.rate_limit.reminder_frequency > 0
+            and self.context.message_count % self.rate_limit.reminder_frequency == 0
         ):
             reminder_message = {
                 "role": "system",
-                "content": self.config.summarization.reminder_template.format(task=self.context.initial_task),
+                "content": self.rate_limit.reminder_template.format(task=self.context.initial_task),
             }
             self.context.messages.append(reminder_message)
             return True
@@ -188,7 +206,7 @@ class BaseLLMInterface(ABC):
 
     async def _maybe_summarize_context(self) -> bool:
         """Summarize the conversation context if needed."""
-        if not self.config.summarization.enabled:
+        if not self.rate_limit.enabled:
             return False
 
         # Get current token count
@@ -197,8 +215,8 @@ class BaseLLMInterface(ABC):
 
         # Check if we need to summarize based on token count or message count
         if (
-            current_context_tokens < self.config.max_context_tokens
-            and len(self.context.messages) < self.config.summarization.preserve_last_n_messages
+            current_context_tokens < self.max_context_tokens
+            and len(self.context.messages) < self.rate_limit.preserve_last_n_messages
         ):
             return False
 
@@ -218,15 +236,13 @@ class BaseLLMInterface(ABC):
             if msg.get("role") != "system" or "Remember, your initial task was" not in msg.get("content", "")
         ]
 
-        summary_messages = [summary_prompt] + messages_for_summary[
-            -self.config.summarization.preserve_last_n_messages :
-        ]
+        summary_messages = [summary_prompt] + messages_for_summary[-self.rate_limit.preserve_last_n_messages :]
 
         try:
             stream = await acompletion(
-                model=self.config.model_name,
+                model=self.model,
                 messages=summary_messages,
-                max_tokens=self.config.max_tokens,
+                max_tokens=self.max_tokens,
                 stream=True,
             )
 
@@ -243,7 +259,7 @@ class BaseLLMInterface(ABC):
 
             # Clear old messages except system prompts and recent ones
             system_messages = [msg for msg in self.context.messages if msg["role"] == "system"]
-            recent_messages = self.context.messages[-self.config.summarization.preserve_last_n_messages :]
+            recent_messages = self.context.messages[-self.rate_limit.preserve_last_n_messages :]
 
             summary_message = {
                 "role": "system",
@@ -274,10 +290,10 @@ class BaseLLMInterface(ABC):
                 total_context_tokens = estimates["total_tokens"]
 
                 context_metrics = ContextMetrics(
-                    max_context_tokens=self.config.max_context_tokens,
+                    max_context_tokens=self.max_context_tokens,
                     current_context_tokens=total_context_tokens,
-                    available_tokens=self.config.max_context_tokens - total_context_tokens,
-                    context_utilization=total_context_tokens / self.config.max_context_tokens,
+                    available_tokens=self.max_context_tokens - total_context_tokens,
+                    context_utilization=total_context_tokens / self.max_context_tokens,
                 )
 
                 return token_usage, context_metrics
@@ -354,10 +370,10 @@ class BaseLLMInterface(ABC):
             estimates = self.estimate_tokens(self.context.messages)
             total_context_tokens = estimates["total_tokens"]
             context_metrics = ContextMetrics(
-                max_context_tokens=self.config.max_context_tokens,
+                max_context_tokens=self.max_context_tokens,
                 current_context_tokens=total_context_tokens,
-                available_tokens=self.config.max_context_tokens - total_context_tokens,
-                context_utilization=total_context_tokens / self.config.max_context_tokens,
+                available_tokens=self.max_context_tokens - total_context_tokens,
+                context_utilization=total_context_tokens / self.max_context_tokens,
             )
 
             # Update conversation context
@@ -380,7 +396,7 @@ class BaseLLMInterface(ABC):
         return LLMResponse(
             content="",
             success=False,
-            provider=self.config.provider,
+            provider=self.provider,
             error=error_msg,
             provider_metadata={"error_type": type(e).__name__},
         )
@@ -407,23 +423,23 @@ class BaseLLMInterface(ABC):
                 return LLMResponse(
                     content="",
                     success=False,
-                    provider=self.config.provider,
+                    provider=self.provider,
                     error=error_msg,
                     provider_metadata={"error": "rate_limit_exceeded"},
                 )
 
             response = await acompletion(
-                model=self.config.model_name,
+                model=self.model,
                 messages=messages,
-                max_tokens=self.config.max_tokens,
-                temperature=self.config.temperature,
-                api_key=self.config.api_key,
+                max_tokens=self.max_tokens,
+                temperature=self.temperature,
+                api_key=self.api_key,
             )
 
             return LLMResponse(
                 content=response.choices[0].message.content,
                 success=True,
-                provider=self.config.provider,
+                provider=self.provider,
                 provider_metadata={"model": response.model},
                 token_usage=TokenUsage(
                     prompt_tokens=response.usage.prompt_tokens,
@@ -460,12 +476,12 @@ class BaseLLMInterface(ABC):
         # If model not in registry, detect capabilities and register
         if not self._model_descriptor:
             self._model_descriptor = await self._registry.detect_and_register_model(
-                provider=self.config.provider,
-                model_name=self.config.model_name,
-                api_key=str(self.config.api_key),  # Ensure string type
+                provider=self.provider,
+                model_name=self.model,
+                api_key=str(self.api_key),  # Ensure string type
             )
             if not self._model_descriptor:
-                raise ValueError(f"Could not detect capabilities for model {self.config.model_name}")
+                raise ValueError(f"Could not detect capabilities for model {self.model}")
 
     def validate_media_type(self, media_type: Union[str, MediaType]) -> MediaType:
         """Validate and convert media type to a supported format.
@@ -504,9 +520,7 @@ class BaseLLMInterface(ABC):
         if prompt.attachments:
             for attachment in prompt.attachments:
                 if not self.supports_media_type(attachment.media_type):
-                    raise ValueError(
-                        f"Media type {attachment.media_type} not supported by model {self.config.model_name}"
-                    )
+                    raise ValueError(f"Media type {attachment.media_type} not supported by model {self.model}")
 
         # Render the prompt with variables
         system_prompt, user_prompt, attachments = prompt.render(**(variables or {}))
@@ -523,7 +537,7 @@ class BaseLLMInterface(ABC):
         )
 
         # Check rate limits
-        estimates = prompt.estimate_tokens(self.model_family, self.config.model_name, variables)
+        estimates = prompt.estimate_tokens(self.model_family, self.model, variables)
         can_proceed, error = await self._check_rate_limits(messages, estimates["total_tokens"])
         if not can_proceed:
             return LLMResponse(content=error or "Rate limit exceeded", metadata={"error": error})
@@ -531,9 +545,9 @@ class BaseLLMInterface(ABC):
         try:
             # Process with model
             stream = await acompletion(
-                model=self.config.model_name,
+                model=self.model,
                 messages=messages,
-                max_tokens=self.config.max_tokens,
+                max_tokens=self.max_tokens,
                 stream=True,
             )
 
