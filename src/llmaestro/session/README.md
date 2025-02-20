@@ -2,137 +2,135 @@
 
 ## Overview
 
-The `Session` class provides a centralized, flexible management system for LLM (Large Language Model) interactions, designed to streamline complex AI workflows by integrating configuration, artifact storage, model management, and response tracking.
+The `Session` class provides a centralized, conversation-centric management system for LLM (Large Language Model) interactions, designed to streamline complex AI workflows through orchestrated conversations, parallel execution, and dependency management.
 
 ## Key Features
 
-### 1. Configuration Management
-- Automatic configuration loading
-- Support for custom API keys
-- Flexible model and provider selection
+### 1. Conversation Management
+- Conversation-based workflow organization
+- Dependency tracking between prompts
+- Parallel execution support
+- Rich conversation history and metadata
 
-### 2. Artifact Storage
-- Persistent storage of input/output data
-- Metadata tracking
-- Flexible content type support
+### 2. Orchestration
+- Centralized execution coordination
+- Resource management and allocation
+- Parallel processing with controlled concurrency
+- Execution status tracking
 
 ### 3. Model Management
 - Model capability validation
 - Dynamic interface creation
-- Task requirement checking
+- Automatic resource allocation
 
 ## Basic Usage
 
-### Creating a Session
+### Creating a Session and Starting a Conversation
 ```python
 from llmaestro.session.session import Session
+from llmaestro.prompts.base import BasePrompt
 
-# Default session
+# Initialize session
 session = Session()
 
-# Custom session with specific configuration
-session = Session(
-    api_key="your_custom_api_key",
-    storage_path="./custom/storage/path"
+# Create initial prompt
+setup_prompt = BasePrompt(
+    name="initial_setup",
+    system_prompt="You are a helpful assistant.",
+    user_prompt="Let's begin our conversation."
+)
+
+# Start a conversation
+conversation_id = await session.start_conversation(
+    name="Analysis Session",
+    initial_prompt=setup_prompt
+)
+```
+
+### Executing Prompts with Dependencies
+```python
+# Execute sequential prompts with dependencies
+response1_id = await session.execute_prompt(analysis_prompt)
+response2_id = await session.execute_prompt(
+    summary_prompt,
+    dependencies=[response1_id]
+)
+
+# Execute prompts in parallel
+response_ids = await session.execute_parallel(
+    prompts=[prompt1, prompt2, prompt3],
+    max_parallel=2
+)
+
+# Check execution status
+status = session.get_execution_status(response1_id)
+
+# Get conversation history
+history = session.get_conversation_history(
+    node_id=response2_id,
+    max_depth=5
 )
 ```
 
 ### Storing and Retrieving Artifacts
 ```python
 # Store an artifact
-input_data = {"query": "Summarize the following text"}
 artifact = session.store_artifact(
-    name="input_query",
-    data=input_data,
+    name="analysis_result",
+    data={"summary": "Analysis findings..."},
     content_type="json",
-    metadata={"source": "user_input"}
+    metadata={"type": "analysis"}
 )
 
 # Retrieve artifacts
-retrieved_artifact = session.get_artifact(artifact.id)
+retrieved = session.get_artifact(artifact.id)
 all_artifacts = session.list_artifacts()
 ```
 
-### LLM Interface and Model Management
-```python
-# Get default LLM interface
-llm_interface = session.get_llm_interface()
+## Advanced Features
 
-# Get specific model interface
-vision_interface = session.get_llm_interface(
-    model_name="gpt-4-vision",
-    provider="openai"
-)
+### Parallel Processing
+- Controlled concurrent execution
+- Automatic resource management
+- Progress tracking for parallel tasks
+- Group status monitoring
 
-# Check model capabilities
-model_capabilities = session.get_model_capabilities()
+### Dependency Management
+- Automatic dependency resolution
+- Execution order optimization
+- Failure handling and recovery
+- Conditional execution paths
 
-# Validate model for a specific task
-is_suitable = session.validate_model_for_task({
-    "vision": True,
-    "max_context_tokens": 32000
-})
-```
-
-### Tracking Responses
-```python
-from llmaestro.core.models import BaseResponse
-
-# Create and track a response
-response = BaseResponse(
-    success=True,
-    metadata={"processing_time": 2.5}
-)
-session.responses["task_response"] = response
-
-# Generate session summary
-summary = session.summary()
-print(summary)
-```
-
-## Advanced Configuration
-
-### Custom Storage
-- Supports custom storage paths
-- Integrates with `FileSystemArtifactStorage`
-- Allows metadata and content type tracking
-
-### Model Registry Integration
-- Automatic model capability detection
-- Supports multiple providers
-- Dynamic model selection
-
-## Error Handling
-- Raises descriptive `ValueError` for configuration issues
-- Provides method to validate model suitability
-- Supports fallback and error tracking
-
-## Performance Considerations
-- Lazy loading of LLM interfaces
-- Efficient artifact storage
-- Minimal overhead for session management
+### Conversation History
+- Complete conversation tracking
+- Rich metadata support
+- Hierarchical history views
+- Efficient storage and retrieval
 
 ## Best Practices
-1. Use sessions for complex, multi-step AI workflows
-2. Always validate model capabilities before tasks
-3. Store artifacts with meaningful metadata
-4. Leverage the summary method for workflow insights
+1. Use conversations to organize related prompts
+2. Leverage dependencies for complex workflows
+3. Use parallel execution for independent tasks
+4. Monitor execution status for long-running operations
+5. Store important artifacts for persistence
 
-## Extensibility
-- Easily extendable through inheritance
-- Supports custom storage backends
-- Flexible configuration management
+## Error Handling
+- Comprehensive error tracking
+- Automatic retry strategies
+- Dependency failure management
+- Resource cleanup on errors
+
+## Performance Considerations
+- Efficient parallel processing
+- Smart resource allocation
+- Minimal overhead for coordination
+- Optimized conversation storage
 
 ## Dependencies
 - Requires `pydantic`
+- Uses `asyncio` for concurrency
 - Integrates with `ModelRegistry`
-- Uses `ConfigurationManager`
-
-## Potential Improvements
-- Add logging
-- Implement more advanced filtering
-- Support for distributed/cloud storage
-- Enhanced error tracking and reporting
+- Depends on `FileSystemArtifactStorage`
 
 ## Contributing
 Please read the project's contribution guidelines before submitting pull requests or reporting issues.

@@ -1,14 +1,13 @@
-"""Agent pool for managing multiple LLM agents."""
+"""Agent pool for managing multiple LLM agents for prompt processing."""
 import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Optional, Protocol, TypeVar, cast, Set
+from typing import Any, Dict, Optional, Protocol, Set, TypeVar, cast
 
 from llmaestro.agents.models.config import AgentPoolConfig, AgentTypeConfig
-from llmaestro.agents.models.models import Agent, AgentMetrics, AgentState, AgentCapability
+from llmaestro.agents.models.models import Agent, AgentCapability, AgentMetrics, AgentState
 from llmaestro.core.config import get_config
-from llmaestro.core.models import AgentConfig, SubTask
-from llmaestro.core.task_manager import TaskManager
+from llmaestro.core.models import AgentConfig
 from llmaestro.llm.interfaces import LLMResponse
 from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.llm.llm_registry import ModelRegistry
@@ -40,7 +39,11 @@ def _convert_to_agent_config(type_config: AgentTypeConfig) -> AgentConfig:
 
 
 class RuntimeAgent:
-    """Runtime agent that processes tasks using LLM."""
+    """Runtime agent that processes prompts using LLM.
+
+    This agent handles the actual execution of prompts through the LLM interface,
+    managing state and metrics for each execution.
+    """
 
     def __init__(self, config: AgentTypeConfig):
         """Initialize a runtime agent.
@@ -100,7 +103,11 @@ class RuntimeAgent:
 
 
 class AgentPool:
-    """Pool of agents that can be reused across prompts."""
+    """Pool of agents that can be reused for prompt processing.
+
+    Manages a collection of runtime agents, handling agent allocation,
+    prompt execution, and resource management.
+    """
 
     def __init__(self, config: Optional[AgentPoolConfig] = None):
         """Initialize the agent pool.
@@ -116,16 +123,16 @@ class AgentPool:
         self.loop = asyncio.get_event_loop()
 
     def get_agent(self, agent_type: Optional[str] = None) -> RuntimeAgent:
-        """Get an agent of the specified type from the pool.
+        """Get an agent suitable for prompt processing.
 
         Args:
             agent_type: Optional type of agent to get. If None, uses default type.
 
         Returns:
-            A RuntimeAgent instance
+            A RuntimeAgent instance capable of processing prompts
 
         Raises:
-            ValueError: If agent type not found or pool is full
+            ValueError: If no suitable agent is available or pool is full
         """
         agent_config = cast(AgentTypeConfig, self._config.get_agent_config(agent_type))
 
@@ -148,15 +155,29 @@ class AgentPool:
         return min(compatible_agents, key=lambda a: len(a.active_prompts))
 
     def _create_agent(self, agent_config: AgentTypeConfig) -> RuntimeAgent:
-        """Create a new agent with the specified configuration."""
+        """Create a new agent for prompt processing.
+
+        Args:
+            agent_config: Configuration for the new agent
+
+        Returns:
+            A new RuntimeAgent instance
+        """
         return RuntimeAgent(config=agent_config)
 
-    async def execute_prompt(self,
+    async def execute_prompt(
+        self,
         prompt: BasePrompt,
         agent_type: Optional[str] = None,
-        required_capabilities: Optional[Set[AgentCapability]] = None
+        required_capabilities: Optional[Set[AgentCapability]] = None,
     ) -> LLMResponse:
         """Execute a prompt using an appropriate agent.
+
+        This method handles the complete lifecycle of prompt execution:
+        1. Agent selection/creation
+        2. Prompt submission
+        3. Response retrieval
+        4. Resource cleanup
 
         Args:
             prompt: The prompt to execute
@@ -164,7 +185,11 @@ class AgentPool:
             required_capabilities: Optional set of required capabilities
 
         Returns:
-            The LLM response
+            The LLM response from processing the prompt
+
+        Raises:
+            ValueError: If no suitable agent is available
+            RuntimeError: If prompt execution fails
         """
         # Get or create an agent
         agent = self.get_agent(agent_type)
@@ -185,7 +210,14 @@ class AgentPool:
                 del agent.active_prompts[prompt_id]
 
     def get_pool_stats(self) -> Dict[str, Any]:
-        """Get statistics about the agent pool."""
+        """Get statistics about the agent pool.
+
+        Returns a dictionary containing current pool statistics including:
+        - Total number of agents
+        - Maximum allowed agents
+        - Number of active prompts
+        - Per-agent statistics
+        """
         return {
             "total_agents": len(self._active_agents),
             "max_agents": self._config.max_agents,

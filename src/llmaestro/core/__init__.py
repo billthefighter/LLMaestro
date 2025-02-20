@@ -14,11 +14,7 @@ from llmaestro.core.models import (
     BaseResponse,
     ContextMetrics,
     LLMResponse,
-    RateLimitConfig,
-    SubTask,
     SummarizationConfig,
-    Task,
-    TaskStatus,
     TokenUsage,
 )
 from llmaestro.core.storage import (
@@ -26,15 +22,6 @@ from llmaestro.core.storage import (
     ArtifactStorage,
     FileSystemArtifactStorage,
     StorageConfig,
-)
-from llmaestro.core.task_manager import (
-    ChunkStrategy,
-    DecompositionConfig,
-    DecompositionStrategy,
-    DynamicStrategy,
-    ErrorStrategy,
-    FileStrategy,
-    TaskManager,
 )
 
 __all__ = [
@@ -45,26 +32,15 @@ __all__ = [
     "BaseResponse",
     "LLMResponse",
     "StorageConfig",
-    "TaskStatus",
-    "Task",
-    "SubTask",
     "TokenUsage",
     "ContextMetrics",
     "AgentConfig",
-    "RateLimitConfig",
+    "SummarizationConfig",
     "SummarizationConfig",
     # Conversation Components
     "ConversationNode",
     "ConversationEdge",
     "ConversationGraph",
-    # Task Management
-    "TaskManager",
-    "DecompositionStrategy",
-    "ChunkStrategy",
-    "FileStrategy",
-    "ErrorStrategy",
-    "DynamicStrategy",
-    "DecompositionConfig",
     # Configuration
     "get_config",
     "ConfigurationManager",
