@@ -1,18 +1,20 @@
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from typing import Any, Dict, List, Optional, Union
+from uuid import uuid4
 
 from llmaestro.core.config import ConfigurationManager, get_config
-from llmaestro.core.models import AgentConfig, Artifact, BaseResponse
+from llmaestro.core.conversations import ConversationGraph, ConversationNode
+from llmaestro.core.models import AgentConfig, Artifact, LLMResponse
+from llmaestro.core.storage import FileSystemArtifactStorage
 from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.llm.llm_registry import ModelRegistry
 from llmaestro.llm.models import ModelDescriptor
+from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
-from llmaestro.utils.storage import FileSystemArtifactStorage
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class Session(BaseModel):
@@ -24,6 +26,7 @@ class Session(BaseModel):
     - Prompt loading and management
     - LLM interface creation
     - Response tracking and storage
+    - Conversation management
     """
 
     # Core configuration
@@ -38,7 +41,10 @@ class Session(BaseModel):
     # Storage and tracking
     storage_path: Path = Field(default_factory=lambda: Path("./session_storage"))
     storage: Optional[FileSystemArtifactStorage] = None
-    responses: Dict[str, BaseResponse] = Field(default_factory=dict)
+    responses: Dict[str, LLMResponse] = Field(default_factory=dict)
+
+    # Conversation management
+    conversation: ConversationGraph = Field(default_factory=lambda: ConversationGraph(id=str(uuid4())))
 
     # LLM interface configuration
     api_key: Optional[str] = None
@@ -48,7 +54,7 @@ class Session(BaseModel):
 
     def __init__(self, **data):
         super().__init__(**data)
-        self.storage = FileSystemArtifactStorage(str(self.storage_path))
+        self.storage = FileSystemArtifactStorage.create(self.storage_path)
 
     @field_validator("storage_path", mode="before")
     @classmethod
@@ -107,7 +113,7 @@ class Session(BaseModel):
         artifact = Artifact(name=name, data=data, content_type=content_type, metadata=metadata or {})
 
         if not self.storage:
-            self.storage = FileSystemArtifactStorage(str(self.storage_path))
+            self.storage = FileSystemArtifactStorage.create(self.storage_path)
 
         if self.storage.save_artifact(artifact):
             return artifact
@@ -124,7 +130,7 @@ class Session(BaseModel):
             Optional[Artifact]: The retrieved artifact or None if not found
         """
         if not self.storage:
-            self.storage = FileSystemArtifactStorage(str(self.storage_path))
+            self.storage = FileSystemArtifactStorage.create(self.storage_path)
         return self.storage.load_artifact(artifact_id)
 
     def list_artifacts(self, filter_criteria: Optional[Dict[str, Any]] = None) -> List[Artifact]:
@@ -138,7 +144,7 @@ class Session(BaseModel):
             List[Artifact]: List of matching artifacts
         """
         if not self.storage:
-            self.storage = FileSystemArtifactStorage(str(self.storage_path))
+            self.storage = FileSystemArtifactStorage.create(self.storage_path)
         return self.storage.list_artifacts(filter_criteria)
 
     def get_model_capabilities(self, model_name: Optional[str] = None) -> Optional[ModelDescriptor]:
@@ -169,6 +175,54 @@ class Session(BaseModel):
             print(f"Error getting model capabilities: {e}")
             return None
 
+    def add_to_conversation(
+        self,
+        content: Union[BasePrompt, LLMResponse],
+        node_type: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        parent_id: Optional[str] = None,
+    ) -> str:
+        """
+        Add a new node to the conversation graph.
+
+        Args:
+            content: The prompt or response content
+            node_type: Type of node (prompt/response)
+            metadata: Optional metadata for the node
+            parent_id: Optional ID of the parent node to link to
+
+        Returns:
+            str: ID of the newly created node
+        """
+        # Ensure content is of the correct type
+        if not isinstance(content, (BasePrompt, LLMResponse)):
+            raise TypeError("Content must be either BasePrompt or LLMResponse")
+
+        node_id = self.conversation.add_node(content, node_type, metadata)
+
+        if parent_id:
+            edge_type = "response_to" if node_type == "response" else "continues_from"
+            self.conversation.add_edge(parent_id, node_id, edge_type)
+
+        return node_id
+
+    def get_conversation_history(
+        self, node_id: Optional[str] = None, max_depth: Optional[int] = None
+    ) -> List[ConversationNode]:
+        """
+        Get the conversation history leading to a specific node.
+
+        Args:
+            node_id: Optional ID of the node to get history for. If None, returns full history.
+            max_depth: Optional maximum depth of history to retrieve
+
+        Returns:
+            List[ConversationNode]: List of conversation nodes in chronological order
+        """
+        if node_id:
+            return self.conversation.get_node_history(node_id, max_depth)
+        return list(self.conversation.nodes.values())
+
     def summary(self) -> Dict[str, Any]:
         """
         Generate a comprehensive session summary using ModelRegistry.
@@ -179,6 +233,7 @@ class Session(BaseModel):
         llm_interface = self.get_llm_interface()
         model_descriptor = self.get_model_capabilities()
         artifacts = self.list_artifacts()
+        conversation_summary = self.conversation.get_conversation_summary()
 
         model_capabilities = {}
         if model_descriptor is not None:
@@ -194,6 +249,7 @@ class Session(BaseModel):
             "created_at": self.created_at.isoformat(),
             "artifact_count": len(artifacts),
             "response_count": len(self.responses),
+            "conversation": conversation_summary,
             "config": {
                 "provider": llm_interface.config.provider if llm_interface else None,
                 "model": llm_interface.config.model_name if llm_interface else None,
@@ -242,3 +298,13 @@ class Session(BaseModel):
     async def summary_async(self) -> Dict[str, Any]:
         """Asynchronous session summary generation."""
         return await asyncio.to_thread(self.summary)
+
+    async def add_to_conversation_async(
+        self,
+        content: Union[BasePrompt, LLMResponse],
+        node_type: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        parent_id: Optional[str] = None,
+    ) -> str:
+        """Asynchronous conversation node addition."""
+        return await asyncio.to_thread(self.add_to_conversation, content, node_type, metadata, parent_id)

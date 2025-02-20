@@ -2,10 +2,10 @@
 import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Optional, Protocol, TypeVar, cast
+from typing import Any, Dict, Optional, Protocol, TypeVar, cast, Set
 
 from llmaestro.agents.models.config import AgentPoolConfig, AgentTypeConfig
-from llmaestro.agents.models.models import Agent, AgentMetrics, AgentState
+from llmaestro.agents.models.models import Agent, AgentMetrics, AgentState, AgentCapability
 from llmaestro.core.config import get_config
 from llmaestro.core.models import AgentConfig, SubTask
 from llmaestro.core.task_manager import TaskManager
@@ -56,32 +56,26 @@ class RuntimeAgent:
             capabilities=config.capabilities,
         )
         self.config = config
-        self.active_tasks: Dict[str, asyncio.Task[Any]] = {}
+        self.active_prompts: Dict[str, asyncio.Task[Any]] = {}
 
         # Convert config and create LLM interface
         llm_config = _convert_to_agent_config(config)
         self.llm = create_llm_interface(llm_config)
 
-    async def process_task(self, task: SubTask) -> Any:
-        """Process a task using this agent's LLM.
+    async def process_prompt(self, prompt: BasePrompt) -> LLMResponse:
+        """Process a prompt using this agent's LLM.
 
         Args:
-            task: The subtask to process
+            prompt: The prompt to process
 
         Returns:
-            The result from the LLM
+            The LLM response
         """
         self.agent.update_state(AgentState.BUSY)
 
         try:
             start_time = asyncio.get_event_loop().time()
-
-            # Convert input data to BasePrompt if needed
-            input_data = task.input_data
-            if not isinstance(input_data, BasePrompt):
-                raise ValueError(f"Unsupported input type: {type(input_data)}")
-
-            result = await self.llm.process(input_data)
+            result = await self.llm.process(prompt)
             execution_time = asyncio.get_event_loop().time() - start_time
 
             # Update agent metrics
@@ -106,7 +100,7 @@ class RuntimeAgent:
 
 
 class AgentPool:
-    """Pool of agents that can be reused across tasks."""
+    """Pool of agents that can be reused across prompts."""
 
     def __init__(self, config: Optional[AgentPoolConfig] = None):
         """Initialize the agent pool.
@@ -115,11 +109,10 @@ class AgentPool:
             config: Optional agent pool configuration. If None, uses config from global config.
         """
         self._config = config or get_config().agents
-        self._task_manager = TaskManager()
-        self._model_registry = ModelRegistry(providers={})
+        self._model_registry = ModelRegistry()
         self._active_agents: Dict[str, RuntimeAgent] = {}
         self.executor = ThreadPoolExecutor(max_workers=self._config.max_agents)
-        self.tasks: Dict[str, asyncio.Task[Any]] = {}
+        self.prompts: Dict[str, asyncio.Task[Any]] = {}
         self.loop = asyncio.get_event_loop()
 
     def get_agent(self, agent_type: Optional[str] = None) -> RuntimeAgent:
@@ -152,76 +145,57 @@ class AgentPool:
         if not compatible_agents:
             raise ValueError(f"No compatible agents available for type: {agent_type}")
 
-        return min(compatible_agents, key=lambda a: len(a.active_tasks))
+        return min(compatible_agents, key=lambda a: len(a.active_prompts))
 
     def _create_agent(self, agent_config: AgentTypeConfig) -> RuntimeAgent:
         """Create a new agent with the specified configuration."""
         return RuntimeAgent(config=agent_config)
 
-    async def submit_task(self, subtask: SubTask) -> None:
-        """Submit a subtask to be processed by an available agent.
+    async def execute_prompt(self,
+        prompt: BasePrompt,
+        agent_type: Optional[str] = None,
+        required_capabilities: Optional[Set[AgentCapability]] = None
+    ) -> LLMResponse:
+        """Execute a prompt using an appropriate agent.
 
         Args:
-            subtask: The subtask to process
-        """
-        # Get or create an agent for the task
-        agent = self.get_agent(subtask.type)
-
-        # Create and store the async task
-        task = self.loop.create_task(agent.process_task(subtask))
-        self.tasks[subtask.id] = task
-        agent.active_tasks[subtask.id] = task
-
-    async def wait_for_result(self, task_id: str) -> Any:
-        """Wait for a task to complete and return its result.
-
-        Args:
-            task_id: ID of the task to wait for
+            prompt: The prompt to execute
+            agent_type: Optional type of agent to use
+            required_capabilities: Optional set of required capabilities
 
         Returns:
-            The task result
-
-        Raises:
-            ValueError: If task not found
+            The LLM response
         """
-        if task_id not in self.tasks:
-            raise ValueError(f"No task found with id: {task_id}")
+        # Get or create an agent
+        agent = self.get_agent(agent_type)
 
-        task = self.tasks[task_id]
+        # Create and store the async task
+        prompt_id = str(uuid.uuid4())
+        task = self.loop.create_task(agent.process_prompt(prompt))
+        self.prompts[prompt_id] = task
+        agent.active_prompts[prompt_id] = task
+
         try:
-            result = await task
-
-            # Cleanup task references
-            del self.tasks[task_id]
-            for agent in self._active_agents.values():
-                if task_id in agent.active_tasks:
-                    del agent.active_tasks[task_id]
-                    break
-
-            return result
-
-        except Exception as e:
-            # Ensure cleanup even on error
-            if task_id in self.tasks:
-                del self.tasks[task_id]
-            for agent in self._active_agents.values():
-                if task_id in agent.active_tasks:
-                    del agent.active_tasks[task_id]
-                    break
-            raise e
+            return await task
+        finally:
+            # Cleanup
+            if prompt_id in self.prompts:
+                del self.prompts[prompt_id]
+            if prompt_id in agent.active_prompts:
+                del agent.active_prompts[prompt_id]
 
     def get_pool_stats(self) -> Dict[str, Any]:
         """Get statistics about the agent pool."""
         return {
             "total_agents": len(self._active_agents),
             "max_agents": self._config.max_agents,
-            "active_tasks": sum(len(agent.active_tasks) for agent in self._active_agents.values()),
+            "active_prompts": sum(len(agent.active_prompts) for agent in self._active_agents.values()),
             "agents": [
                 {
                     "id": agent.agent.id,
                     "type": agent.agent.type,
                     "state": agent.agent.state,
-                    "active_tasks": len(agent.active_tasks),
+                    "active_prompts": len(agent.active_prompts),
                     "metrics": agent.agent.metrics.model_dump() if agent.agent.metrics else None,
                 }
                 for agent in self._active_agents.values()

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from llmaestro.session.session import Session
 from llmaestro.core.config import get_config
 from llmaestro.core.models import BaseResponse
-from llmaestro.llm.models import ModelConfig
+from llmaestro.llm.provider_registry import ModelConfig
 
 class TestSession:
     @pytest.fixture

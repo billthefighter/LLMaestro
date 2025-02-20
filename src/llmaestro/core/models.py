@@ -1,10 +1,23 @@
+"""Core models for the application."""
+
 from datetime import datetime
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Protocol, Union
-from uuid import uuid4
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
+from typing_extensions import TypedDict
+
+from llmaestro.llm import ModelDescriptor
+from llmaestro.prompts.base import BasePrompt
+
+
+class DecompositionConfig(TypedDict, total=False):
+    """Configuration for task decomposition."""
+
+    strategy: str  # The strategy to use (chunk, file, error, custom)
+    chunk_size: int  # Size of chunks when using chunk strategy
+    max_parallel: int  # Maximum number of parallel subtasks
+    aggregation: str  # How to combine results
 
 
 class TokenUsage(BaseModel):
@@ -44,18 +57,20 @@ class BaseResponse(BaseModel):
 class LLMResponse(BaseResponse):
     """Response from an LLM model."""
 
-    content: str
-    model: str
-    token_usage: TokenUsage
-    context_metrics: Optional[ContextMetrics] = None
+    content: str = Field(..., description="The content of the response")
+    model: ModelDescriptor = Field(..., description="The model used to generate the response")
+    token_usage: TokenUsage = Field(..., description="Token usage statistics")
+    context_metrics: Optional[ContextMetrics] = Field(default=None, description="Context window metrics")
 
-    def __init__(
-        self, content: str, model: str, token_usage: TokenUsage, context_metrics: Optional[ContextMetrics] = None
-    ):
-        self.content = content
-        self.model = model
-        self.token_usage = token_usage
-        self.context_metrics = context_metrics
+    @property
+    def model_name(self) -> str:
+        """Get the name of the model used."""
+        return self.model.name
+
+    @property
+    def model_family(self) -> str:
+        """Get the family of the model used."""
+        return self.model.family
 
 
 class TaskStatus(str, Enum):
@@ -66,11 +81,11 @@ class TaskStatus(str, Enum):
 
 
 class SubTask(BaseModel):
-    """A subtask to be processed by an agent."""
+    """A subtask to be processed by an agent. Cannot be decomposed further."""
 
     id: str
-    type: str  # Task type from prompt loader
-    input_data: Union[str, Dict[str, Any]]
+    type: str  # Task type identifier
+    input_data: BasePrompt  # Only baseprompt - no decomposition possible
     parent_task_id: Optional[str] = None
     status: TaskStatus = TaskStatus.PENDING
     result: Optional[BaseResponse] = None
@@ -80,17 +95,33 @@ class SubTask(BaseModel):
 
 
 class Task(BaseModel):
-    """A task that can be decomposed into subtasks."""
+    """A task that can be decomposed into subtasks.
+
+    A task can be either:
+    1. An LLM task with a BasePrompt as input
+    2. A data processing task with raw data as input (e.g. files, text chunks)
+    """
 
     id: str
-    type: str  # Task type from prompt loader
-    input_data: Any
-    config: Dict[str, Any]
+    type: str  # Task type identifier
+    input_data: Union[BasePrompt, Dict[str, Any], str, List[Any]]  # More explicit typing for input data
+    config: Dict[str, Any]  # Configuration for task execution and decomposition
     status: TaskStatus = TaskStatus.PENDING
     subtasks: List[SubTask] = Field(default_factory=list)
     result: Optional[BaseResponse] = None
+    decomposition_config: Optional[DecompositionConfig] = None  # Configuration for how to break down the task
 
     model_config = ConfigDict(validate_assignment=True)
+
+    @property
+    def is_llm_task(self) -> bool:
+        """Whether this task requires LLM interaction."""
+        return isinstance(self.input_data, BasePrompt)
+
+    @property
+    def decomposition_strategy(self) -> Optional[str]:
+        """Get the decomposition strategy if configured."""
+        return self.decomposition_config.get("strategy") if self.decomposition_config else None
 
 
 class SummarizationConfig(BaseModel):
@@ -144,58 +175,3 @@ class AgentConfig(BaseModel):
     max_context_tokens: int = Field(default=32000, ge=1)
 
     model_config = ConfigDict(validate_assignment=True)
-
-
-class StorageConfig(BaseModel):
-    """Configuration for storage manager."""
-
-    base_path: str
-    max_cache_size: int = 1024 * 1024 * 1024  # 1GB default
-
-    model_config = ConfigDict(validate_assignment=True)
-
-
-class Artifact(BaseModel):
-    """Base model for all artifacts in the system."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str
-    content_type: str
-    data: Any
-    path: Optional[Path] = None
-    timestamp: datetime = Field(default_factory=datetime.now)
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    def serialize(self) -> Any:
-        """Serialize the artifact data for storage.
-
-        Returns:
-            The serialized data in a format suitable for storage (dict, list, or primitive type).
-        """
-        if hasattr(self.data, "model_dump"):
-            return self.data.model_dump()
-        elif isinstance(self.data, list) and all(hasattr(item, "model_dump") for item in self.data):
-            return [item.model_dump() for item in self.data]
-        return self.data
-
-
-class ArtifactStorage(Protocol):
-    """Protocol defining the interface for artifact storage implementations."""
-
-    def save_artifact(self, artifact: Artifact) -> bool:
-        """Save an artifact to storage."""
-        ...
-
-    def load_artifact(self, artifact_id: str) -> Optional[Artifact]:
-        """Load an artifact from storage."""
-        ...
-
-    def delete_artifact(self, artifact_id: str) -> bool:
-        """Delete an artifact from storage."""
-        ...
-
-    def list_artifacts(self, filter_criteria: Optional[Dict[str, Any]] = None) -> List[Artifact]:
-        """List artifacts matching the filter criteria."""
-        ...

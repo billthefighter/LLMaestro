@@ -3,12 +3,18 @@
 import textwrap
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, TypedDict, Union, cast
+from datetime import datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-from llmaestro.prompts.base import BasePrompt
+from typing_extensions import TypedDict
 
-from .conversations import ConversationGraph
-from .models import SubTask, Task, TaskStatus
+from llmaestro.llm.models import ModelCapabilities, ModelDescriptor
+from llmaestro.prompts.base import BasePrompt, VersionInfo
+
+from .conversations import ConversationGraph, LLMResponse
+from .models import DecompositionConfig, SubTask, Task, TaskStatus, TokenUsage
+from .storage import Artifact, ArtifactStorage, FileSystemArtifactStorage
 
 if TYPE_CHECKING:
     from ..agents.agent_pool import AgentPool
@@ -161,12 +167,8 @@ class TaskManager:
 
     _strategies = {"chunk": ChunkStrategy(), "file": FileStrategy(), "error": ErrorStrategy()}
 
-    def __init__(self, storage_path: str = "./task_storage"):
-        from ..prompts.loader import PromptLoader
-        from ..utils.storage import StorageManager
-
-        self.storage = StorageManager(storage_path)
-        self.prompt_loader = PromptLoader()
+    def __init__(self, storage: Optional[ArtifactStorage] = None):
+        self.storage = storage if storage is not None else FileSystemArtifactStorage.create(Path("./task_storage"))
         self._dynamic_strategies: Dict[str, DynamicStrategy] = {}
         self.tasks: Dict[str, SubTask] = {}
         self._agent_pool: Optional["AgentPool"] = None
@@ -193,75 +195,80 @@ class TaskManager:
         return await self._agent_pool.wait_for_result(task_id)
 
     def create_task(
-        self, task_type: str, input_data: Union[BasePrompt, Dict[str, Any]], config: Dict[str, Any]
+        self, task_type: str, input_data: Union[BasePrompt, Dict[str, Any], str, List[Any]], config: Dict[str, Any]
     ) -> Task:
         """Create a new task with the given parameters."""
-        # Validate task type exists in prompt loader
-        if not self.prompt_loader.get_prompt(task_type):
-            raise ValueError(f"Unknown task type: {task_type}")
+        task = Task(
+            id=str(uuid.uuid4()),
+            type=task_type,
+            input_data=input_data,
+            config=config,
+            decomposition_config=config.get("decomposition"),
+        )
 
-        # Convert dict input to BasePrompt if needed
-        if isinstance(input_data, dict):
-            # This would need to be implemented based on your prompt system
-            input_data = self.prompt_loader.create_prompt(task_type, input_data)
-        elif not isinstance(input_data, BasePrompt):
-            raise ValueError("Input data must be BasePrompt or dict")
-
-        task = Task(id=str(uuid.uuid4()), type=task_type, input_data=input_data, config=config)
-        self.storage.save_task(task)
+        # Convert task to artifact and save
+        artifact = Artifact(
+            id=task.id,
+            name=f"task_{task.id}",
+            content_type="task",
+            data=task.model_dump(),
+        )
+        self.storage.save_artifact(artifact)
         return task
 
-    def decompose_task(self, task: Task, config: DecompositionConfig) -> List[SubTask]:
+    def save_task(self, task: Task) -> None:
+        """Save a task to storage."""
+        artifact = Artifact(
+            id=task.id,
+            name=f"task_{task.id}",
+            content_type="task",
+            data=task.model_dump(),
+        )
+        self.storage.save_artifact(artifact)
+
+    def load_task(self, task_id: str) -> Optional[Task]:
+        """Load a task from storage."""
+        artifact = self.storage.load_artifact(task_id)
+        if artifact and artifact.content_type == "task":
+            return Task.model_validate(artifact.data)
+        return None
+
+    async def decompose_task(self, task: Task) -> List[SubTask]:
         """Break down a large task into smaller subtasks based on task type."""
-        prompt = self.prompt_loader.get_prompt(task.type)
-        if not prompt:
-            raise ValueError(f"No prompt template found for task type: {task.type}")
+        if not task.decomposition_config:
+            # If no decomposition config, treat as single task
+            return [SubTask(id=str(uuid.uuid4()), type=task.type, input_data=task.input_data, parent_task_id=task.id)]
 
-        decomp_config = cast(DecompositionConfig, prompt.metadata.decomposition)
-        if not decomp_config or not isinstance(decomp_config, dict):
-            raise ValueError("Invalid decomposition configuration")
-
-        strategy_name = decomp_config.get("strategy")
+        strategy_name = task.decomposition_strategy
         if not strategy_name:
-            raise ValueError("No decomposition strategy specified")
+            raise ValueError("No decomposition strategy specified in task config")
 
         if strategy_name == "custom":
-            return self._get_dynamic_strategy(task).decompose(task, cast(DecompositionConfig, decomp_config))
+            strategy = await self._get_dynamic_strategy(task)
+            return strategy.decompose(task, task.decomposition_config)
 
         strategy = self._strategies.get(strategy_name)
         if not strategy:
             raise ValueError(f"Unknown decomposition strategy: {strategy_name}")
 
-        return strategy.decompose(task, cast(DecompositionConfig, decomp_config))
+        return strategy.decompose(task, task.decomposition_config)
 
-    def _get_dynamic_strategy(self, task: Task) -> DynamicStrategy:
+    async def _get_dynamic_strategy(self, task: Task) -> DynamicStrategy:
         """Get or create a dynamic strategy for a task type."""
         if task.type not in self._dynamic_strategies:
-            strategy_code = self._generate_dynamic_strategy(task)
+            strategy_code = await self._generate_dynamic_strategy(task)
             self._dynamic_strategies[task.type] = DynamicStrategy(strategy_code)
         return self._dynamic_strategies[task.type]
 
     async def _generate_dynamic_strategy(self, task: Task) -> Dict[str, Any]:
         """Generate a new dynamic strategy using the task decomposer."""
-        decomposer = self.prompt_loader.get_prompt("task_decomposer")
-        if not decomposer:
-            raise ValueError("Task decomposer prompt not found")
-
-        task_prompt = self.prompt_loader.get_prompt(task.type)
-        if not task_prompt:
-            raise ValueError(f"No prompt found for task type: {task.type}")
-
-        try:
-            system_prompt = "System prompt"  # TODO: Implement proper prompt formatting
-            user_prompt = "User prompt"
-        except AttributeError:
-            system_prompt = "System prompt"
-            user_prompt = "User prompt"
+        if not task.is_llm_task:
+            raise ValueError("Dynamic strategy generation requires a BasePrompt input")
 
         decomposer_task = SubTask(
             id=str(uuid.uuid4()),
             type="task_decomposer",
-            input_data={"system_prompt": system_prompt, "user_prompt": user_prompt},
+            input_data={"system_prompt": task.input_data.system_prompt, "user_prompt": task.input_data.user_prompt},
             parent_task_id=task.id,
         )
 
@@ -280,61 +287,106 @@ class TaskManager:
         if not conversation:
             conversation = ConversationGraph(id=str(uuid.uuid4()))
 
-        # Get the prompt template and decomposition config
-        prompt = self.prompt_loader.get_prompt(task.type)
-        if not prompt:
-            raise ValueError(f"No prompt template found for task type: {task.type}")
-
-        decomp_config = cast(DecompositionConfig, prompt.metadata.decomposition)
-
         # Decompose task into subtasks
-        subtasks = self.decompose_task(task, decomp_config)
+        subtasks = await self.decompose_task(task)
         task.subtasks = subtasks
         task.status = TaskStatus.IN_PROGRESS
-        self.storage.save_task(task)
+        self.save_task(task)
 
         # Process subtasks and track in conversation
         results = []
         for subtask in subtasks:
-            # Add subtask prompt to conversation
-            prompt_node_id = conversation.add_node(
-                content=subtask.input_data, node_type="prompt", metadata={"task_id": subtask.id}
-            )
+            # Initialize node IDs
+            prompt_node_id = None
+            response_node_id = None
+
+            # Add subtask to conversation if it's an LLM task
+            if task.is_llm_task:
+                # Convert input_data to BasePrompt if needed
+                if isinstance(subtask.input_data, dict):
+                    system_prompt = str(subtask.input_data.get("system_prompt", ""))
+                    user_prompt = str(subtask.input_data.get("user_prompt", ""))
+                    prompt_content = BasePrompt(
+                        name=f"subtask_{subtask.id}",
+                        description="Generated subtask prompt",
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        metadata={},
+                        current_version=VersionInfo(
+                            number="1.0.0",
+                            author="system",
+                            timestamp=datetime.now(),
+                            description="Generated prompt",
+                            change_type=ChangeType.CREATED,
+                        ),
+                    )
+                elif isinstance(subtask.input_data, BasePrompt):
+                    prompt_content = subtask.input_data
+                else:
+                    # For non-dict, non-BasePrompt input, create a simple prompt
+                    prompt_content = BasePrompt(
+                        name=f"subtask_{subtask.id}",
+                        description="Generated subtask prompt",
+                        system_prompt="Process the following input",
+                        user_prompt=str(subtask.input_data),
+                        metadata={},
+                        current_version=VersionInfo(
+                            number="1.0.0",
+                            author="system",
+                            timestamp=datetime.now(),
+                            description="Generated prompt",
+                            change_type=ChangeType.CREATED,
+                        ),
+                    )
+
+                prompt_node_id = conversation.add_node(
+                    content=prompt_content, node_type="prompt", metadata={"task_id": subtask.id}
+                )
 
             # Process subtask
             await self._agent_pool.submit_task(subtask)
             result = await self._agent_pool.wait_for_result(subtask.id)
             results.append(result)
 
-            # Add result to conversation
-            response_node_id = conversation.add_node(
-                content=result, node_type="response", metadata={"task_id": subtask.id}
-            )
-            conversation.add_edge(prompt_node_id, response_node_id, "response_to")
+            # Add result to conversation if it's an LLM task
+            if task.is_llm_task and prompt_node_id is not None:
+                # Convert result to LLMResponse if needed
+                if isinstance(result, LLMResponse):
+                    response_content = result
+                else:
+                    # Create a basic LLMResponse for non-LLM results
+                    response_content = LLMResponse(
+                        content=str(result),
+                        success=True,
+                        model=ModelDescriptor(name="unknown", family="unknown", capabilities=ModelCapabilities()),
+                        token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                    )
+
+                response_node_id = conversation.add_node(
+                    content=response_content, node_type="response", metadata={"task_id": subtask.id}
+                )
+                conversation.add_edge(prompt_node_id, response_node_id, "response_to")
 
         # Aggregate results
-        task.result = self._aggregate_results(task, results)
+        task.result = await self._aggregate_results(task, results)
         task.status = TaskStatus.COMPLETED
-        self.storage.save_task(task)
+        self.save_task(task)
 
         return task.result
 
-    def _aggregate_results(self, task: Task, results: List[Any]) -> Any:
+    async def _aggregate_results(self, task: Task, results: List[Any]) -> Any:
         """Combine subtask results based on aggregation strategy."""
-        prompt = self.prompt_loader.get_prompt(task.type)
-        if not prompt:
-            raise ValueError(f"No prompt template found for task type: {task.type}")
+        if not task.decomposition_config:
+            # If no decomposition config, return first result
+            return results[0] if results else None
 
-        decomp_config = cast(DecompositionConfig, prompt.metadata.decomposition)
-        if not decomp_config or not isinstance(decomp_config, dict):
-            raise ValueError("Invalid decomposition configuration")
-
-        strategy_name = decomp_config.get("strategy")
+        strategy_name = task.decomposition_strategy
         if not strategy_name:
-            raise ValueError("No decomposition strategy specified")
+            return results[0] if results else None
 
         if strategy_name == "custom":
-            return self._get_dynamic_strategy(task).aggregate(results)
+            strategy = await self._get_dynamic_strategy(task)
+            return strategy.aggregate(results)
 
         strategy = self._strategies.get(strategy_name)
         if not strategy:

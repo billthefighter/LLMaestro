@@ -11,18 +11,21 @@ from llmaestro.core.conversations import (
 )
 from llmaestro.core.models import (
     AgentConfig,
-    Artifact,
-    ArtifactStorage,
     BaseResponse,
     ContextMetrics,
     LLMResponse,
     RateLimitConfig,
-    StorageConfig,
     SubTask,
     SummarizationConfig,
     Task,
     TaskStatus,
     TokenUsage,
+)
+from llmaestro.core.storage import (
+    Artifact,
+    ArtifactStorage,
+    FileSystemArtifactStorage,
+    StorageConfig,
 )
 from llmaestro.core.task_manager import (
     ChunkStrategy,
@@ -38,6 +41,7 @@ __all__ = [
     # Core Models
     "Artifact",
     "ArtifactStorage",
+    "FileSystemArtifactStorage",
     "BaseResponse",
     "LLMResponse",
     "StorageConfig",

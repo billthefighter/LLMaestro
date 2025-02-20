@@ -8,14 +8,13 @@ from typing import Optional
 import pytest
 
 from llmaestro.prompts.loader import PromptLoader, FilePrompt
-from llmaestro.llm.interfaces.anthropic import AnthropicLLM
+from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
 from llmaestro.llm.interfaces.base import ConversationContext
 from llmaestro.core.models import AgentConfig
 from llmaestro.prompts.types import VersionInfo
 from llmaestro.llm.models import ModelRegistry
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.llm.rate_limiter import RateLimiter, RateLimitConfig, SQLiteQuotaStorage
-from llmaestro.llm.interfaces.anthropic import AnthropicLLM
 
 
 def pytest_addoption(parser):

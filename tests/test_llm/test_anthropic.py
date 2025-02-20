@@ -10,7 +10,7 @@ from datetime import datetime
 from anthropic import Anthropic
 from anthropic.types import Message, MessageParam, TextBlock
 
-from llmaestro.llm.interfaces.anthropic import AnthropicLLM
+from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
 from llmaestro.llm.interfaces.base import MediaType, ImageInput
 from llmaestro.core.models import AgentConfig, TokenUsage, RateLimitConfig
 from llmaestro.llm.models import ModelFamily, ModelRegistry, ModelDescriptor, ModelCapabilities, RangeConfig

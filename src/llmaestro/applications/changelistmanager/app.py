@@ -6,15 +6,14 @@ by analyzing git diffs and using LLM to generate summaries and validate document
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Type, cast
 
-from pydantic import BaseModel
-
 from llmaestro.agents.agent_pool import AgentPool
+from llmaestro.chains.chains import ChainGraph, ChainNode, NodeType, OutputTransform
 from llmaestro.core.config import get_config
 from llmaestro.core.models import AgentConfig
-from llmaestro.llm.chains import ChainStep, OutputTransform, SequentialChain
 from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.prompts.loader import PromptLoader
+from pydantic import BaseModel
 
 
 class ChangelistEntry(BaseModel):
@@ -84,16 +83,21 @@ class ChangelistManager:
         Returns:
             ChangelistResponse containing summary and README validation info
         """
-        # Create chain for processing diff
-        chain = SequentialChain(
-            steps=[ChainStep(task_type="generate_changelist", output_transform=self._create_output_transform())],
-            llm=self.llm,
+        # Create a chain graph for processing diff
+        chain = ChainGraph(id="process_changes", llm=self.llm, prompt_loader=self.prompt_loader)
+
+        # Create and add the changelist generation node
+        changelist_node = await ChainNode.create(
+            task_type="generate_changelist",
             prompt_loader=self.prompt_loader,
+            node_type=NodeType.SEQUENTIAL,
+            output_transform=self._create_output_transform(),
         )
+        chain.add_node(changelist_node)
 
         # Execute chain with diff content
         result = await chain.execute(diff_content=diff_content)
-        return result
+        return next(iter(result.values()))  # Get the first (and only) result
 
     async def validate_readmes(self, readmes: List[str], changes: str) -> Dict[str, bool]:
         """Validate if READMEs need updates based on changes.
@@ -105,16 +109,21 @@ class ChangelistManager:
         Returns:
             Dict mapping README paths to whether they need updates
         """
-        # Create chain for README validation
-        chain = SequentialChain(
-            steps=[ChainStep(task_type="validate_readmes", output_transform=self._create_output_transform())],
-            llm=self.llm,
+        # Create chain graph for README validation
+        chain = ChainGraph(id="validate_readmes", llm=self.llm, prompt_loader=self.prompt_loader)
+
+        # Create and add the README validation node
+        validation_node = await ChainNode.create(
+            task_type="validate_readmes",
             prompt_loader=self.prompt_loader,
+            node_type=NodeType.SEQUENTIAL,
+            output_transform=self._create_output_transform(),
         )
+        chain.add_node(validation_node)
 
         # Execute chain with readmes and changes
         result = await chain.execute(readmes=readmes, changes=changes)
-        return result
+        return next(iter(result.values()))  # Get the first (and only) result
 
     async def update_changelist_file(self, new_entry: ChangelistEntry) -> None:
         """Update the changelist.md file with a new entry.

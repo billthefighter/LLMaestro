@@ -17,9 +17,134 @@ from llmaestro.chains.chains import (
     AgentChainNode,
     ChainGraph,
     AgentAwareChainGraph,
-    TaskAwareChainGraph,
-)
+    )
 from llmaestro.agents.models.models import AgentCapability
+from llmaestro.llm.models import ModelDescriptor, ModelCapabilities
+from llmaestro.core.models import TokenUsage, Task, TaskStatus
+from llmaestro.llm.interfaces import LLMResponse
+from llmaestro.core.task_manager import TaskManager
+from llmaestro.prompts.loader import PromptLoader
+
+# Import fixtures from fixtures.py
+pytest_plugins = ["tests.test_chains.fixtures"]
+
+
+@pytest.fixture
+def chain_metadata():
+    """Fixture for ChainMetadata."""
+    return ChainMetadata(description="Test", tags={"test"}, version="1.0")
+
+
+@pytest.fixture
+def chain_state():
+    """Fixture for ChainState."""
+    return ChainState(status="pending")
+
+
+@pytest.fixture
+def chain_step(prompt):
+    """Fixture for ChainStep."""
+    task = Task(
+        id=str(uuid4()),
+        type="test_task",
+        input_data={},
+        config={},
+        status=TaskStatus.PENDING
+    )
+    return ChainStep(
+        task=task,
+        retry_strategy=RetryStrategy(),
+    )
+
+
+@pytest.fixture
+def chain_node(chain_step, chain_metadata):
+    """Fixture for ChainNode."""
+    return ChainNode(
+        id=str(uuid4()),
+        step=chain_step,
+        node_type=NodeType.SEQUENTIAL,
+        metadata=chain_metadata,
+    )
+
+
+@pytest.fixture
+def chain_edge(chain_node):
+    """Fixture for ChainEdge."""
+    target_node = ChainNode(
+        id=str(uuid4()),
+        step=chain_node.step,
+        node_type=NodeType.SEQUENTIAL,
+        metadata=chain_node.metadata,
+    )
+    return ChainEdge(
+        source_id=chain_node.id,
+        target_id=target_node.id,
+        edge_type="next",
+    )
+
+
+@pytest.fixture
+def chain_context(chain_metadata, chain_state):
+    """Fixture for ChainContext."""
+    return ChainContext(
+        artifacts={},
+        metadata=chain_metadata,
+        state=chain_state,
+    )
+
+
+@pytest.fixture
+def prompt_loader():
+    """Fixture for PromptLoader."""
+    return PromptLoader()
+
+
+@pytest.fixture
+def task_manager():
+    """Fixture for TaskManager."""
+    return TaskManager()
+
+
+@pytest.fixture
+def chain_graph(chain_node, chain_edge, chain_context, llm, prompt_loader, task_manager):
+    """Fixture for ChainGraph."""
+    return ChainGraph(
+        id=str(uuid4()),
+        nodes={chain_node.id: chain_node},
+        edges=[chain_edge],
+        context=chain_context,
+        task_manager=task_manager,
+    )
+
+
+@pytest.fixture
+def agent_chain_graph(chain_graph, agent_pool, task_manager):
+    """Fixture for AgentAwareChainGraph."""
+    return AgentAwareChainGraph(
+        id=chain_graph.id,
+        nodes=chain_graph.nodes,
+        edges=chain_graph.edges,
+        context=chain_graph.context,
+        agent_pool=agent_pool,
+        task_manager=task_manager,
+    )
+
+
+@pytest.fixture
+def input_transform():
+    """Fixture for input transform function."""
+    def transform(context: ChainContext, data: Dict[str, Any]) -> Dict[str, Any]:
+        return data
+    return transform
+
+
+@pytest.fixture
+def output_transform():
+    """Fixture for output transform function."""
+    def transform(response: LLMResponse) -> Dict[str, Any]:
+        return {"content": response.content}
+    return transform
 
 
 @pytest.mark.parametrize("model_cls,params", [
@@ -33,25 +158,15 @@ def test_basic_models_instantiation(model_cls, params):
     assert instance is not None
 
 
-def test_chain_context_instantiation(chain_metadata, chain_state):
+def test_chain_context_instantiation(chain_context):
     """Test ChainContext instantiation."""
-    context = ChainContext(
-        artifacts={},
-        metadata=chain_metadata,
-        state=chain_state,
-    )
-    assert context is not None
+    assert chain_context is not None
 
 
 @pytest.mark.asyncio
-async def test_chain_step_instantiation(prompt):
+async def test_chain_step_instantiation(chain_step):
     """Test ChainStep instantiation."""
-    step = ChainStep(
-        task_type="test_task",
-        prompt=prompt,
-        retry_strategy=RetryStrategy(),
-    )
-    assert step is not None
+    assert chain_step is not None
 
 
 @pytest.mark.asyncio
@@ -72,20 +187,9 @@ async def test_chain_node_instantiation(chain_step, chain_metadata, node_type):
     assert node is not None
 
 
-def test_chain_edge_instantiation(chain_node):
+def test_chain_edge_instantiation(chain_edge):
     """Test ChainEdge instantiation."""
-    target_node = ChainNode(
-        id=str(uuid4()),
-        step=chain_node.step,
-        node_type=NodeType.SEQUENTIAL,
-        metadata=chain_node.metadata,
-    )
-    edge = ChainEdge(
-        source_id=chain_node.id,
-        target_id=target_node.id,
-        edge_type="next",
-    )
-    assert edge is not None
+    assert chain_edge is not None
 
 
 @pytest.mark.asyncio
@@ -108,51 +212,18 @@ async def test_agent_chain_node_instantiation(chain_step, chain_metadata, agent_
 
 
 @pytest.mark.asyncio
-async def test_chain_graph_instantiation(llm, prompt_loader, chain_context, chain_node, chain_edge):
+async def test_chain_graph_instantiation(chain_graph):
     """Test ChainGraph instantiation."""
-    graph = ChainGraph(
-        id=str(uuid4()),
-        nodes={chain_node.id: chain_node},
-        edges=[chain_edge],
-        context=chain_context,
-        llm=llm,
-        prompt_loader=prompt_loader,
-    )
-    assert graph is not None
+    assert chain_graph is not None
 
 
 @pytest.mark.asyncio
-async def test_agent_chain_graph_instantiation(chain_graph, agent_pool):
+async def test_agent_chain_graph_instantiation(agent_chain_graph):
     """Test AgentAwareChainGraph instantiation."""
-    graph = AgentAwareChainGraph(
-        id=chain_graph.id,
-        nodes=chain_graph.nodes,
-        edges=chain_graph.edges,
-        context=chain_graph.context,
-        llm=chain_graph.llm,
-        prompt_loader=chain_graph.prompt_loader,
-        agent_pool=agent_pool,
-    )
-    assert graph is not None
+    assert agent_chain_graph is not None
 
 
-@pytest.mark.asyncio
-async def test_task_chain_graph_instantiation(agent_chain_graph, task_manager, prompt_loader):
-    """Test TaskAwareChainGraph instantiation."""
-    graph = TaskAwareChainGraph(
-        id=agent_chain_graph.id,
-        nodes=agent_chain_graph.nodes,
-        edges=agent_chain_graph.edges,
-        context=agent_chain_graph.context,
-        llm=agent_chain_graph.llm,
-        prompt_loader=prompt_loader,
-        agent_pool=agent_chain_graph._agent_pool,
-        task_manager=task_manager,
-    )
-    assert graph is not None
-
-
-def test_transform_functions_instantiation(input_transform, output_transform):
+def test_transform_functions_instantiation(input_transform, output_transform, test_response):
     """Test that transform functions can be called."""
     context = ChainContext(artifacts={}, metadata=ChainMetadata(), state=ChainState())
     data: Dict[str, Any] = {"test": "data"}
@@ -162,7 +233,5 @@ def test_transform_functions_instantiation(input_transform, output_transform):
     assert input_result is not None
 
     # Test output transform
-    from llmaestro.llm.interfaces import LLMResponse
-    response = LLMResponse(content="test", success=True, provider="test")
-    output_result = output_transform(response)
+    output_result = output_transform(test_response)
     assert output_result is not None

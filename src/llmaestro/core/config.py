@@ -7,7 +7,48 @@ from typing import Any, Dict, Optional, Union, overload
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from llmaestro.core.models import AgentConfig
 from llmaestro.llm import ModelRegistry, ProviderConfig, ProviderRegistry
+
+
+class StorageConfig(BaseModel):
+    """Configuration for storage."""
+
+    path: str = Field(default="chain_storage")
+    format: str = Field(default="json")
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
+class VisualizationConfig(BaseModel):
+    """Configuration for visualization."""
+
+    host: str = Field(default="localhost")
+    port: int = Field(default=8765)
+    enabled: bool = Field(default=True)
+    debug: bool = Field(default=False)
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
+class LoggingConfig(BaseModel):
+    """Configuration for logging."""
+
+    level: str = Field(default="INFO")
+    file: Optional[str] = Field(default="orchestrator.log")
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
+class Config(BaseModel):
+    """Main configuration class."""
+
+    llm: AgentConfig
+    storage: StorageConfig = Field(default_factory=StorageConfig)
+    visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class AgentTypeConfig(BaseModel):

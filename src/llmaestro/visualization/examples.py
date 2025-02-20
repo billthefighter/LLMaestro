@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any, Dict, List, Optional
 
 from ..llm.chains import (
     ChainContext,
@@ -12,21 +12,29 @@ from ..llm.chains import (
     SequentialChain,
 )
 from ..llm.interfaces import BaseLLMInterface, LLMResponse
+from ..llm.models import ModelFamily
 
 
-class MockLLM(BaseLLMInterface):
-    """Mock LLM for testing visualizations."""
+class MockLLMInterface(BaseLLMInterface):
+    """Mock LLM interface for examples."""
 
-    def __init__(self):
-        self.config = {"model": "mock-model"}
+    @property
+    def model_family(self) -> ModelFamily:
+        return ModelFamily.MOCK
 
-    async def process(self, prompt: str, system_prompt: str = "") -> LLMResponse:
-        return LLMResponse(content="Mock response", metadata={})
+    async def process(self, prompt: BasePrompt, variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
+        """Mock process method that returns a fixed response."""
+        return LLMResponse(
+            content="Mock response",
+            success=True,
+            provider="mock",
+            provider_metadata={"test": True},
+        )
 
 
 def create_example_chains():
     """Create example chains of each type for visualization."""
-    llm = MockLLM()
+    llm = MockLLMInterface()
 
     # Helper to create a basic step
     def make_step(name: str) -> ChainStep:
