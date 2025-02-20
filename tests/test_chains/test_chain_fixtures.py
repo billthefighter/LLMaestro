@@ -14,15 +14,12 @@ from llmaestro.chains.chains import (
     ChainStep,
     ChainNode,
     ChainEdge,
-    AgentChainNode,
     ChainGraph,
-    AgentAwareChainGraph,
-    )
+)
 from llmaestro.agents.models.models import AgentCapability
 from llmaestro.llm.models import ModelDescriptor, ModelCapabilities
-from llmaestro.core.models import TokenUsage, Task, TaskStatus
+from llmaestro.core.models import TokenUsage
 from llmaestro.llm.interfaces import LLMResponse
-from llmaestro.core.task_manager import TaskManager
 from llmaestro.prompts.loader import PromptLoader
 
 # Import fixtures from fixtures.py
@@ -44,15 +41,8 @@ def chain_state():
 @pytest.fixture
 def chain_step(prompt):
     """Fixture for ChainStep."""
-    task = Task(
-        id=str(uuid4()),
-        type="test_task",
-        input_data={},
-        config={},
-        status=TaskStatus.PENDING
-    )
     return ChainStep(
-        task=task,
+        prompt=prompt,
         retry_strategy=RetryStrategy(),
     )
 
@@ -88,9 +78,9 @@ def chain_edge(chain_node):
 def chain_context(chain_metadata, chain_state):
     """Fixture for ChainContext."""
     return ChainContext(
-        artifacts={},
         metadata=chain_metadata,
         state=chain_state,
+        variables={}
     )
 
 
@@ -101,33 +91,14 @@ def prompt_loader():
 
 
 @pytest.fixture
-def task_manager():
-    """Fixture for TaskManager."""
-    return TaskManager()
-
-
-@pytest.fixture
-def chain_graph(chain_node, chain_edge, chain_context, llm, prompt_loader, task_manager):
+def chain_graph(chain_node, chain_edge, chain_context, agent_pool):
     """Fixture for ChainGraph."""
     return ChainGraph(
         id=str(uuid4()),
         nodes={chain_node.id: chain_node},
         edges=[chain_edge],
         context=chain_context,
-        task_manager=task_manager,
-    )
-
-
-@pytest.fixture
-def agent_chain_graph(chain_graph, agent_pool, task_manager):
-    """Fixture for AgentAwareChainGraph."""
-    return AgentAwareChainGraph(
-        id=chain_graph.id,
-        nodes=chain_graph.nodes,
-        edges=chain_graph.edges,
-        context=chain_graph.context,
-        agent_pool=agent_pool,
-        task_manager=task_manager,
+        agent_pool=agent_pool
     )
 
 
@@ -161,12 +132,17 @@ def test_basic_models_instantiation(model_cls, params):
 def test_chain_context_instantiation(chain_context):
     """Test ChainContext instantiation."""
     assert chain_context is not None
+    assert chain_context.metadata is not None
+    assert chain_context.state is not None
+    assert isinstance(chain_context.variables, dict)
 
 
 @pytest.mark.asyncio
 async def test_chain_step_instantiation(chain_step):
     """Test ChainStep instantiation."""
     assert chain_step is not None
+    assert chain_step.prompt is not None
+    assert chain_step.retry_strategy is not None
 
 
 @pytest.mark.asyncio
@@ -185,47 +161,34 @@ async def test_chain_node_instantiation(chain_step, chain_metadata, node_type):
         metadata=chain_metadata,
     )
     assert node is not None
+    assert node.node_type == node_type
 
 
 def test_chain_edge_instantiation(chain_edge):
     """Test ChainEdge instantiation."""
     assert chain_edge is not None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("agent_type", [
-    AgentType.GENERAL,
-    AgentType.FAST,
-    AgentType.SPECIALIST,
-])
-async def test_agent_chain_node_instantiation(chain_step, chain_metadata, agent_type):
-    """Test AgentChainNode instantiation with different agent types."""
-    node = AgentChainNode(
-        id=str(uuid4()),
-        step=chain_step,
-        node_type=NodeType.AGENT,
-        agent_type=agent_type,
-        metadata=chain_metadata,
-        required_capabilities={AgentCapability.TEXT},
-    )
-    assert node is not None
+    assert chain_edge.source_id is not None
+    assert chain_edge.target_id is not None
+    assert chain_edge.edge_type == "next"
 
 
 @pytest.mark.asyncio
 async def test_chain_graph_instantiation(chain_graph):
     """Test ChainGraph instantiation."""
     assert chain_graph is not None
-
-
-@pytest.mark.asyncio
-async def test_agent_chain_graph_instantiation(agent_chain_graph):
-    """Test AgentAwareChainGraph instantiation."""
-    assert agent_chain_graph is not None
+    assert chain_graph.nodes is not None
+    assert chain_graph.edges is not None
+    assert chain_graph.context is not None
+    assert chain_graph.agent_pool is not None
 
 
 def test_transform_functions_instantiation(input_transform, output_transform, test_response):
     """Test that transform functions can be called."""
-    context = ChainContext(artifacts={}, metadata=ChainMetadata(), state=ChainState())
+    context = ChainContext(
+        metadata=ChainMetadata(),
+        state=ChainState(),
+        variables={}
+    )
     data: Dict[str, Any] = {"test": "data"}
 
     # Test input transform
@@ -235,3 +198,4 @@ def test_transform_functions_instantiation(input_transform, output_transform, te
     # Test output transform
     output_result = output_transform(test_response)
     assert output_result is not None
+    assert "content" in output_result

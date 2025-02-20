@@ -18,13 +18,10 @@ from llmaestro.chains.chains import (
     ChainStep,
     ChainNode,
     ChainEdge,
-    AgentChainNode,
     ChainGraph,
-    AgentAwareChainGraph,
 )
-from llmaestro.core.models import Task, SubTask, Artifact, BaseResponse, AgentConfig, TokenUsage
-from llmaestro.core.storage import ArtifactStorage
-from llmaestro.core.task_manager import TaskManager, DecompositionConfig
+from llmaestro.core.models import BaseResponse, AgentConfig, TokenUsage
+from llmaestro.core.storage import Artifact, ArtifactStorage
 from llmaestro.llm.interfaces import BaseLLMInterface, LLMResponse
 from llmaestro.llm.models import ModelFamily, ModelDescriptor, ModelCapabilities, ModelRegistry
 from llmaestro.prompts.base import BasePrompt
@@ -44,7 +41,6 @@ from llmaestro.core.config import (
     ProviderConfig,
 )
 from llmaestro.llm.provider_registry import ModelConfig
-from llmaestro.core.models import RateLimitConfig
 
 
 class ChangeType(str, Enum):
@@ -202,23 +198,18 @@ def chain_state() -> ChainState:
 def chain_context(chain_metadata, chain_state) -> ChainContext:
     """Chain context with basic configuration."""
     return ChainContext(
-        artifacts={},
         metadata=chain_metadata,
         state=chain_state,
+        variables={}
     )
 
 
 @pytest.fixture
-async def chain_step() -> ChainStep:
+async def chain_step(prompt) -> ChainStep:
     """Basic chain step."""
-    return ChainStep(
-        task=Task(
-            id=str(uuid4()),
-            type="test_task",
-            input_data={"test": "data"},
-            config={},
-        ),
-        retry_strategy=RetryStrategy(),
+    return await ChainStep.create(
+        prompt=prompt,
+        retry_strategy=RetryStrategy()
     )
 
 
@@ -250,19 +241,6 @@ def chain_edge(chain_node) -> ChainEdge:
 
 
 @pytest.fixture
-async def agent_chain_node(chain_step, chain_metadata) -> AgentChainNode:
-    """Agent chain node."""
-    return AgentChainNode(
-        id=str(uuid4()),
-        step=chain_step,
-        node_type=NodeType.AGENT,
-        agent_type=AgentType.GENERAL,
-        metadata=chain_metadata,
-        required_capabilities={AgentCapability.TEXT},
-    )
-
-
-@pytest.fixture
 def test_model_config():
     """Test model configuration."""
     return {
@@ -270,12 +248,18 @@ def test_model_config():
         "model": "claude-3-sonnet-20240229",
         "description": "Test Agent using Claude 3 Sonnet",
         "capabilities": {AgentCapability.TEXT, AgentCapability.CODE},
-        "runtime": AgentRuntimeConfig(
-            max_tokens=32000,
-            temperature=0.7,
-            stream=True,
-            max_context_tokens=32000
-        ),
+        "runtime": {
+            "max_tokens": 32000,
+            "temperature": 0.7,
+            "stream": True,
+            "max_context_tokens": 32000,
+            "rate_limit": {
+                "requests_per_minute": 60,
+                "requests_per_hour": 3600,
+                "max_daily_tokens": 1000000,
+                "alert_threshold": 0.8
+            }
+        }
     }
 
 
@@ -385,61 +369,16 @@ def agent_pool(test_model_config, mock_config, mock_llm, monkeypatch):
 
 
 @pytest.fixture
-def task_manager(monkeypatch, agent_pool):
-    """Fixture for TaskManager."""
-    class MockArtifactStorage(ArtifactStorage):
-        def save_artifact(self, artifact: Artifact) -> bool:
-            return True
-
-        def load_artifact(self, artifact_id: str) -> Optional[Artifact]:
-            return None
-
-        def delete_artifact(self, artifact_id: str) -> bool:
-            return True
-
-        def list_artifacts(self, filter_criteria: Optional[Dict[str, Any]] = None) -> List[Artifact]:
-            return []
-
-    manager = TaskManager()
-    manager.set_agent_pool(agent_pool)  # Set the agent pool
-    manager.storage = MockArtifactStorage()  # Set mock storage
-    return manager
-
-
-@pytest.fixture
-def task() -> Task:
-    """Test task."""
-    return Task(
-        id=str(uuid4()),
-        type="test_task",
-        input_data={"test": "data"},
-        config={},
-    )
-
-
-@pytest.fixture
-async def chain_graph(chain_context, chain_node, chain_edge, task_manager) -> ChainGraph:
+def chain_graph(chain_context, chain_node, chain_edge, agent_pool) -> ChainGraph:
     """Basic chain graph."""
-    return ChainGraph(
+    graph = ChainGraph(
         id=str(uuid4()),
         nodes={chain_node.id: chain_node},
         edges=[chain_edge],
         context=chain_context,
-        task_manager=task_manager,
+        agent_pool=agent_pool
     )
-
-
-@pytest.fixture
-async def agent_chain_graph(chain_graph, agent_pool, task_manager) -> AgentAwareChainGraph:
-    """Agent-aware chain graph."""
-    return AgentAwareChainGraph(
-        id=chain_graph.id,
-        nodes=chain_graph.nodes,
-        edges=chain_graph.edges,
-        context=chain_graph.context,
-        agent_pool=agent_pool,
-        task_manager=task_manager,
-    )
+    return graph
 
 
 @pytest.fixture
