@@ -6,7 +6,7 @@ import base64
 
 from llmaestro.prompts.base import BasePrompt, PromptMetadata, FileAttachment
 from llmaestro.prompts.types import VersionInfo, ResponseFormat
-from llmaestro.llm.models import MediaType
+from llmaestro.llm.enums import MediaType
 
 # Test Data Fixtures
 @pytest.fixture

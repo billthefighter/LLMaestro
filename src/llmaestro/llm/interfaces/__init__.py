@@ -1,6 +1,7 @@
 """LLM interface definitions."""
 
-from llmaestro.llm.models import MediaType
-from .base import LLMResponse, BaseLLMInterface
+from llmaestro.llm.enums import MediaType
+
+from .base import BaseLLMInterface, LLMResponse
 
 __all__ = ["LLMResponse", "BaseLLMInterface", "MediaType"]

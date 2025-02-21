@@ -5,7 +5,8 @@ from abc import abstractmethod
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from llmaestro.llm.models import MediaType, ModelFamily
+from llmaestro.llm.enums import MediaType
+from llmaestro.llm.models import ModelFamily
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.types import PromptMetadata, VersionInfo
 from pydantic import BaseModel, Field

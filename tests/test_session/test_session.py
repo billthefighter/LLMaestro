@@ -9,7 +9,7 @@ from llmaestro.session.session import Session
 from llmaestro.core.models import BaseResponse, LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.core.storage import Artifact, FileSystemArtifactStorage
 from llmaestro.prompts.base import BasePrompt, FileAttachment
-from llmaestro.llm.models import LLMProfile, LLMCapabilities, MediaType
+from llmaestro.llm.models import LLMProfile, LLMCapabilities
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 from llmaestro.llm.rate_limiter import RateLimitConfig
 from llmaestro.config import ConfigurationManager

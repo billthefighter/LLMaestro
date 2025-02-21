@@ -6,9 +6,9 @@ from typing import Any, Dict, List, Optional, Union
 
 import google.generativeai as genai
 from llmaestro.core.models import TokenUsage
+from llmaestro.llm.enums import MediaType
 from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse
 from llmaestro.llm.models import ModelFamily
-from llmaestro.llm.enums import MediaType
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 from PIL import Image

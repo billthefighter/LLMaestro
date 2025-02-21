@@ -15,8 +15,9 @@ from llmaestro.core.models import (
     LLMResponse,  # Updated to import from core.models
     TokenUsage,
 )
+from llmaestro.llm.enums import MediaType
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.models import LLMProfile, MediaType, ModelFamily
+from llmaestro.llm.models import LLMProfile, ModelFamily
 from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.base import BasePrompt
