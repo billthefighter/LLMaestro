@@ -1,7 +1,7 @@
 """Model definitions and capabilities for LLM interfaces."""
 import mimetypes
 from datetime import datetime
-from typing import Dict, List, Optional, Set, Type
+from typing import Any, Dict, List, Optional, Set, Type
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -107,6 +107,22 @@ class Provider(BaseModel):
     )
     rate_limits: Dict[str, int]
     features: Optional[Set[str]] = None
+
+    def get_api_config(self, model_name: str) -> Dict[str, Any]:
+        """Get API configuration for a specific model.
+
+        Args:
+            model_name: Name of the model
+
+        Returns:
+            Dictionary containing API configuration
+        """
+        return {
+            "api_base": self.api_base,
+            "rate_limits": self.rate_limits,
+            "features": self.features or set(),
+            "model": model_name,
+        }
 
     @property
     def models(self) -> Dict[str, LLMProfile]:

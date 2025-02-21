@@ -1,5 +1,5 @@
 """Registry for managing LLM models."""
-import json
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,68 +19,161 @@ class LLMRegistry:
 
     provider_registry: ProviderRegistry = field(default_factory=ProviderRegistry)
     strict_capability_detection: bool = False
+    auto_update_capabilities: bool = True
     _models: Dict[str, LLMProfile] = field(default_factory=dict)
 
-    def __post_init__(self):
-        """Initialize after dataclass creation."""
-        pass  # No longer needed since provider_registry is properly initialized
+    @classmethod
+    def create_default(
+        cls,
+        strict_capability_detection: bool = False,
+        auto_update_capabilities: bool = True,
+        api_keys: Optional[Dict[str, str]] = None,
+    ) -> "LLMRegistry":
+        """Create a LLMRegistry with default configurations from the model library.
+        This is the primary way to instantiate an LLMRegistry.
+
+        Args:
+            strict_capability_detection: Whether to enforce strict capability detection
+            auto_update_capabilities: Whether to automatically detect and update capabilities
+            api_keys: Dictionary of provider API keys for capability detection
+
+        Returns:
+            LLMRegistry instance with default configurations loaded
+        """
+        registry = cls(
+            strict_capability_detection=strict_capability_detection, auto_update_capabilities=auto_update_capabilities
+        )
+        library_path = Path(__file__).parent / "model_library"
+
+        # Load all YAML files from the model library
+        yaml_files = list(library_path.glob("*.yaml"))
+        if not yaml_files:
+            raise ValueError(f"No provider configuration files found in {library_path}")
+
+        # Load each provider file
+        for config_file in yaml_files:
+            try:
+                registry._load_provider_file(config_file)
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to load {config_file}: {str(e)}")
+
+        # Update capabilities if auto-update is enabled and API keys are provided
+        if auto_update_capabilities and api_keys:
+            asyncio.run(registry._update_all_capabilities(api_keys))
+
+        return registry
+
+    def _load_provider_file(self, path: Union[str, Path]) -> None:
+        """Load a single provider configuration file.
+
+        Args:
+            path: Path to provider YAML file
+        """
+        with open(path) as f:
+            data = yaml.safe_load(f)
+
+            # Register provider
+            provider = Provider(**data["provider"])
+            self.provider_registry.register_provider(provider.name, provider)
+
+            # Register models
+            for model_data in data["models"]:
+                self.register(LLMProfile(**model_data))
 
     def register(self, descriptor: LLMProfile) -> None:
         """Register a model descriptor."""
         self._models[descriptor.name] = descriptor
 
-    def register_from_provider(self, provider: str, model_name: str) -> None:
-        """Register a model using provider configuration.
+    async def _update_all_capabilities(self, api_keys: Dict[str, str]) -> None:
+        """Update capabilities for all models where possible.
 
         Args:
-            provider: Provider name
-            model_name: Model name to register
-
-        Raises:
-            ValueError: If provider or model configuration not found
+            api_keys: Dictionary of provider API keys for capability detection
         """
-        provider_config = self.provider_registry.get_provider(provider)
-        if not provider_config:
-            raise ValueError(f"Unknown provider: {provider}")
+        logger = logging.getLogger(__name__)
+        update_tasks = []
 
-        model_config = provider_config.models.get(model_name)
-        if not model_config:
-            raise ValueError(f"No configuration found for model {model_name} from provider {provider}")
+        for model in list(self._models.values()):
+            provider = model.capabilities.family.value
+            if provider not in api_keys:
+                logger.warning(f"No API key provided for provider {provider}, skipping capability update")
+                continue
 
-        # Create basic capabilities from provider model config
-        capabilities = LLMCapabilities(
-            name=model_name,
-            family=model_config.capabilities.family,
-            max_context_window=model_config.capabilities.max_context_window,
-            typical_speed=model_config.capabilities.typical_speed,
-            input_cost_per_1k_tokens=model_config.capabilities.input_cost_per_1k_tokens,
-            output_cost_per_1k_tokens=model_config.capabilities.output_cost_per_1k_tokens,
-            supported_languages={"en"},  # Default to English
-            supports_streaming=True,  # Most modern models support this
+            update_tasks.append(
+                self._update_model_capabilities(
+                    provider=provider, model_name=model.name, api_key=api_keys[provider], current_profile=model
+                )
+            )
+
+        if update_tasks:
+            # Run all updates concurrently
+            await asyncio.gather(*update_tasks)
+
+    async def _update_model_capabilities(
+        self, provider: str, model_name: str, api_key: str, current_profile: LLMProfile
+    ) -> None:
+        """Update capabilities for a single model.
+
+        Args:
+            provider: The provider name
+            model_name: The model name
+            api_key: API key for the provider
+            current_profile: Current model profile to update
+        """
+        logger = logging.getLogger(__name__)
+
+        try:
+            # Detect current capabilities
+            capabilities = await ModelCapabilityDetectorFactory.detect_capabilities(provider, model_name, api_key)
+
+            # Update only if capabilities differ from current
+            if self._capabilities_need_update(current_profile.capabilities, capabilities):
+                logger.info(f"Updating capabilities for {model_name}")
+                # Preserve metadata while updating capabilities
+                updated_profile = LLMProfile(
+                    capabilities=capabilities,
+                    metadata=current_profile.metadata,
+                    vision_capabilities=current_profile.vision_capabilities,
+                )
+                self.register(updated_profile)
+
+        except Exception as e:
+            logger.warning(f"Failed to update capabilities for {model_name}: {str(e)}")
+
+    def _capabilities_need_update(self, current: LLMCapabilities, detected: LLMCapabilities) -> bool:
+        """Check if capabilities need to be updated.
+
+        Args:
+            current: Current capabilities
+            detected: Newly detected capabilities
+
+        Returns:
+            True if capabilities need update, False otherwise
+        """
+        # Compare relevant fields that might change
+        fields_to_compare = [
+            "max_context_window",
+            "max_output_tokens",
+            "typical_speed",
+            "input_cost_per_1k_tokens",
+            "output_cost_per_1k_tokens",
+            "supports_streaming",
+            "supports_vision",
+            "supports_json_mode",
+            "supports_tools",
+            "supports_function_calling",
+        ]
+
+        return any(
+            getattr(current, field) != getattr(detected, field)
+            for field in fields_to_compare
+            if hasattr(current, field) and hasattr(detected, field)
         )
-
-        # Add features from provider config if available
-        if provider_config.features:
-            for feature in provider_config.features:
-                feature_name = feature.replace("supports_", "")
-                feature_attr = f"supports_{feature_name}"
-                if hasattr(capabilities, feature_attr):
-                    setattr(capabilities, feature_attr, True)
-
-        # Create metadata with defaults
-        metadata = LLMMetadata(
-            is_preview=False,
-            is_deprecated=False,
-        )
-
-        descriptor = LLMProfile(
-            capabilities=capabilities,
-            metadata=metadata,
-        )
-        self.register(descriptor)
 
     async def detect_and_register_model(self, provider: str, model_name: str, api_key: str) -> LLMProfile:
         """Detects capabilities of a model and registers it in the registry.
+        Used for models not in the YAML configurations or when forcing capability update.
 
         Args:
             provider: The LLM provider (e.g., "anthropic", "openai")
@@ -95,50 +188,30 @@ class LLMRegistry:
         """
         logger = logging.getLogger(__name__)
 
-        # First check if provider configuration exists
-        provider_config = self.provider_registry.get_provider(provider)
-        if provider_config:
-            try:
-                self.register_from_provider(provider, model_name)
-                model = self.get_model(model_name)
-                if model:
-                    return model
-            except ValueError:
-                pass  # Fall through to dynamic detection if provider registration fails
-
         try:
-            # Get the appropriate detector and detect capabilities
             capabilities = await ModelCapabilityDetectorFactory.detect_capabilities(provider, model_name, api_key)
             capabilities.name = model_name
-            capabilities.family = ModelFamily(provider)  # Convert provider string to ModelFamily enum
+            capabilities.family = ModelFamily(provider)
         except (ValueError, RuntimeError) as e:
             if self.strict_capability_detection:
                 raise ValueError(f"Failed to detect capabilities for {model_name}: {str(e)}") from e
-            else:
-                logger.warning(
-                    f"Capability detection failed for {model_name}, using default capabilities. Error: {str(e)}"
-                )
-                # Create basic capabilities with conservative defaults
-                capabilities = LLMCapabilities(
-                    name=model_name,
-                    family=ModelFamily(provider),
-                    max_context_window=4096,  # Conservative default
-                    typical_speed=50.0,  # Conservative estimate
-                    input_cost_per_1k_tokens=0.01,  # Default cost
-                    output_cost_per_1k_tokens=0.02,  # Default cost
-                    supports_streaming=True,  # Most modern models support this
-                )
+            logger.warning(f"Capability detection failed for {model_name}, using default capabilities. Error: {str(e)}")
+            capabilities = LLMCapabilities(
+                name=model_name,
+                family=ModelFamily(provider),
+                max_context_window=4096,
+                typical_speed=50.0,
+                input_cost_per_1k_tokens=0.01,
+                output_cost_per_1k_tokens=0.02,
+                supports_streaming=True,
+            )
 
-        # Create metadata with release info
-        metadata = LLMMetadata(
-            release_date=datetime.now(),
-            min_api_version="2024-02-29",
-        )
-
-        # Create and register descriptor
         descriptor = LLMProfile(
             capabilities=capabilities,
-            metadata=metadata,
+            metadata=LLMMetadata(
+                release_date=datetime.now(),
+                min_api_version="2024-02-29",
+            ),
         )
         self.register(descriptor)
         return descriptor
@@ -223,102 +296,31 @@ class LLMRegistry:
         """
         return self.list_models()
 
-    @classmethod
-    def load_from_file(cls, path: Union[str, Path], strict_capability_detection: bool = False) -> "LLMRegistry":
-        """Load registry from a JSON or YAML file.
-
-        The file can either be:
-        1. A single configuration file with "providers" and "models" sections
-        2. A provider-specific file with "provider" and "models" sections
+    def to_provider_files(self, directory: Union[str, Path]) -> None:
+        """Save registry to individual YAML files for each provider.
 
         Args:
-            path: Path to configuration file
-            strict_capability_detection: Whether to enforce strict capability detection
-
-        Returns:
-            Configured LLMRegistry instance
+            directory: Directory to save provider YAML files to
         """
-        registry = cls(strict_capability_detection=strict_capability_detection)
+        directory = Path(directory)
+        directory.mkdir(parents=True, exist_ok=True)
 
-        with open(path) as f:
-            data = json.load(f) if str(path).endswith(".json") else yaml.safe_load(f)
+        # Group models by provider
+        provider_models: Dict[str, List[LLMProfile]] = {}
+        for model in self._models.values():
+            provider = model.capabilities.family.value
+            if provider not in provider_models:
+                provider_models[provider] = []
+            provider_models[provider].append(model)
 
-            # Handle provider configuration
-            if "provider" in data:
-                # Provider-specific file format
-                provider = Provider(**data["provider"])
-                registry.provider_registry.register_provider(provider.name, provider)
-            elif "providers" in data:
-                # Multi-provider configuration format
-                for provider_data in data["providers"]:
-                    provider = Provider(**provider_data)
-                    registry.provider_registry.register_provider(provider.name, provider)
+        # Save each provider to its own file
+        for provider_name, models in provider_models.items():
+            provider = self.provider_registry.get_provider(provider_name)
+            if not provider:
+                continue
 
-            # Load model configurations
-            for model_data in data.get("models", []):
-                # Convert string representations of sets back to actual sets
-                if "capabilities" in model_data:
-                    caps = model_data["capabilities"]
-                    for set_field in ["supported_languages", "supported_media_types"]:
-                        if set_field in caps and isinstance(caps[set_field], str):
-                            caps[set_field] = eval(caps[set_field])
+            data = {"provider": provider.model_dump(), "models": [model.model_dump() for model in models]}
 
-                # If this is a provider-specific file, ensure family matches provider
-                if "provider" in data:
-                    if "capabilities" not in model_data:
-                        model_data["capabilities"] = {}
-                    model_data["capabilities"]["family"] = ModelFamily(data["provider"]["provider_name"])
-
-                registry.register(LLMProfile(**model_data))
-
-        return registry
-
-    @classmethod
-    def create_default(cls, strict_capability_detection: bool = False) -> "LLMRegistry":
-        """Create a LLMRegistry with default configurations from the model library.
-
-        Args:
-            strict_capability_detection: Whether to enforce strict capability detection
-
-        Returns:
-            LLMRegistry instance with default configurations loaded from all provider files
-        """
-        registry = cls(strict_capability_detection=strict_capability_detection)
-        library_path = Path(__file__).parent / "model_library"
-
-        # Load all YAML files from the model library
-        yaml_files = list(library_path.glob("*.yaml"))
-        if not yaml_files:
-            raise ValueError(f"No provider configuration files found in {library_path}")
-
-        # Load each provider file
-        for config_file in yaml_files:
-            try:
-                loaded_registry = cls.load_from_file(config_file, strict_capability_detection)
-                # Merge configurations
-                for provider in loaded_registry.provider_registry.list_providers():
-                    registry.provider_registry.register_provider(provider.name, provider)
-                for model in loaded_registry._models.values():
-                    registry.register(model)
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.warning(f"Failed to load {config_file}: {str(e)}")
-
-        return registry
-
-    def to_file(self, path: Union[str, Path]) -> None:
-        """Save registry to a JSON or YAML file.
-
-        Args:
-            path: Path to save configuration to
-        """
-        data = {
-            "providers": [provider.model_dump() for provider in self.provider_registry.list_providers()],
-            "models": [model.model_dump() for model in self._models.values()],
-        }
-
-        with open(path, "w") as f:
-            if str(path).endswith(".json"):
-                json.dump(data, f, indent=2, default=str)
-            else:
+            file_path = directory / f"{provider_name}.yaml"
+            with open(file_path, "w") as f:
                 yaml.dump(data, f, sort_keys=False)

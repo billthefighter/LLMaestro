@@ -14,32 +14,36 @@ from llmaestro.llm.provider_registry import ProviderRegistry
 
 async def create_llm_interface(
     config: AgentTypeConfig,
-    provider_registry: Optional[ProviderRegistry] = None,
     llm_registry: Optional[LLMRegistry] = None,
 ) -> BaseLLMInterface:
     """Create an LLM interface based on the provider specified in config.
 
     Args:
         config: Configuration containing provider and model information
-        provider_registry: Optional provider registry for API configuration
-        llm_registry: Optional model registry for capabilities
+        llm_registry: Optional LLMRegistry instance for model capabilities and provider configs
 
     Returns:
         BaseLLMInterface: The appropriate interface for the provider
 
     Raises:
-        ValueError: If the provider is not supported
+        ValueError: If the provider is not supported or model not found
     """
-    # Get API configuration from provider registry if available
-    api_config = None
-    if provider_registry:
-        try:
-            api_config = provider_registry.get_provider_api_config(provider=config.provider, model_name=config.model)
-        except ValueError:
-            pass
+    # Get model profile and provider config from registry if available
+    model_profile = None
+    provider_config = None
+    if llm_registry:
+        model_profile = llm_registry.get_model(config.model)
+        provider_config = llm_registry.get_provider_config(config.provider)
 
-    # Get API key from config
-    api_key = api_config.get("api_key") if api_config else None
+    # Validate model exists if registry is available
+    if llm_registry and not model_profile:
+        valid, msg = llm_registry.validate_model(config.model)
+        if not valid:
+            raise ValueError(f"Invalid model configuration: {msg}")
+
+    # Get API configuration
+    api_config = provider_config.get_api_config(config.model) if provider_config else {}
+    api_key = api_config.get("api_key")
     if not api_key:
         raise ValueError(f"API key not found for provider {config.provider}")
 
@@ -50,28 +54,68 @@ async def create_llm_interface(
         "api_key": api_key,
         "max_tokens": config.max_tokens,
         "temperature": config.temperature,
-        "rate_limit": config.runtime.rate_limit if hasattr(config.runtime, "rate_limit") else None,
-        "max_context_tokens": config.runtime.max_context_tokens
-        if hasattr(config.runtime, "max_context_tokens")
-        else None,
         "stream": config.runtime.stream if hasattr(config.runtime, "stream") else True,
     }
 
-    # Create interface based on provider
-    interface: BaseLLMInterface
-    match config.provider.lower():
-        case "openai":
-            interface = OpenAIInterface(**init_params)
-        case "anthropic":
-            interface = AnthropicLLM(**init_params)
-        case "google":
-            interface = GeminiLLM(**init_params)
-        case _:
-            raise ValueError(f"Unsupported provider: {config.provider}")
+    # Add rate limits and context window from provider config or runtime config
+    if provider_config:
+        init_params.update(
+            {
+                "rate_limit": provider_config.rate_limits.get("requests_per_minute"),
+                "max_context_tokens": (
+                    model_profile.capabilities.max_context_window
+                    if model_profile
+                    else config.runtime.max_context_tokens
+                    if hasattr(config.runtime, "max_context_tokens")
+                    else None
+                ),
+            }
+        )
+    else:
+        init_params.update(
+            {
+                "rate_limit": config.runtime.rate_limit if hasattr(config.runtime, "rate_limit") else None,
+                "max_context_tokens": config.runtime.max_context_tokens
+                if hasattr(config.runtime, "max_context_tokens")
+                else None,
+            }
+        )
+
+    # Create interface based on model family or provider
+    if model_profile:
+        interface = _create_interface_by_family(model_profile.family, init_params)
+    else:
+        interface = _create_interface_by_provider(config.provider, init_params)
 
     # Initialize async components
     await interface.initialize()
     return interface
+
+
+def _create_interface_by_family(family: ModelFamily, init_params: dict) -> BaseLLMInterface:
+    """Create interface based on model family."""
+    match family:
+        case ModelFamily.CLAUDE:
+            return AnthropicLLM(**init_params)
+        case ModelFamily.GPT:
+            return OpenAIInterface(**init_params)
+        case ModelFamily.GEMINI:
+            return GeminiLLM(**init_params)
+        case _:
+            raise ValueError(f"Unsupported model family: {family}")
+
+
+def _create_interface_by_provider(provider: str, init_params: dict) -> BaseLLMInterface:
+    """Create interface based on provider name (fallback)."""
+    match provider.lower():
+        case "openai":
+            return OpenAIInterface(**init_params)
+        case "anthropic":
+            return AnthropicLLM(**init_params)
+        case "google":
+            return GeminiLLM(**init_params)
+        case _:
+            raise ValueError(f"Unsupported provider: {provider}")
 
 
 async def create_interface_for_model(
