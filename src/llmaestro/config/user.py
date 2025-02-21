@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig
 from llmaestro.config.base import (
-    DefaultModelConfig,
+    LLMProfileReference,
     LoggingConfig,
     StorageConfig,
     VisualizationConfig,
@@ -20,7 +20,7 @@ class UserConfig(BaseModel):
     """User-specific configuration."""
 
     api_keys: Dict[str, str]
-    default_model: DefaultModelConfig
+    default_model: LLMProfileReference = Field(default_factory=LLMProfileReference.default)
     agents: AgentPoolConfig
     storage: StorageConfig = Field(default_factory=StorageConfig)
     visualization: VisualizationConfig = Field(default_factory=VisualizationConfig)
@@ -108,7 +108,7 @@ class UserConfig(BaseModel):
 
         return cls(
             api_keys=api_keys,
-            default_model=DefaultModelConfig(
+            default_model=LLMProfileReference(
                 provider=default_provider,
                 name=default_model,
                 settings=model_settings,

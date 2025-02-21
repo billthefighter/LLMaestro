@@ -6,117 +6,16 @@ from typing import Dict, Any
 
 from llmaestro.chains.chains import (
     NodeType,
-    AgentType,
     RetryStrategy,
     ChainMetadata,
     ChainState,
     ChainContext,
-    ChainStep,
     ChainNode,
-    ChainEdge,
-    ChainGraph,
 )
-from llmaestro.agents.models.models import AgentCapability
-from llmaestro.llm.models import ModelDescriptor, ModelCapabilities
-from llmaestro.core.models import TokenUsage
 from llmaestro.llm.interfaces import LLMResponse
-from llmaestro.prompts.loader import PromptLoader
 
-# Import fixtures from fixtures.py
-pytest_plugins = ["tests.test_chains.fixtures"]
-
-
-@pytest.fixture
-def chain_metadata():
-    """Fixture for ChainMetadata."""
-    return ChainMetadata(description="Test", tags={"test"}, version="1.0")
-
-
-@pytest.fixture
-def chain_state():
-    """Fixture for ChainState."""
-    return ChainState(status="pending")
-
-
-@pytest.fixture
-def chain_step(prompt):
-    """Fixture for ChainStep."""
-    return ChainStep(
-        prompt=prompt,
-        retry_strategy=RetryStrategy(),
-    )
-
-
-@pytest.fixture
-def chain_node(chain_step, chain_metadata):
-    """Fixture for ChainNode."""
-    return ChainNode(
-        id=str(uuid4()),
-        step=chain_step,
-        node_type=NodeType.SEQUENTIAL,
-        metadata=chain_metadata,
-    )
-
-
-@pytest.fixture
-def chain_edge(chain_node):
-    """Fixture for ChainEdge."""
-    target_node = ChainNode(
-        id=str(uuid4()),
-        step=chain_node.step,
-        node_type=NodeType.SEQUENTIAL,
-        metadata=chain_node.metadata,
-    )
-    return ChainEdge(
-        source_id=chain_node.id,
-        target_id=target_node.id,
-        edge_type="next",
-    )
-
-
-@pytest.fixture
-def chain_context(chain_metadata, chain_state):
-    """Fixture for ChainContext."""
-    return ChainContext(
-        metadata=chain_metadata,
-        state=chain_state,
-        variables={}
-    )
-
-
-@pytest.fixture
-def prompt_loader():
-    """Fixture for PromptLoader."""
-    return PromptLoader()
-
-
-@pytest.fixture
-def chain_graph(chain_node, chain_edge, chain_context, agent_pool):
-    """Fixture for ChainGraph."""
-    return ChainGraph(
-        id=str(uuid4()),
-        nodes={chain_node.id: chain_node},
-        edges=[chain_edge],
-        context=chain_context,
-        agent_pool=agent_pool
-    )
-
-
-@pytest.fixture
-def input_transform():
-    """Fixture for input transform function."""
-    def transform(context: ChainContext, data: Dict[str, Any]) -> Dict[str, Any]:
-        return data
-    return transform
-
-
-@pytest.fixture
-def output_transform():
-    """Fixture for output transform function."""
-    def transform(response: LLMResponse) -> Dict[str, Any]:
-        return {"content": response.content}
-    return transform
-
+# Remove old fixtures import since we're using conftest.py
+# pytest_plugins = ["tests.test_chains.fixtures"]
 
 @pytest.mark.parametrize("model_cls,params", [
     (RetryStrategy, {"max_retries": 3, "delay": 0.1}),
@@ -194,8 +93,9 @@ def test_transform_functions_instantiation(input_transform, output_transform, te
     # Test input transform
     input_result = input_transform(context, data)
     assert input_result is not None
+    assert "transformed" in input_result
 
     # Test output transform
     output_result = output_transform(test_response)
     assert output_result is not None
-    assert "content" in output_result
+    assert "processed" in output_result

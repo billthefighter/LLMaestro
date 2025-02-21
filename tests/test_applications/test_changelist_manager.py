@@ -14,20 +14,21 @@ from llmaestro.applications.changelistmanager.app import (
 )
 from llmaestro.llm.interfaces import LLMResponse
 from llmaestro.llm.interfaces.base import BaseLLMInterface
-from llmaestro.llm.models import ModelRegistry, ModelDescriptor, ModelFamily, ModelCapabilities
+from llmaestro.llm.models import LLMProfile, ModelFamily, LLMCapabilities
+from llmaestro.llm.llm_registry import LLMRegistry
 from tests.test_applications.test_utils import MockLLM
 
 
 # Test Data Fixtures
 @pytest.fixture
-def mock_model_registry() -> ModelRegistry:
+def mock_llm_registry() -> LLMRegistry:
     """Create a mock model registry with test models."""
-    registry = ModelRegistry()
+    registry = LLMRegistry()
     registry.register(
-        ModelDescriptor(
+        LLMProfile(
             name="claude-3-sonnet-20240229",
             family=ModelFamily.CLAUDE,
-            capabilities=ModelCapabilities(
+            capabilities=LLMCapabilities(
                 supports_streaming=True,
                 supports_function_calling=True,
                 supports_vision=True,
@@ -87,9 +88,9 @@ def mock_llm_response() -> Dict[str, Union[str, List[str], bool, Dict[str, str]]
 
 
 @pytest.fixture
-def mock_llm_interface(mock_llm_response: Dict[str, Any], mock_model_registry: ModelRegistry) -> BaseLLMInterface:
+def mock_llm_interface(mock_llm_response: Dict[str, Any], mock_llm_registry: LLMRegistry) -> BaseLLMInterface:
     """Create a mock LLM interface for testing."""
-    return MockLLM(mock_model_registry, mock_llm_response)
+    return MockLLM(mock_llm_registry, mock_llm_response)
 
 
 @pytest.fixture

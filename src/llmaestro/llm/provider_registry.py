@@ -1,40 +1,16 @@
 """Registry for LLM providers and their configurations."""
-from typing import Dict, Optional, Set
+from typing import Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict
-
-
-class ModelConfig(BaseModel):
-    """Configuration for a specific model within a provider."""
-
-    family: str
-    context_window: int
-    typical_speed: float
-    features: Set[str]
-    cost: Dict[str, float]
-
-    model_config = ConfigDict(validate_assignment=True)
-
-
-class ProviderConfig(BaseModel):
-    """Configuration for an LLM provider."""
-
-    api_base: str
-    capabilities_detector: str
-    models: Dict[str, ModelConfig]
-    rate_limits: Dict[str, int]
-    features: Optional[Set[str]] = None  # Provider-wide features
-
-    model_config = ConfigDict(validate_assignment=True)
+from .models import LLMProfile, Provider
 
 
 class ProviderRegistry:
     """Registry of LLM providers and their configurations."""
 
     def __init__(self):
-        self._providers: Dict[str, ProviderConfig] = {}
+        self._providers: Dict[str, Provider] = {}
 
-    def register_provider(self, name: str, config: ProviderConfig) -> None:
+    def register_provider(self, name: str, config: Provider) -> None:
         """Register a provider configuration.
 
         Args:
@@ -43,19 +19,38 @@ class ProviderRegistry:
         """
         self._providers[name.lower()] = config
 
-    def get_provider(self, name: str) -> Optional[ProviderConfig]:
+    def get_provider(self, name: str) -> Optional[Provider]:
         """Get a provider configuration by name."""
         return self._providers.get(name.lower())
 
-    def get_provider_model_config(self, provider: str, model_name: str) -> Optional[ModelConfig]:
-        """Get configuration for a specific model from a provider.
+    def list_providers(self) -> List[Provider]:
+        """Get a list of all registered providers."""
+        return list(self._providers.values())
+
+    def get_provider_model_config(self, provider: str, model_name: str) -> Optional[LLMProfile]:
+        """Get a model configuration from a provider.
 
         Args:
             provider: Provider name
             model_name: Model name
 
         Returns:
-            ModelConfig if found, None otherwise
+            LLMProfile if found, None otherwise
+        """
+        provider_config = self.get_provider(provider)
+        if not provider_config:
+            return None
+        return provider_config.models.get(model_name)
+
+    def get_model(self, provider: str, model_name: str) -> Optional[LLMProfile]:
+        """Get a model descriptor from a provider.
+
+        Args:
+            provider: Provider name
+            model_name: Model name
+
+        Returns:
+            LLMProfile if found, None otherwise
         """
         provider_config = self.get_provider(provider)
         if not provider_config:
@@ -80,8 +75,8 @@ class ProviderRegistry:
         if not provider_config:
             raise ValueError(f"Unknown provider: {provider}")
 
-        model_config = provider_config.models.get(model_name)
-        if not model_config:
+        model = provider_config.models.get(model_name)
+        if not model:
             raise ValueError(f"Unknown model {model_name} for provider {provider}")
 
         return {
@@ -89,6 +84,18 @@ class ProviderRegistry:
             "name": model_name,
             "api_base": provider_config.api_base,
             "api_key": api_key,
-            "capabilities": model_config.model_dump(),
+            "capabilities": model.capabilities.model_dump(),
             "rate_limits": provider_config.rate_limits,
         }
+
+    @classmethod
+    def create_default(cls) -> "ProviderRegistry":
+        """Create a ProviderRegistry with default configurations loaded from the model library.
+
+        Returns:
+            ProviderRegistry instance with default configurations loaded
+        """
+        from .llm_registry import LLMRegistry
+
+        registry = LLMRegistry.create_default()
+        return registry.provider_registry

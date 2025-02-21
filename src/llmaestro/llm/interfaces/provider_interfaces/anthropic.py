@@ -1,6 +1,5 @@
 import base64
 import io
-import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Union
@@ -11,8 +10,9 @@ from anthropic.types import (
 )
 from llmaestro.core.models import LLMResponse, TokenUsage
 from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, MediaType
-from llmaestro.llm.models import ModelDescriptor, ModelFamily
+from llmaestro.llm.models import LLMProfile, ModelFamily
 from llmaestro.llm.token_utils import TokenCounter
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 from PIL import Image
 
 # Configure logging
@@ -28,12 +28,12 @@ class AnthropicLLM(BaseLLMInterface):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.client = AsyncAnthropic(api_key=self.config.api_key)
-        self.stream = getattr(self.config, "stream", False)  # Default to False if not specified
-        self._token_counter = TokenCounter(api_key=self.config.api_key)  # Initialize with API key
-        logger.info(f"Initialized AnthropicLLM with model: {self.config.model_name}")
+        self.client = AsyncAnthropic(api_key=self.api_key)
+        self.stream = self.stream if hasattr(self, "stream") else False  # Default to False if not specified
+        self._token_counter = TokenCounter(api_key=self.api_key)  # Initialize with API key
+        logger.info(f"Initialized AnthropicLLM with model: {self.model}")
         # _model_descriptor is guaranteed to be non-None by base class __init__
-        self._model_descriptor: ModelDescriptor
+        self._model_descriptor: LLMProfile
 
     @property
     def model_family(self) -> ModelFamily:
@@ -143,7 +143,7 @@ class AnthropicLLM(BaseLLMInterface):
                 messages=messages,
                 image_data=image_dimensions,
                 model_family=self.model_family,
-                model_name=self.config.model_name,
+                model_name=self.model,
             )
 
             # Check rate limits with image tokens included
@@ -153,7 +153,10 @@ class AnthropicLLM(BaseLLMInterface):
             if not can_proceed:
                 return LLMResponse(
                     content=f"Rate limit exceeded: {error_msg}",
+                    success=False,
+                    model=self._model_descriptor,
                     metadata={"error": "rate_limit_exceeded", "estimated_tokens": token_estimates["total_tokens"]},
+                    token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
                 )
 
             # Convert messages to Anthropic format with proper content blocks
@@ -163,13 +166,7 @@ class AnthropicLLM(BaseLLMInterface):
                 anthropic_messages.append({"role": msg["role"], "content": content_blocks})
 
             # Prepare API call parameters
-            create_params = {
-                "model": self.config.model_name,
-                "messages": anthropic_messages,
-                "max_tokens": self.config.max_tokens,
-                "temperature": self.config.temperature,
-                "stream": self.stream,
-            }
+            create_params = self._create_message_params()
 
             # Add system prompt as a top-level parameter
             if system_prompt:
@@ -204,7 +201,7 @@ class AnthropicLLM(BaseLLMInterface):
                     return LLMResponse(
                         content=content,
                         success=True,
-                        model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
+                        model=self._model_descriptor,
                         metadata={
                             "id": getattr(final_message, "id", "stream"),
                             "cost": 0.0,
@@ -234,42 +231,10 @@ class AnthropicLLM(BaseLLMInterface):
                     response = await self.client.messages.create(**create_params)
                     content = "".join(block.text for block in response.content if hasattr(block, "text"))
 
-                logger.debug(f"Extracted content: {content}")
-
-                # If the content is already JSON, return it as is
-                try:
-                    json.loads(content)
                     return LLMResponse(
                         content=content,
                         success=True,
-                        model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
-                        metadata={
-                            "id": getattr(response, "id", "unknown"),
-                            "cost": 0.0,
-                            "image_tokens": token_estimates.get("image_tokens", 0),
-                        },
-                        token_usage=TokenUsage(
-                            prompt_tokens=getattr(response.usage, "input_tokens", 0)
-                            if hasattr(response, "usage")
-                            else 0,
-                            completion_tokens=getattr(response.usage, "output_tokens", 0)
-                            if hasattr(response, "usage")
-                            else 0,
-                            total_tokens=sum(
-                                [
-                                    getattr(response.usage, "input_tokens", 0) if hasattr(response, "usage") else 0,
-                                    getattr(response.usage, "output_tokens", 0) if hasattr(response, "usage") else 0,
-                                ]
-                            ),
-                        ),
-                    )
-                except json.JSONDecodeError:
-                    # If not JSON, wrap it in our expected format
-                    formatted_response = {"message": content.strip(), "timestamp": datetime.utcnow().isoformat() + "Z"}
-                    return LLMResponse(
-                        content=json.dumps(formatted_response),
-                        success=True,
-                        model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
+                        model=self._model_descriptor,
                         metadata={
                             "id": getattr(response, "id", "unknown"),
                             "cost": 0.0,
@@ -296,7 +261,6 @@ class AnthropicLLM(BaseLLMInterface):
                 return self._handle_error(e)
 
         except Exception as e:
-            logger.error(f"Process failed: {str(e)}", exc_info=True)
             return self._handle_error(e)
 
     async def batch_process(
@@ -317,15 +281,50 @@ class AnthropicLLM(BaseLLMInterface):
 
         return results
 
+    async def process_async(
+        self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None
+    ) -> LLMResponse:
+        """Process prompt asynchronously."""
+        if isinstance(prompt, str):
+            # Convert string prompt to BasePrompt
+            prompt = BasePrompt(
+                name="direct_prompt",
+                description="Direct string prompt",
+                system_prompt="",
+                user_prompt=prompt,
+                metadata=PromptMetadata(
+                    type="direct_input", expected_response=ResponseFormat(format="text", schema=None), tags=[]
+                ),
+                current_version=VersionInfo(
+                    number="1.0.0",
+                    author="system",
+                    description="Direct string prompt",
+                    timestamp=datetime.now(),
+                    change_type="initial",
+                ),
+            )
+        return await self.process(prompt, variables)
+
     def _handle_error(self, e: Exception) -> LLMResponse:
         """Handle errors in LLM processing."""
         error_message = f"Error processing LLM request: {str(e)}"
         logger.error(error_message, exc_info=True)
+        # Model descriptor is guaranteed to be non-None by base class __init__
+        assert self._model_descriptor is not None, "Model descriptor not initialized"
         return LLMResponse(
             content="",
             success=False,
-            model=self._model_descriptor,  # This is guaranteed to be non-None by base class __init__
+            model=self._model_descriptor,
             error=str(e),
             metadata={"error_type": type(e).__name__},
             token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
         )
+
+    def _create_message_params(self) -> Dict[str, Any]:
+        """Create message parameters for Anthropic."""
+        return {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "stream": self.stream,
+        }

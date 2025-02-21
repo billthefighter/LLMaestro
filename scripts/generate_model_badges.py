@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, Literal, Optional
 
-from llmaestro.llm.models import ModelFamily, ModelRegistry
+from llmaestro.llm.models import LLMRegistry, ModelFamily
 
 TestResult = Literal["success", "failure", "skip"]
 
@@ -79,7 +79,7 @@ def main():
     test_results = load_test_results()
 
     # Initialize model registry and load all models
-    registry = ModelRegistry()
+    registry = LLMRegistry()
     models_dir = Path("src/llm/models")
 
     if not models_dir.exists():
@@ -89,7 +89,7 @@ def main():
     # Load all model files
     for yaml_path in models_dir.glob("*.yaml"):
         try:
-            loaded_registry = ModelRegistry.from_yaml(yaml_path)
+            loaded_registry = LLMRegistry.from_yaml(yaml_path)
             for model in loaded_registry._models.values():
                 registry.register(model)
         except Exception as e:

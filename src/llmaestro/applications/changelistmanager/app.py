@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Set, Type, cast
 
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.chains.chains import ChainGraph, ChainNode, NodeType, OutputTransform
-from llmaestro.core.config import get_config
-from llmaestro.core.models import AgentConfig
+from llmaestro.config.agent import AgentTypeConfig
+from llmaestro.config.manager import ConfigurationManager
 from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.prompts.loader import PromptLoader
@@ -51,7 +51,7 @@ class ChangelistManager:
             config_path: Optional path to config file
             llm_interface: Optional LLM interface for testing
         """
-        self.config = get_config()
+        self.config = ConfigurationManager()
         self.output_model = output_model
         self.prompt_loader = PromptLoader()
         self.agent_pool = AgentPool()
@@ -61,7 +61,7 @@ class ChangelistManager:
             self.llm = llm_interface
         else:
             # Initialize LLM interface
-            agent_config = AgentConfig(
+            agent_config = AgentTypeConfig(
                 provider=self.config.llm.provider,
                 model_name=self.config.llm.model_name,
                 api_key=api_key or self.config.llm.api_key,

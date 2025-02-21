@@ -1,34 +1,96 @@
 providers:
   openai:
+    provider: "openai"
+    name: "OpenAI"
     api_base: "https://api.openai.com/v1"
-    capabilities_detector: "llmaestro.providers.openai.capabilities"
+    capabilities_detector: "llmaestro.providers.openai.capabilities.OpenAICapabilitiesDetector"
     models:
       gpt-4-turbo-preview:
-        family: "gpt-4"
-        context_window: 128000
-        typical_speed: 1.0
-        features:
-          - "code"
-          - "reasoning"
-          - "chat"
-        cost:
-          input: 0.00001
-          output: 0.00003
+        name: gpt-4-turbo-preview
+        family: gpt
+        description: Latest GPT-4 model optimized for performance and cost
+
+        # Resource Limits
+        max_context_window: 128000
+        max_output_tokens: 4096
+
+        # Core Features
+        supports_streaming: true
+        supports_function_calling: true
+        supports_vision: false
+        supports_embeddings: false
+        supports_json_mode: true
+        supports_system_prompt: true
+        supports_tools: true
+        supports_parallel_requests: true
+
+        # Advanced Features
+        supports_frequency_penalty: true
+        supports_presence_penalty: true
+        supports_stop_sequences: true
+        supports_message_role: true
+
+        # Performance & Cost
+        typical_speed: 180.0
+        supported_languages: ["en"]
+        input_cost_per_1k_tokens: 0.01
+        output_cost_per_1k_tokens: 0.03
+
+        # Quality Settings
+        temperature:
+          min_value: 0.0
+          max_value: 2.0
+          default_value: 0.7
+        top_p:
+          min_value: 0.0
+          max_value: 1.0
+          default_value: 1.0
+
       gpt-3.5-turbo:
-        family: "gpt-3.5"
-        context_window: 16385
-        typical_speed: 2.0
-        features:
-          - "code"
-          - "reasoning"
-          - "chat"
-        cost:
-          input: 0.0000005
-          output: 0.0000015
+        name: gpt-3.5-turbo
+        family: gpt
+        description: Fast and cost-effective GPT-3.5 model for most tasks
+
+        # Resource Limits
+        max_context_window: 16385
+        max_output_tokens: 4096
+
+        # Core Features
+        supports_streaming: true
+        supports_function_calling: true
+        supports_vision: false
+        supports_embeddings: false
+        supports_json_mode: true
+        supports_system_prompt: true
+        supports_tools: true
+        supports_parallel_requests: true
+
+        # Advanced Features
+        supports_frequency_penalty: true
+        supports_presence_penalty: true
+        supports_stop_sequences: true
+        supports_message_role: true
+
+        # Performance & Cost
+        typical_speed: 200.0
+        supported_languages: ["en"]
+        input_cost_per_1k_tokens: 0.0005
+        output_cost_per_1k_tokens: 0.0015
+
+        # Quality Settings
+        temperature:
+          min_value: 0.0
+          max_value: 2.0
+          default_value: 0.7
+        top_p:
+          min_value: 0.0
+          max_value: 1.0
+          default_value: 1.0
+
     rate_limits:
       requests_per_minute: 500
       tokens_per_minute: 150000
     features:
-      - "streaming"
-      - "function_calling"
-      - "json_mode"
+      - streaming
+      - function_calling
+      - json_mode

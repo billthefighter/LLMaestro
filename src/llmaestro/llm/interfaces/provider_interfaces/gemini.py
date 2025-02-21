@@ -1,16 +1,17 @@
 import base64
 import io
-import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 import google.generativeai as genai
-from PIL import Image
-
-from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse, MediaType, TokenUsage
+from llmaestro.core.models import TokenUsage
+from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse
 from llmaestro.llm.models import ModelFamily
+from llmaestro.llm.enums import MediaType
 from llmaestro.llm.token_utils import TokenCounter
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from PIL import Image
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG)
@@ -26,11 +27,11 @@ class GeminiLLM(BaseLLMInterface):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Configure Gemini
-        genai.configure(api_key=self.config.google_api_key)
-        self.model = genai.GenerativeModel(self.config.model_name)
-        self.stream = getattr(self.config, "stream", False)  # Default to False if not specified
-        self._token_counter = TokenCounter(api_key=self.config.google_api_key)  # Initialize with API key
-        logger.info(f"Initialized GeminiLLM with model: {self.config.model_name}")
+        genai.configure(api_key=self.api_key)
+        self._model = genai.GenerativeModel(str(self.model))  # Convert model name to string
+        self.stream = self.stream if hasattr(self, "stream") else False  # Default to False if not specified
+        self._token_counter = TokenCounter(api_key=self.api_key)  # Initialize with API key
+        logger.info(f"Initialized GeminiLLM with model: {self.model}")
 
     @property
     def model_family(self) -> ModelFamily:
@@ -76,6 +77,9 @@ class GeminiLLM(BaseLLMInterface):
     ) -> LLMResponse:
         """Process input data through Gemini and return a standardized response."""
         try:
+            # Ensure model descriptor is available (it should be from base class __init__)
+            assert self._model_descriptor is not None, "Model descriptor not initialized"
+
             logger.debug(f"Processing prompt: {prompt}")
             logger.debug(f"Variables: {variables}")
 
@@ -110,7 +114,7 @@ class GeminiLLM(BaseLLMInterface):
                 messages=[{"role": "user", "content": full_prompt}],
                 image_data=image_dimensions,
                 model_family=self.model_family,
-                model_name=self.config.model_name,
+                model_name=str(self.model),  # Convert model name to string
             )
 
             # Check rate limits with image tokens included
@@ -120,26 +124,26 @@ class GeminiLLM(BaseLLMInterface):
             if not can_proceed:
                 return LLMResponse(
                     content=f"Rate limit exceeded: {error_msg}",
+                    success=False,
+                    model=self._model_descriptor,
                     metadata={"error": "rate_limit_exceeded", "estimated_tokens": token_estimates["total_tokens"]},
+                    token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
                 )
 
             try:
                 logger.info("Making API call to Google Gemini...")
 
                 # Create generation config
-                generation_config = {
-                    "temperature": self.config.temperature,
-                    "max_output_tokens": self.config.max_tokens,
-                }
+                generation_config = self._create_generation_config()
 
                 if images:
                     # For vision model
-                    response = await self.model.generate_content_async(
+                    response = await self._model.generate_content_async(
                         contents=[full_prompt, *images], generation_config=generation_config, stream=self.stream
                     )
                 else:
                     # For text-only model
-                    response = await self.model.generate_content_async(
+                    response = await self._model.generate_content_async(
                         contents=full_prompt, generation_config=generation_config, stream=self.stream
                     )
 
@@ -153,6 +157,8 @@ class GeminiLLM(BaseLLMInterface):
                     # Create response with accumulated content
                     return LLMResponse(
                         content=content,
+                        success=True,
+                        model=self._model_descriptor,
                         metadata={
                             "id": "stream",
                             "cost": 0.0,
@@ -168,29 +174,11 @@ class GeminiLLM(BaseLLMInterface):
                     # Handle non-streaming response
                     content = response.text
 
-                logger.debug(f"Extracted content: {content}")
-
-                # If the content is already JSON, return it as is
-                try:
-                    json.loads(content)
+                    # Create response with content
                     return LLMResponse(
                         content=content,
-                        metadata={
-                            "id": getattr(response, "id", "unknown"),
-                            "cost": 0.0,
-                            "image_tokens": token_estimates.get("image_tokens", 0),
-                        },
-                        token_usage=TokenUsage(
-                            prompt_tokens=token_estimates["prompt_tokens"],
-                            completion_tokens=len(content.split()) * 4,  # Rough estimate
-                            total_tokens=token_estimates["total_tokens"] + (len(content.split()) * 4),
-                        ),
-                    )
-                except json.JSONDecodeError:
-                    # If not JSON, wrap it in our expected format
-                    formatted_response = {"message": content.strip(), "timestamp": datetime.utcnow().isoformat() + "Z"}
-                    return LLMResponse(
-                        content=json.dumps(formatted_response),
+                        success=True,
+                        model=self._model_descriptor,
                         metadata={
                             "id": getattr(response, "id", "unknown"),
                             "cost": 0.0,
@@ -208,7 +196,6 @@ class GeminiLLM(BaseLLMInterface):
                 return self._handle_error(e)
 
         except Exception as e:
-            logger.error(f"Process failed: {str(e)}", exc_info=True)
             return self._handle_error(e)
 
     async def batch_process(
@@ -229,17 +216,45 @@ class GeminiLLM(BaseLLMInterface):
 
         return results
 
+    async def process_async(
+        self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None
+    ) -> LLMResponse:
+        """Process prompt asynchronously."""
+        if isinstance(prompt, str):
+            # Convert string prompt to BasePrompt
+            prompt = BasePrompt(
+                name="direct_prompt",
+                description="Direct string prompt",
+                system_prompt="",
+                user_prompt=prompt,
+                metadata=PromptMetadata(
+                    type="direct_input", expected_response=ResponseFormat(format="text", schema=None), tags=[]
+                ),
+                current_version=VersionInfo(
+                    number="1.0.0",
+                    author="system",
+                    description="Direct string prompt",
+                    timestamp=datetime.now(),
+                    change_type="initial",
+                ),
+            )
+        return await self.process(prompt, variables)
+
     def _handle_error(self, e: Exception) -> LLMResponse:
         """Handle errors in LLM processing."""
         error_message = f"Error processing LLM request: {str(e)}"
         logger.error(error_message, exc_info=True)
+        # Model descriptor is guaranteed to be non-None by base class __init__
+        assert self._model_descriptor is not None, "Model descriptor not initialized"
         return LLMResponse(
-            content=json.dumps(
-                {
-                    "error": str(e),
-                    "message": "An error occurred while processing the request",
-                    "timestamp": datetime.utcnow().isoformat() + "Z",
-                }
-            ),
-            metadata={"error": str(e)},
+            content="",
+            success=False,
+            model=self._model_descriptor,
+            error=str(e),
+            metadata={"error_type": type(e).__name__},
+            token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
         )
+
+    def _create_generation_config(self) -> genai.types.GenerationConfig:
+        """Create a generation config for Gemini."""
+        return genai.types.GenerationConfig(temperature=self.temperature, max_output_tokens=self.max_tokens)

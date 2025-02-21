@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, Union
 
 import yaml
+from llmaestro.config.agent import AgentTypeConfig
+from llmaestro.core.models import BaseResponse
+from llmaestro.llm.interfaces.base import ImageInput, MediaType
+from llmaestro.llm.llm_registry import LLMRegistry
+from llmaestro.prompts.base import BasePrompt
 from pdf2image import convert_from_path
 from pydantic import BaseModel, Field
-
-from llmaestro.core.models import AgentConfig, BaseResponse
-from llmaestro.llm.interfaces.base import ImageInput, MediaType
-from llmaestro.llm.models import ModelRegistry
-from llmaestro.prompts.base import BasePrompt
 
 
 class PDFReaderResponse(BaseResponse):
@@ -89,14 +89,14 @@ class PDFReader:
             self.api_key = config_data["llm"]["api_key"]
 
         # Initialize model registry
-        self.model_registry = ModelRegistry()
-        self.model_registry = ModelRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
+        self.llm_registry = LLMRegistry()
+        self.llm_registry = LLMRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
 
         # Create LLM config
         model_name = "claude-3-5-sonnet-latest"
-        assert self.model_registry.get_model(model_name) is not None, f"Model {model_name} not found in registry"
+        assert self.llm_registry.get_model(model_name) is not None, f"Model {model_name} not found in registry"
 
-        self.llm_config = AgentConfig(
+        self.llm_config = AgentTypeConfig(
             provider="anthropic",
             model_name=model_name,
             api_key=self.api_key,
@@ -105,8 +105,8 @@ class PDFReader:
         )
 
         # Create LLM interface
-        provider_class = self.model_registry.get_provider_class(self.llm_config.provider)
-        self.llm = provider_class(config=self.llm_config, model_registry=self.model_registry)
+        provider_class = self.llm_registry.get_provider_class(self.llm_config.provider)
+        self.llm = provider_class(config=self.llm_config, llm_registry=self.llm_registry)
 
     async def process_pdf(self, pdf_path: Union[str, Path]) -> PDFReaderResponse:
         """Process a PDF file and extract structured data.

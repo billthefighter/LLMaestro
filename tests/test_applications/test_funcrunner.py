@@ -16,7 +16,6 @@ from llmaestro.applications.funcrunner.app import (
     FunctionCallResponse
 )
 from llmaestro.llm.interfaces.base import LLMResponse
-from llmaestro.core.models import AgentConfig
 from llmaestro.prompts.base import BasePrompt
 
 
@@ -89,7 +88,7 @@ def mock_prompt_loader(mock_prompt):
     return mock
 
 @pytest.fixture
-def mock_model_registry():
+def mock_llm_registry():
     """Mock model registry for testing."""
     mock = MagicMock()
     mock.get_model.return_value = MagicMock(
@@ -120,15 +119,15 @@ llm:
     return config_path
 
 @pytest.fixture
-def function_runner(mock_llm, mock_prompt_loader, mock_model_registry):
+def function_runner(mock_llm, mock_prompt_loader, mock_llm_registry):
     """Create a FunctionRunner instance for testing."""
     with patch("src.llmaestro.applications.funcrunner.app.create_llm_interface") as mock_create_llm, \
          patch("src.llmaestro.applications.funcrunner.app.PromptLoader") as MockPromptLoader, \
-         patch("src.llmaestro.applications.funcrunner.app.ModelRegistry") as MockModelRegistry:
+         patch("src.llmaestro.applications.funcrunner.app.LLMRegistry") as MockLLMRegistry:
 
         mock_create_llm.return_value = mock_llm
         MockPromptLoader.return_value = mock_prompt_loader
-        MockModelRegistry.from_yaml.return_value = mock_model_registry
+        MockLLMRegistry.from_yaml.return_value = mock_llm_registry
 
         runner = FunctionRunner(api_key="test-key")
         # Register test functions
@@ -263,14 +262,14 @@ async def test_process_llm_request_invalid_response(function_runner, mock_llm):
 # Integration Tests
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_function_runner_integration(test_config_path, mock_model_registry, mock_llm, mock_prompt_loader):
+async def test_function_runner_integration(test_config_path, mock_llm_registry, mock_llm, mock_prompt_loader):
     """Integration test with config file and multiple functions."""
     # Initialize runner with real config
-    with patch("llmaestro.applications.funcrunner.app.ModelRegistry") as MockModelRegistry, \
+    with patch("llmaestro.applications.funcrunner.app.LLMRegistry") as MockLLMRegistry, \
          patch("llmaestro.applications.funcrunner.app.create_llm_interface") as mock_create_llm, \
          patch("llmaestro.applications.funcrunner.app.PromptLoader") as MockPromptLoader:
 
-        MockModelRegistry.from_yaml.return_value = mock_model_registry
+        MockLLMRegistry.from_yaml.return_value = mock_llm_registry
         mock_create_llm.return_value = mock_llm
         MockPromptLoader.return_value = mock_prompt_loader
 
@@ -295,12 +294,12 @@ async def test_function_runner_integration(test_config_path, mock_model_registry
 
 
 @pytest.mark.asyncio
-async def test_function_runner_with_real_config(test_config_path, mock_model_registry, mock_llm):
+async def test_function_runner_with_real_config(test_config_path, mock_llm_registry, mock_llm):
     """Test FunctionRunner with a real config file."""
-    with patch("llmaestro.applications.funcrunner.app.ModelRegistry") as MockModelRegistry, \
+    with patch("llmaestro.applications.funcrunner.app.LLMRegistry") as MockLLMRegistry, \
          patch("llmaestro.applications.funcrunner.app.create_llm_interface") as mock_create_llm:
 
-        MockModelRegistry.from_yaml.return_value = mock_model_registry
+        MockLLMRegistry.from_yaml.return_value = mock_llm_registry
         mock_create_llm.return_value = mock_llm
 
         runner = FunctionRunner(config_path=test_config_path)

@@ -3,13 +3,12 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, get_type_hints
 
-from pydantic import BaseModel
-
-from llmaestro.core.models import AgentConfig
+from llmaestro.config.agent import AgentTypeConfig
 from llmaestro.llm.interfaces.factory import create_interface_for_model
-from llmaestro.llm.models import ModelRegistry
+from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +76,7 @@ class FunctionRunner:
                 config_data = yaml.safe_load(f)
                 api_key = api_key or config_data.get("llm", {}).get("api_key")
 
-        self.config = AgentConfig(
+        self.config = AgentTypeConfig(
             provider="anthropic",  # Default to Anthropic for function calling
             model_name=model_name,
             api_key=api_key,
@@ -87,11 +86,11 @@ class FunctionRunner:
 
     def _init_llm(self):
         """Initialize LLM interface using factory pattern."""
-        self.model_registry = ModelRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
-        model = self.model_registry.get_model(self.config.model_name)
+        self.llm_registry = LLMRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
+        model = self.llm_registry.get_model(self.config.model_name)
         if not model:
             raise ValueError(f"Model {self.config.model_name} not found in registry")
-        self.llm = create_interface_for_model(model, self.config, self.model_registry)
+        self.llm = create_interface_for_model(model, self.config, self.llm_registry)
 
     def _init_prompts(self):
         """Load prompt templates for function calling."""

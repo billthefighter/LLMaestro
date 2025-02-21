@@ -1,0 +1,165 @@
+# Provider-level configuration
+provider:
+  provider_name: claude
+  api_base: "https://api.anthropic.com/v1"
+  rate_limits:
+    requests_per_minute: 1000
+    tokens_per_minute: 100000
+  features:
+    - supports_batch_requests
+    - supports_async_requests
+
+# Model configurations
+models:
+  - name: claude-3-opus-latest
+    family: claude
+    description: Most capable Claude 3 model, best for complex tasks requiring deep analysis, coding, and reasoning
+
+    # Resource Limits
+    max_context_window: 200000
+    max_output_tokens: 4096
+
+    # Core Features
+    supports_streaming: true
+    supports_function_calling: true
+    supports_vision: true
+    supports_embeddings: false
+    supports_json_mode: true
+    supports_system_prompt: true
+    supports_tools: true
+    supports_parallel_requests: true
+
+    # Advanced Features
+    supports_frequency_penalty: false
+    supports_presence_penalty: false
+    supports_stop_sequences: true
+    supports_message_role: true
+
+    # Performance & Cost
+    typical_speed: 150.0
+    supported_languages: ["en"]
+    input_cost_per_1k_tokens: 0.015
+    output_cost_per_1k_tokens: 0.075
+
+    # Quality Settings
+    temperature:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 0.7
+    top_p:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 1.0
+
+    # Vision Capabilities
+    vision_capabilities:
+      max_images_per_request: 1
+      supported_formats: ["png", "jpeg", "gif", "webp"]
+      max_image_size_mb: 20
+      max_image_resolution: 2048
+      supports_image_annotations: false
+      supports_image_analysis: true
+      supports_image_generation: false
+      cost_per_image: 0.065
+
+  - name: claude-3-sonnet-latest
+    family: claude
+    description: Balanced Claude 3 model offering strong performance at a lower cost than Opus
+
+    # Resource Limits
+    max_context_window: 200000
+    max_output_tokens: 4096
+
+    # Core Features
+    supports_streaming: true
+    supports_function_calling: true
+    supports_vision: true
+    supports_embeddings: false
+    supports_json_mode: true
+    supports_system_prompt: true
+    supports_tools: true
+    supports_parallel_requests: true
+
+    # Advanced Features
+    supports_frequency_penalty: false
+    supports_presence_penalty: false
+    supports_stop_sequences: true
+    supports_message_role: true
+
+    # Performance & Cost
+    typical_speed: 150.0
+    supported_languages: ["en"]
+    input_cost_per_1k_tokens: 0.003
+    output_cost_per_1k_tokens: 0.015
+
+    # Quality Settings
+    temperature:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 0.7
+    top_p:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 1.0
+
+    # Vision Capabilities
+    vision_capabilities:
+      max_images_per_request: 1
+      supported_formats: ["png", "jpeg", "gif", "webp"]
+      max_image_size_mb: 20
+      max_image_resolution: 2048
+      supports_image_annotations: false
+      supports_image_analysis: true
+      supports_image_generation: false
+      cost_per_image: 0.013
+
+  - name: claude-3-haiku-latest
+    family: claude
+    description: Fastest and most cost-effective Claude 3 model, optimized for simpler tasks
+
+    # Resource Limits
+    max_context_window: 200000
+    max_output_tokens: 4096
+
+    # Core Features
+    supports_streaming: true
+    supports_function_calling: true
+    supports_vision: true
+    supports_embeddings: false
+    supports_json_mode: true
+    supports_system_prompt: true
+    supports_tools: true
+    supports_parallel_requests: true
+
+    # Advanced Features
+    supports_frequency_penalty: false
+    supports_presence_penalty: false
+    supports_stop_sequences: true
+    supports_message_role: true
+
+    # Performance & Cost
+    typical_speed: 200.0  # Faster than other models
+    supported_languages: ["en"]
+    input_cost_per_1k_tokens: 0.00025
+    output_cost_per_1k_tokens: 0.00125
+
+    # Quality Settings
+    temperature:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 0.7
+    top_p:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 1.0
+
+    # Vision Capabilities
+    vision_capabilities:
+      max_images_per_request: 1
+      supported_formats: ["png", "jpeg", "gif", "webp"]
+      max_image_size_mb: 20
+      max_image_resolution: 2048
+      supports_image_annotations: false
+      supports_image_analysis: true
+      supports_image_generation: false
+      cost_per_image: 0.00065

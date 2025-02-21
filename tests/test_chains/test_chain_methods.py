@@ -15,13 +15,10 @@ from llmaestro.chains.chains import (
     ChainEdge,
     ChainGraph,
 )
-from llmaestro.agents.models.models import AgentCapability
-from llmaestro.llm.models import ModelDescriptor, ModelCapabilities
-from llmaestro.core.models import TokenUsage
+
 from llmaestro.llm.interfaces import LLMResponse
 
-# Import fixtures
-pytest_plugins = ["tests.test_chains.fixtures"]
+
 
 
 @pytest.mark.asyncio

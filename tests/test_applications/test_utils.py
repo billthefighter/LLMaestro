@@ -4,14 +4,15 @@ from typing import Any, Dict, Optional
 
 from llmaestro.llm.interfaces import LLMResponse
 from llmaestro.llm.interfaces.base import BaseLLMInterface
-from llmaestro.llm.models import ModelCapabilities, ModelFamily, ModelRegistry
+from llmaestro.llm.models import LLMCapabilities, ModelFamily
+from llmaestro.llm.llm_registry import LLMRegistry
 import pytest
 
 
 class MockLLM(BaseLLMInterface):
     """Mock LLM implementation for testing."""
 
-    def __init__(self, registry: ModelRegistry, response: Dict[str, Any]):
+    def __init__(self, registry: LLMRegistry, response: Dict[str, Any]):
         self._registry = registry
         self._response = response
 
@@ -24,10 +25,10 @@ class MockLLM(BaseLLMInterface):
         return "claude-3-sonnet-20240229"
 
     @property
-    def capabilities(self) -> ModelCapabilities:
+    def capabilities(self) -> LLMCapabilities:
         model = self._registry.get_model(self.model_name)
         if model is None:
-            return ModelCapabilities(
+            return LLMCapabilities(
                 supports_streaming=True,
                 supports_function_calling=True,
                 supports_vision=True,

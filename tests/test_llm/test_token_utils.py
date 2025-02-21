@@ -15,7 +15,7 @@ from llmaestro.llm.token_utils import (
     TokenizerRegistry,
     TokenCounter,
 )
-from llmaestro.llm.models import ModelFamily, ModelCapabilities, ModelDescriptor
+from llmaestro.llm.models import ModelFamily, LLMCapabilities, LLMProfile
 
 
 
@@ -236,7 +236,7 @@ class TestTokenCounter:
 class TestImageTokenCounting:
     """Tests for image token counting functionality."""
 
-    def test_estimate_image_tokens_claude(self, mock_model_registry):
+    def test_estimate_image_tokens_claude(self, mock_llm_registry):
         """Test image token estimation for Claude models."""
         counter = TokenCounter()
         image_sizes = [512 * 512, 1024 * 1024]  # One small, one large image
@@ -253,7 +253,7 @@ class TestImageTokenCounting:
         expected_tokens = 426 + 4266
         assert tokens == expected_tokens
 
-    def test_estimate_image_tokens_gpt4v(self, mock_model_registry):
+    def test_estimate_image_tokens_gpt4v(self, mock_llm_registry):
         """Test image token estimation for GPT-4V models."""
         counter = TokenCounter()
         image_sizes = [512 * 512, 1024 * 1024]  # One small, one large image
@@ -270,11 +270,11 @@ class TestImageTokenCounting:
         expected_tokens = 149 + 1109
         assert tokens == expected_tokens
 
-    def test_estimate_image_tokens_unsupported_model(self, mock_model_registry):
+    def test_estimate_image_tokens_unsupported_model(self, mock_llm_registry):
         """Test image token estimation for models without vision support."""
         counter = TokenCounter()
         # Override mock to disable vision support
-        mock_model_registry.capabilities.supports_vision = False
+        mock_llm_registry.capabilities.supports_vision = False
 
         tokens = counter.estimate_image_tokens(
             image_sizes=[512 * 512],
@@ -290,7 +290,7 @@ class TestImageTokenCounting:
     ])
     def test_image_size_scaling(
         self,
-        mock_model_registry,
+        mock_llm_registry,
         model_family: ModelFamily,
         model_name: str,
         expected_multiplier: float
@@ -318,7 +318,7 @@ class TestCombinedTokenCounting:
 
     def test_estimate_messages_with_images(
         self,
-        mock_model_registry,
+        mock_llm_registry,
         sample_messages: List[Dict[str, str]],
         sample_image_data: List[Dict[str, int]]
     ):
@@ -339,7 +339,7 @@ class TestCombinedTokenCounting:
 
     def test_estimate_cost(
         self,
-        mock_model_registry,
+        mock_llm_registry,
         sample_messages: List[Dict[str, str]],
         sample_image_data: List[Dict[str, int]]
     ):
@@ -372,10 +372,10 @@ class TestCombinedTokenCounting:
 
         assert cost == pytest.approx(expected_total, rel=1e-6)
 
-    def test_zero_cost_for_unknown_model(self, mock_model_registry):
+    def test_zero_cost_for_unknown_model(self, mock_llm_registry):
         """Test cost estimation returns zero for unknown models."""
         counter = TokenCounter()
-        mock_model_registry.return_value = None  # Simulate unknown model
+        mock_llm_registry.return_value = None  # Simulate unknown model
 
         cost = counter.estimate_cost(
             token_counts={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},

@@ -9,10 +9,9 @@ from pathlib import Path
 from typing import Dict, Literal, Optional
 
 import yaml
-
 from llmaestro.core.models import AgentConfig
 from llmaestro.llm.interfaces.factory import create_interface_for_model
-from llmaestro.llm.models import ModelDescriptor, ModelFamily, ModelRegistry
+from llmaestro.llm.models import LLMProfile, LLMRegistry, ModelFamily
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 
@@ -48,9 +47,9 @@ HELLO_WORLD_PROMPT = TestPrompt(
 EXPECTED_RESPONSE_SUBSTRING = "hello world"
 
 
-def get_model_registry() -> ModelRegistry:
+def get_llm_registry() -> LLMRegistry:
     """Initialize model registry with all available models."""
-    registry = ModelRegistry()
+    registry = LLMRegistry()
     models_dir = Path("src/llm/models")
 
     if not models_dir.exists():
@@ -60,7 +59,7 @@ def get_model_registry() -> ModelRegistry:
     # Load all YAML files in the models directory
     for yaml_path in models_dir.glob("*.yaml"):
         try:
-            loaded_registry = ModelRegistry.from_yaml(yaml_path)
+            loaded_registry = LLMRegistry.from_yaml(yaml_path)
             for model in loaded_registry._models.values():
                 registry.register(model)
             print(f"✅ Loaded models from {yaml_path}")
@@ -117,7 +116,7 @@ def load_config() -> Optional[Config]:
         return None
 
 
-async def test_model(model: ModelDescriptor, config: Optional[Config], registry: ModelRegistry) -> TestResult:
+async def test_model(model: LLMProfile, config: Optional[Config], registry: LLMRegistry) -> TestResult:
     """Test connectivity for a specific model with detailed error handling."""
     api_key = get_api_key(ModelFamily(model.family))
     if not api_key:
@@ -167,7 +166,7 @@ async def test_model(model: ModelDescriptor, config: Optional[Config], registry:
         return "failure"
 
 
-def save_results(registry: ModelRegistry):
+def save_results(registry: LLMRegistry):
     """Save test results and generate badges."""
     results_dir = Path("test-results")
     results_dir.mkdir(exist_ok=True)
@@ -198,7 +197,7 @@ def save_results(registry: ModelRegistry):
         print(f"❌ Failed to generate badges: {e}")
 
 
-async def test_model_family(family: ModelFamily, config: Optional[Config], registry: ModelRegistry):
+async def test_model_family(family: ModelFamily, config: Optional[Config], registry: LLMRegistry):
     """Test all models in a specific family."""
     models = registry.get_family_models(family)
 
@@ -214,7 +213,7 @@ async def test_model_family(family: ModelFamily, config: Optional[Config], regis
 async def main():
     """Main function to run model connectivity validation."""
     config = load_config()
-    registry = get_model_registry()
+    registry = get_llm_registry()
 
     # Test all model families from the registry
     for family in ModelFamily:

@@ -1,13 +1,12 @@
-"""Fixtures for chain testing."""
+"""Chain testing configuration and fixtures."""
 
 import pytest
 from datetime import datetime
-from typing import Dict, Any, Set, Callable, List, Optional, Union
+from typing import Dict, Any, Callable, List, Optional, Union
 from uuid import uuid4
 from enum import Enum
 
 from llmaestro.agents.agent_pool import AgentPool
-from llmaestro.agents.models.models import AgentCapability
 from llmaestro.chains.chains import (
     NodeType,
     AgentType,
@@ -20,10 +19,9 @@ from llmaestro.chains.chains import (
     ChainEdge,
     ChainGraph,
 )
-from llmaestro.core.models import BaseResponse, AgentConfig, TokenUsage
-from llmaestro.core.storage import Artifact, ArtifactStorage
+from llmaestro.core.models import TokenUsage
 from llmaestro.llm.interfaces import BaseLLMInterface, LLMResponse
-from llmaestro.llm.models import ModelFamily, ModelDescriptor, ModelCapabilities, ModelRegistry
+from llmaestro.llm.models import ModelFamily, LLMProfile, LLMCapabilities
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
 from llmaestro.prompts.types import (
@@ -33,14 +31,6 @@ from llmaestro.prompts.types import (
 )
 from llmaestro.llm.interfaces.base import ConversationContext
 from llmaestro.llm.token_utils import TokenCounter
-from llmaestro.agents.models.config import AgentPoolConfig, AgentTypeConfig, AgentRuntimeConfig
-from llmaestro.core.config import (
-    UserConfig,
-    ConfigurationManager,
-    SystemConfig,
-    ProviderConfig,
-)
-from llmaestro.llm.provider_registry import ModelConfig
 
 
 class ChangeType(str, Enum):
@@ -52,11 +42,11 @@ class ChangeType(str, Enum):
 
 
 @pytest.fixture
-def test_response() -> LLMResponse:
-    """Test LLM response."""
+def test_response(mock_LLMProfile) -> LLMResponse:
+    """Test LLM response using the mock model descriptor from root conftest."""
     return LLMResponse(
         content="Test response",
-        model=ModelDescriptor(name="test", family="test", capabilities=ModelCapabilities()),
+        model=mock_LLMProfile,
         token_usage=TokenUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
         context_metrics=None,
         success=True,
@@ -65,19 +55,15 @@ def test_response() -> LLMResponse:
 
 
 @pytest.fixture
-def mock_llm(test_response):
-    """Mock LLM interface."""
+def mock_llm(test_response, config_manager):
+    """Mock LLM interface using configuration from root conftest."""
     class MockLLM(BaseLLMInterface):
-        def __init__(self, config: AgentConfig, model_registry: Optional[ModelRegistry] = None):
+        def __init__(self, config, llm_registry=None):
             self.config = config
             self.context = ConversationContext([])
             self._total_tokens = 0
             self._token_counter = TokenCounter()
-            self._model_descriptor = ModelDescriptor(
-                name="test",
-                family="test",
-                capabilities=ModelCapabilities()
-            )
+            self._model_descriptor = test_response.model
 
         @property
         def model_family(self) -> ModelFamily:
@@ -241,131 +227,14 @@ def chain_edge(chain_node) -> ChainEdge:
 
 
 @pytest.fixture
-def test_model_config():
-    """Test model configuration."""
-    return {
-        "provider": "anthropic",
-        "model": "claude-3-sonnet-20240229",
-        "description": "Test Agent using Claude 3 Sonnet",
-        "capabilities": {AgentCapability.TEXT, AgentCapability.CODE},
-        "runtime": {
-            "max_tokens": 32000,
-            "temperature": 0.7,
-            "stream": True,
-            "max_context_tokens": 32000,
-            "rate_limit": {
-                "requests_per_minute": 60,
-                "requests_per_hour": 3600,
-                "max_daily_tokens": 1000000,
-                "alert_threshold": 0.8
-            }
-        }
-    }
-
-
-@pytest.fixture
-def mock_config(monkeypatch, test_model_config):
-    """Mock configuration manager."""
-    class MockConfigManager:
-        def __init__(self):
-            self._user_config = UserConfig(
-                api_keys={"anthropic": "test-key"},
-                default_model={
-                    "provider": "anthropic",
-                    "name": "claude-3-sonnet-20240229",
-                },
-                agents={
-                    "max_agents": 10,
-                    "default_agent_type": "general",
-                    "agent_types": {
-                        "test_task": test_model_config,
-                        "general": test_model_config,
-                    }
-                },
-                storage={
-                    "path": "test_storage",
-                    "format": "json"
-                },
-                visualization={
-                    "enabled": False,
-                    "host": "localhost",
-                    "port": 8501,
-                    "debug": False
-                },
-                logging={
-                    "level": "INFO",
-                    "file": "test.log"
-                }
-            )
-
-            model_config = ModelConfig(
-                family="claude",
-                context_window=200000,
-                typical_speed=100.0,
-                features=set([
-                    "streaming",
-                    "function_calling",
-                    "vision",
-                    "json_mode",
-                    "system_prompt"
-                ]),
-                cost={
-                    "input_per_1k": 0.015,
-                    "output_per_1k": 0.075
-                }
-            )
-
-            provider_config = ProviderConfig(
-                api_base="https://api.anthropic.com/v1",
-                models={"claude-3-sonnet-20240229": model_config},
-                rate_limits={
-                    "requests_per_minute": 50,
-                    "tokens_per_minute": 100000
-                },
-                capabilities_detector="llm.models.ModelCapabilitiesDetector._detect_anthropic_capabilities"
-            )
-
-            self._system_config = SystemConfig(
-                providers={"anthropic": provider_config}
-            )
-
-        @property
-        def user_config(self) -> UserConfig:
-            return self._user_config
-
-        @property
-        def system_config(self) -> SystemConfig:
-            return self._system_config
-
-        def load_configs(self, *args, **kwargs) -> None:
-            """Mock load_configs to do nothing since configs are already set."""
-            pass
-
-    # Mock the get_config function
-    mock_manager = MockConfigManager()
-    monkeypatch.setattr("llmaestro.core.config.get_config", lambda: mock_manager)
-    return mock_manager
-
-
-@pytest.fixture
-def agent_pool(test_model_config, mock_config, mock_llm, monkeypatch):
-    """Fixture for AgentPool."""
-    # First ensure the mock config is set up
-    monkeypatch.setattr("llmaestro.core.config.get_config", lambda: mock_config)
-    monkeypatch.setattr("llmaestro.agents.agent_pool.get_config", lambda: mock_config)
-
-    # Mock the LLM interface creation at both potential import paths
+def agent_pool(config_manager, mock_llm, monkeypatch):
+    """Fixture for AgentPool using base configuration from root conftest."""
+    monkeypatch.setattr("llmaestro.core.config.get_config", lambda: config_manager)
+    monkeypatch.setattr("llmaestro.agents.agent_pool.get_config", lambda: config_manager)
     monkeypatch.setattr("llmaestro.llm.interfaces.factory.create_llm_interface", lambda config: mock_llm(config))
     monkeypatch.setattr("llmaestro.llm.interfaces.factory.AnthropicLLM", mock_llm)
 
-    config = AgentPoolConfig(
-        agent_types={
-            "test_task": AgentTypeConfig(**test_model_config),
-            "general": AgentTypeConfig(**test_model_config),  # Add default general agent type
-        },
-        default_agent_type="general"  # Set default agent type
-    )
-    return AgentPool(config=config)
+    return AgentPool(config=config_manager.user_config.agents)
 
 
 @pytest.fixture

@@ -8,8 +8,8 @@ from pydantic import BaseModel, ConfigDict, PrivateAttr
 from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig
 from llmaestro.config.system import SystemConfig
 from llmaestro.config.user import UserConfig
-from llmaestro.llm import ModelRegistry, ProviderRegistry
-from llmaestro.llm.provider_registry import ProviderConfig
+from llmaestro.llm import LLMRegistry, ProviderRegistry
+from llmaestro.llm.provider_registry import Provider
 
 
 class ConfigurationManager(BaseModel):
@@ -18,7 +18,7 @@ class ConfigurationManager(BaseModel):
     user_config: UserConfig
     system_config: SystemConfig
     _provider_registry: ProviderRegistry = PrivateAttr()
-    _model_registry: ModelRegistry = PrivateAttr()
+    _llm_registry: LLMRegistry = PrivateAttr()
     _agent_pool_config: Optional[AgentPoolConfig] = PrivateAttr(default=None)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -29,10 +29,20 @@ class ConfigurationManager(BaseModel):
         self._provider_registry = ProviderRegistry()
         for name, config in self.system_config.providers.items():
             if isinstance(config, dict):
-                config = ProviderConfig(**config)
+                config = Provider(**config)
+            elif not isinstance(config, Provider):
+                # Convert ProviderSystemConfig to Provider
+                config = Provider(
+                    name=config.name,
+                    api_base=config.api_base,
+                    capabilities_detector=config.capabilities_detector,
+                    rate_limits=config.rate_limits,
+                    features=set(),
+                    models={},
+                )
             self._provider_registry.register_provider(name, config)
 
-        self._model_registry = ModelRegistry(self._provider_registry)
+        self._llm_registry = LLMRegistry(self._provider_registry)
         self._register_models()
 
     @classmethod
@@ -94,11 +104,11 @@ class ConfigurationManager(BaseModel):
         """Register models from configuration."""
         # Register default model
         default_model = self.user_config.default_model
-        self._model_registry.register_from_provider(default_model.provider, default_model.name)
+        self._llm_registry.register_from_provider(default_model.provider, default_model.name)
 
         # Register agent models
         for agent_config in self.user_config.agents.agent_types.values():
-            self._model_registry.register_from_provider(agent_config.provider, agent_config.model)
+            self._llm_registry.register_from_provider(agent_config.provider, agent_config.model)
 
     def _create_agent_pool_config(self) -> AgentPoolConfig:
         """Create AgentPoolConfig from user configuration."""
@@ -117,9 +127,9 @@ class ConfigurationManager(BaseModel):
         return self._provider_registry
 
     @property
-    def model_registry(self) -> ModelRegistry:
+    def llm_registry(self) -> LLMRegistry:
         """Get the model registry."""
-        return self._model_registry
+        return self._llm_registry
 
     def get_model_config(self, provider: str, model_name: str) -> dict:
         """Get the combined configuration for a specific model."""

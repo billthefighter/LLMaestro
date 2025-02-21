@@ -9,14 +9,14 @@ async def test_test_response(test_response):
     assert test_response is not None
 
 
-def test_mock_model_registry_simple(mock_model_registry_simple):
-    """Verify mock_model_registry_simple fixture."""
-    assert mock_model_registry_simple is not None
+def test_mock_llm_registry_simple(mock_llm_registry_simple):
+    """Verify mock_llm_registry_simple fixture."""
+    assert mock_llm_registry_simple is not None
 
 
-def test_mock_model_registry_full(mock_model_registry_full):
-    """Verify mock_model_registry_full fixture."""
-    assert mock_model_registry_full is not None
+def test_mock_llm_registry_full(mock_llm_registry_full):
+    """Verify mock_llm_registry_full fixture."""
+    assert mock_llm_registry_full is not None
 
 
 def test_mock_tokenizer(mock_tokenizer):

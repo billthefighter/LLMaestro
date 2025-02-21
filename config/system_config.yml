@@ -1,7 +1,7 @@
 providers:
   anthropic:
     api_base: https://api.anthropic.com/v1
-    capabilities_detector: llm.models.ModelCapabilitiesDetector._detect_anthropic_capabilities
+    capabilities_detector: llm.models.LLMCapabilitiesDetector._detect_anthropic_capabilities
     models:
       claude-3-opus-20240229:
         family: claude
@@ -35,7 +35,7 @@ providers:
 
   openai:
     api_base: https://api.openai.com/v1
-    capabilities_detector: llm.models.ModelCapabilitiesDetector._detect_openai_capabilities
+    capabilities_detector: llm.models.LLMCapabilitiesDetector._detect_openai_capabilities
     models:
       gpt-4-turbo-preview:
         family: gpt
@@ -70,7 +70,7 @@ providers:
 
   huggingface:
     api_base: https://api.huggingface.co
-    capabilities_detector: llm.models.ModelCapabilitiesDetector._detect_huggingface_capabilities
+    capabilities_detector: llm.models.LLMCapabilitiesDetector._detect_huggingface_capabilities
     models: {}  # Models are deployment-specific
     features:
       - streaming

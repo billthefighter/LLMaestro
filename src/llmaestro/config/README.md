@@ -40,7 +40,7 @@ class LoggingConfig(BaseModel):
 ### Model Configuration (`model.py`)
 Model-specific configuration including capabilities and runtime settings:
 ```python
-class ModelCapabilities(BaseModel):
+class LLMCapabilities(BaseModel):
     supports_streaming: bool
     supports_function_calling: bool
     max_context_window: int
@@ -49,14 +49,14 @@ class ModelCapabilities(BaseModel):
 class ModelConfig(BaseModel):
     provider: str
     name: str
-    capabilities: ModelCapabilities
+    capabilities: LLMCapabilities
     settings: Dict[str, Any]
 ```
 
 ### Provider Configuration (`provider.py`)
 Provider-specific settings and API configurations:
 ```python
-class ProviderConfig(BaseModel):
+class Provider(BaseModel):
     api_base: str
     capabilities_detector: str
     models: Dict[str, ModelConfig]
@@ -73,7 +73,7 @@ class AgentTypeConfig(BaseModel):
     temperature: float
     description: Optional[str]
     settings: Dict[str, Any]
-    capabilities: Optional[ModelCapabilities]
+    capabilities: Optional[LLMCapabilities]
 
 class AgentPoolConfig(BaseModel):
     max_agents: int
@@ -85,7 +85,7 @@ class AgentPoolConfig(BaseModel):
 System-wide settings and provider configurations:
 ```python
 class SystemConfig(BaseModel):
-    providers: Dict[str, ProviderConfig]
+    providers: Dict[str, Provider]
 ```
 
 ### User Configuration (`user.py`)

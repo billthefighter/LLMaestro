@@ -15,7 +15,8 @@ from llmaestro.core.models import (
     LLMResponse,  # Updated to import from core.models
     TokenUsage,
 )
-from llmaestro.llm.models import MediaType, ModelDescriptor, ModelFamily, ModelRegistry
+from llmaestro.llm.llm_registry import LLMRegistry
+from llmaestro.llm.models import LLMProfile, MediaType, ModelFamily
 from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.base import BasePrompt
@@ -115,7 +116,7 @@ class BaseLLMInterface(ABC):
             raise ValueError(f"API key is required for provider {self.provider}")
 
         # Use provided registry or create a new one
-        self._registry = ModelRegistry()
+        self._registry = LLMRegistry()
 
         # Try to get model from registry
         self._model_descriptor = self._registry.get_model(self.model)
@@ -141,7 +142,7 @@ class BaseLLMInterface(ABC):
         pass
 
     @property
-    def model_descriptor(self) -> Optional[ModelDescriptor]:
+    def model_descriptor(self) -> Optional[LLMProfile]:
         """Get the descriptor for the current model."""
         return self._model_descriptor
 
@@ -176,7 +177,7 @@ class BaseLLMInterface(ABC):
         self, messages: List[Dict[str, Any]], estimated_tokens: Optional[int] = None
     ) -> Tuple[bool, Optional[str]]:
         """Check if the request would exceed rate limits."""
-        if not self.rate_limit:
+        if not self.rate_limiter:
             return True, None
 
         can_proceed = await self.rate_limiter.check_limits(estimated_tokens)
@@ -193,12 +194,12 @@ class BaseLLMInterface(ABC):
         # Add reminder every N messages
         if (
             self.context.message_count > 0
-            and self.rate_limit.reminder_frequency > 0
-            and self.context.message_count % self.rate_limit.reminder_frequency == 0
+            and self.rate_limiter.reminder_frequency > 0
+            and self.context.message_count % self.rate_limiter.reminder_frequency == 0
         ):
             reminder_message = {
                 "role": "system",
-                "content": self.rate_limit.reminder_template.format(task=self.context.initial_task),
+                "content": self.rate_limiter.reminder_template.format(task=self.context.initial_task),
             }
             self.context.messages.append(reminder_message)
             return True
@@ -206,7 +207,7 @@ class BaseLLMInterface(ABC):
 
     async def _maybe_summarize_context(self) -> bool:
         """Summarize the conversation context if needed."""
-        if not self.rate_limit.enabled:
+        if not self.rate_limiter.enabled:
             return False
 
         # Get current token count
@@ -216,7 +217,7 @@ class BaseLLMInterface(ABC):
         # Check if we need to summarize based on token count or message count
         if (
             current_context_tokens < self.max_context_tokens
-            and len(self.context.messages) < self.rate_limit.preserve_last_n_messages
+            and len(self.context.messages) < self.rate_limiter.preserve_last_n_messages
         ):
             return False
 
@@ -236,7 +237,7 @@ class BaseLLMInterface(ABC):
             if msg.get("role") != "system" or "Remember, your initial task was" not in msg.get("content", "")
         ]
 
-        summary_messages = [summary_prompt] + messages_for_summary[-self.rate_limit.preserve_last_n_messages :]
+        summary_messages = [summary_prompt] + messages_for_summary[-self.rate_limiter.preserve_last_n_messages :]
 
         try:
             stream = await acompletion(
@@ -259,7 +260,7 @@ class BaseLLMInterface(ABC):
 
             # Clear old messages except system prompts and recent ones
             system_messages = [msg for msg in self.context.messages if msg["role"] == "system"]
-            recent_messages = self.context.messages[-self.rate_limit.preserve_last_n_messages :]
+            recent_messages = self.context.messages[-self.rate_limiter.preserve_last_n_messages :]
 
             summary_message = {
                 "role": "system",

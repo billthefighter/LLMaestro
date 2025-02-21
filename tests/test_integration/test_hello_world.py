@@ -10,9 +10,9 @@ import pytest
 from llmaestro.prompts.loader import PromptLoader, FilePrompt
 from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
 from llmaestro.llm.interfaces.base import ConversationContext
-from llmaestro.core.models import AgentConfig
+from llmaestro.config import AgentTypeConfig
 from llmaestro.prompts.types import VersionInfo
-from llmaestro.llm.models import ModelRegistry
+from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.llm.rate_limiter import RateLimiter, RateLimitConfig, SQLiteQuotaStorage
 
@@ -28,10 +28,10 @@ def pytest_addoption(parser):
 
 
 @pytest.fixture
-def model_registry():
+def llm_registry():
     """Load the model registry from YAML files."""
-    registry = ModelRegistry()
-    registry = ModelRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
+    registry = LLMRegistry()
+    registry = LLMRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
     print("Available models in registry:", list(registry._models.keys()))
     return registry
 
@@ -95,7 +95,7 @@ def llm_config():
 
 
 @pytest.fixture
-async def anthropic_llm(llm_config, model_registry):
+async def anthropic_llm(llm_config, llm_registry):
     """Create an instance of the Anthropic LLM interface."""
     # Create a test instance with custom initialization
     llm = AnthropicLLM.__new__(AnthropicLLM)  # Create instance without calling __init__
@@ -107,8 +107,8 @@ async def anthropic_llm(llm_config, model_registry):
     llm._token_counter = TokenCounter()
 
     # Set the registry before any other initialization
-    llm._registry = model_registry
-    llm._model_descriptor = model_registry.get_model(llm.config.model_name)
+    llm._registry = llm_registry
+    llm._model_descriptor = llm_registry.get_model(llm.config.model_name)
 
     if not llm._model_descriptor:
         raise ValueError(f"Could not find descriptor for model {llm.config.model_name}")

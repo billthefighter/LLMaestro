@@ -4,7 +4,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from llmaestro.llm.models import ModelCapabilities
+from llmaestro.llm.models import LLMCapabilities
 
 
 class RateLimitConfig(BaseModel):
@@ -65,7 +65,7 @@ class AgentTypeConfig(BaseModel):
     temperature: float = Field(default=0.7)
     description: Optional[str] = None
     settings: Dict[str, Any] = Field(default_factory=dict)
-    capabilities: Optional[ModelCapabilities] = None
+    capabilities: Optional[LLMCapabilities] = None
     runtime: AgentRuntimeConfig = Field(default_factory=AgentRuntimeConfig)
 
     model_config = ConfigDict(validate_assignment=True)

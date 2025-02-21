@@ -129,7 +129,7 @@ all_artifacts = session.list_artifacts()
 ## Dependencies
 - Requires `pydantic`
 - Uses `asyncio` for concurrency
-- Integrates with `ModelRegistry`
+- Integrates with `LLMRegistry`
 - Depends on `FileSystemArtifactStorage`
 
 ## Contributing

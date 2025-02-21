@@ -1,748 +1,143 @@
-"""Model family descriptors for LLM interfaces."""
-import json
+"""Model definitions and capabilities for LLM interfaces."""
 import mimetypes
 from datetime import datetime
-from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Dict, List, Optional, Set, Type
+from urllib.parse import urlparse
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import JSON, Boolean, Column, DateTime, Integer, String
-from sqlalchemy.orm import declarative_base
 
-from llmaestro.llm.provider_registry import ProviderConfig, ProviderRegistry
-
-Base = declarative_base()
+from .capabilities import LLMCapabilities
+from .capability_detector import BaseCapabilityDetector
+from .enums import ModelFamily
 
 
-class ModelFamily(str, Enum):
-    """Supported model families."""
+class LLMMetadata(BaseModel):
+    """Metadata about a model's lifecycle and status."""
 
-    CLAUDE = "claude"
-    GPT = "gpt"
-    GEMINI = "gemini"
-    HUGGINGFACE = "huggingface"
-
-
-class MediaType(str, Enum):
-    """Standard media types for LLM inputs.
-
-    This enum represents commonly supported media types across different LLM providers.
-    Each provider may support a subset of these types.
-    """
-
-    # Image formats
-    JPEG = "image/jpeg"
-    PNG = "image/png"
-    GIF = "image/gif"
-    WEBP = "image/webp"
-    BMP = "image/bmp"
-    TIFF = "image/tiff"
-    SVG = "image/svg+xml"
-
-    # Document formats
-    PDF = "application/pdf"
-    DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    DOC = "application/msword"
-    TXT = "text/plain"
-
-    # Fallback
-    UNKNOWN = "application/octet-stream"
-
-    @classmethod
-    def from_mime_type(cls, mime_type: str) -> "MediaType":
-        """Convert a MIME type string to MediaType enum."""
-        try:
-            return cls(mime_type)
-        except ValueError:
-            return cls.UNKNOWN
-
-    @classmethod
-    def from_file_extension(cls, file_path: Union[str, Path]) -> "MediaType":
-        """Detect media type from file extension."""
-        mime_type = mimetypes.guess_type(str(file_path))[0]
-        return cls.from_mime_type(mime_type or "application/octet-stream")
-
-    def is_image(self) -> bool:
-        """Check if this media type represents an image format."""
-        return self.value.startswith("image/")
-
-    def is_document(self) -> bool:
-        """Check if this media type represents a document format."""
-        return self.value.startswith("application/")
-
-    def __str__(self) -> str:
-        return self.value
-
-
-class RangeConfig(BaseModel):
-    """Configuration for a numeric range."""
-
-    min_value: float
-    max_value: float
-    default_value: float
+    release_date: Optional[datetime] = None
+    is_preview: bool = False
+    is_deprecated: bool = False
+    end_of_life_date: Optional[datetime] = None
+    recommended_replacement: Optional[str] = None
+    min_api_version: Optional[str] = None
 
     model_config = ConfigDict(validate_assignment=True)
 
-    @field_validator("max_value")
-    def max_value_must_be_greater_than_min(cls, v: float, info: Any) -> float:
-        if "min_value" in info.data and v < info.data["min_value"]:
-            raise ValueError("max_value must be greater than min_value")
-        return v
 
-    @field_validator("default_value")
-    def default_value_must_be_in_range(cls, v: float, info: Any) -> float:
-        if "min_value" in info.data and v < info.data["min_value"]:
-            raise ValueError("default_value must be greater than or equal to min_value")
-        if "max_value" in info.data and v > info.data["max_value"]:
-            raise ValueError("default_value must be less than or equal to max_value")
-        return v
+class VisionCapabilities(BaseModel):
+    """Vision-specific capabilities and limitations."""
 
-
-class ModelCapabilities(BaseModel):
-    """Capabilities of a model family."""
-
-    # Core Features
-    supports_streaming: bool = True
-    supports_function_calling: bool = False
-    supports_vision: bool = False
-    supports_embeddings: bool = False
-
-    # Vision/Image Capabilities
-    vision_config: Optional[Dict[str, Any]] = Field(
-        default_factory=lambda: {
-            "max_images_per_request": 1,
-            "supported_formats": ["png", "jpeg"],
-            "max_image_size_mb": 20,
-            "max_image_resolution": 2048,  # max pixels in either dimension
-            "supports_image_annotations": False,  # whether model can handle image region annotations
-            "supports_image_analysis": False,  # whether model can analyze image content
-            "supports_image_generation": False,  # whether model can generate images
-            "cost_per_image": 0.0,  # additional cost per image in request
-        },
-        description="Configuration for vision/image capabilities when supports_vision is True",
-    )
-
-    # Context and Performance
-    max_context_window: int = Field(default=4096, gt=0)
-    max_output_tokens: Optional[int] = Field(default=None, gt=0)
-    typical_speed: Optional[float] = Field(default=None, gt=0)
-
-    # Cost and Quotas
-    cost_per_1k_tokens: float = Field(default=0.0, ge=0)
-    input_cost_per_1k_tokens: Optional[float] = Field(default=None, ge=0)
-    output_cost_per_1k_tokens: Optional[float] = Field(default=None, ge=0)
-    daily_request_limit: Optional[int] = Field(default=None, ge=0)
-
-    # Advanced Features
-    supports_json_mode: bool = False
-    supports_system_prompt: bool = True
-    supports_message_role: bool = True
-    supports_tools: bool = False
-    supports_parallel_requests: bool = True
-
-    # Input/Output Capabilities
-    supported_languages: Set[str] = Field(default_factory=lambda: {"en"})
-    supported_media_types: Set[str] = Field(
-        default_factory=set,
-        description="Set of supported media types (e.g., image/jpeg, image/png). Used for type validation.",
-    )
-    max_image_size: Optional[int] = Field(default=None, gt=0)
-    max_audio_length: Optional[float] = Field(default=None, gt=0)
-
-    # Quality and Control
-    temperature: RangeConfig = Field(
-        default_factory=lambda: RangeConfig(min_value=0.0, max_value=2.0, default_value=1.0)
-    )
-    top_p: RangeConfig = Field(default_factory=lambda: RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0))
-    supports_frequency_penalty: bool = False
-    supports_presence_penalty: bool = False
-    supports_stop_sequences: bool = True
-
-    # Specialized Features
-    supports_semantic_search: bool = False
-    supports_code_completion: bool = False
-    supports_chat_memory: bool = False
-    supports_few_shot_learning: bool = True
+    max_images_per_request: int = 1
+    supported_formats: List[str] = ["png", "jpeg"]
+    max_image_size_mb: int = 20
+    max_image_resolution: int = 2048
+    supports_image_annotations: bool = False
+    supports_image_analysis: bool = False
+    supports_image_generation: bool = False
+    cost_per_image: float = 0.0
 
     model_config = ConfigDict(validate_assignment=True)
 
-    def model_dump(self, **kwargs):
-        data = super().model_dump(**kwargs)
-        # Convert sets to lists for JSON serialization
-        if "supported_languages" in data:
-            data["supported_languages"] = list(data["supported_languages"])
-        if "supported_media_types" in data:
-            data["supported_media_types"] = list(data["supported_media_types"])
-        return data
+
+class LLMProfile(BaseModel):
+    """Complete profile of an LLM's capabilities and metadata."""
+
+    capabilities: LLMCapabilities
+    metadata: LLMMetadata
+    vision_capabilities: Optional[VisionCapabilities] = None
+
+    model_config = ConfigDict(validate_assignment=True)
 
     @property
-    def supports_images(self) -> bool:
-        """Helper property to check if model supports image inputs."""
-        return self.supports_vision and bool(self.vision_config)
+    def name(self) -> str:
+        """LLM name from capabilities."""
+        return self.capabilities.name
 
-    def get_image_limits(self) -> Dict[str, Any]:
-        """Get the image-related limitations for this model."""
-        if not self.supports_images:
-            return {}
-        return self.vision_config or {}
+    @property
+    def family(self) -> ModelFamily:
+        """LLM family from capabilities."""
+        return self.capabilities.family
+
+    def supports_feature(self, feature: str) -> bool:
+        """Check if a specific feature is supported."""
+        return self.capabilities.supports_feature(feature)
+
+    def get_limit(self, limit_type: str) -> Optional[int]:
+        """Get a specific resource limit."""
+        return self.capabilities.get_limit(limit_type)
+
+    def supports_media_type(self, media_type: str) -> bool:
+        """Check if a specific media type is supported."""
+        if not self.vision_capabilities:
+            return False
+        mime_type = mimetypes.guess_type(media_type)[0]
+        return bool(mime_type and any(mime_type.endswith(fmt) for fmt in self.vision_capabilities.supported_formats))
 
     def validate_image_request(
         self, image_count: int, formats: List[str], sizes: List[int]
-    ) -> Tuple[bool, Optional[str]]:
-        """Validate if an image request meets the model's capabilities.
-
-        Args:
-            image_count: Number of images in the request
-            formats: List of image formats (e.g., ['png', 'jpeg'])
-            sizes: List of image sizes in MB
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        if not self.supports_images:
+    ) -> tuple[bool, Optional[str]]:
+        """Validate if an image request meets the model's capabilities."""
+        if not self.vision_capabilities:
             return False, "Model does not support image inputs"
 
-        config = self.vision_config or {}
+        if image_count > self.vision_capabilities.max_images_per_request:
+            return False, f"Too many images. Maximum allowed: {self.vision_capabilities.max_images_per_request}"
 
-        # Check image count
-        max_images = config.get("max_images_per_request", 1)
-        if image_count > max_images:
-            return False, f"Too many images. Maximum allowed: {max_images}"
-
-        # Check formats
-        supported_formats = set(config.get("supported_formats", []))
-        unsupported = [fmt for fmt in formats if fmt not in supported_formats]
+        unsupported = [fmt for fmt in formats if fmt not in self.vision_capabilities.supported_formats]
         if unsupported:
             return False, f"Unsupported image formats: {', '.join(unsupported)}"
 
-        # Check sizes
-        max_size = config.get("max_image_size_mb", 20)
-        oversized = [size for size in sizes if size > max_size]
+        oversized = [size for size in sizes if size > self.vision_capabilities.max_image_size_mb]
         if oversized:
-            return False, f"Images exceed maximum size of {max_size}MB"
+            return False, f"Images exceed maximum size of {self.vision_capabilities.max_image_size_mb}MB"
 
         return True, None
 
-    def supports_media_type(self, media_type: str) -> bool:
-        """Check if a specific media type is supported.
 
-        Args:
-            media_type: The media type to check (e.g., "image/jpeg")
-
-        Returns:
-            bool: True if the media type is supported, False otherwise
-        """
-        return media_type in self.supported_media_types
-
-    def get_supported_media_types(self, category: Optional[str] = None) -> Set[str]:
-        """Get all supported media types, optionally filtered by category.
-
-        Args:
-            category: Optional category filter (e.g., "image", "audio", "application")
-
-        Returns:
-            Set of supported media types
-        """
-        if not category:
-            return self.supported_media_types
-
-        return {mt for mt in self.supported_media_types if mt.startswith(f"{category}/")}
-
-
-class ModelDescriptor(BaseModel):
-    """Descriptor for a model within a family."""
+class Provider(BaseModel):
+    """Configuration for an LLM provider."""
 
     name: str
-    family: str  # Changed from ModelFamily to str to work with registry
-    capabilities: ModelCapabilities
-    description: Optional[str] = None
-    is_preview: bool = False
-    is_deprecated: bool = False
-    min_api_version: Optional[str] = None
-    release_date: Optional[datetime] = None
-    end_of_life_date: Optional[datetime] = None
-    recommended_replacement: Optional[str] = None
+    api_base: str = Field(
+        description="Base URL for the provider's API",
+        pattern=r"^https?://[^\s/$.?#].[^\s]*$",  # Basic URL validation
+    )
+    capabilities_detector: Optional[Type[BaseCapabilityDetector]] = Field(
+        default=None, description="Optional capability detector class for this provider"
+    )
+    rate_limits: Dict[str, int]
+    features: Optional[Set[str]] = None
+
+    @property
+    def models(self) -> Dict[str, LLMProfile]:
+        """Get models associated with this provider.
+
+        This property ensures we only get models that are actually associated
+        with this provider, preventing synchronization issues.
+        """
+        from .llm_registry import LLMRegistry
+
+        registry = LLMRegistry.create_default()
+        return {
+            name: model
+            for name, model in registry._models.items()
+            if model.capabilities.family == ModelFamily(self.name)
+        }
+
+    def validate_api_base(self) -> None:
+        """Validate the api_base URL."""
+        try:
+            result = urlparse(self.api_base)
+            if not all([result.scheme, result.netloc]):
+                raise ValueError("Invalid API base URL format")
+        except Exception as e:
+            raise ValueError(f"Invalid API base URL: {str(e)}")
+
+    @field_validator("capabilities_detector")
+    def validate_capabilities_detector(cls, v: Type[BaseCapabilityDetector]) -> Type[BaseCapabilityDetector]:
+        """Validate the capabilities detector is a proper subclass."""
+        if not issubclass(v, BaseCapabilityDetector):
+            raise ValueError("Capabilities detector must be a subclass of BaseCapabilityDetector")
+        return v
 
     model_config = ConfigDict(validate_assignment=True)
-
-    def model_dump(self, **kwargs):
-        data = super().model_dump(**kwargs)
-        # Convert datetime objects to ISO format strings
-        if data.get("release_date"):
-            data["release_date"] = data["release_date"].isoformat()
-        if data.get("end_of_life_date"):
-            data["end_of_life_date"] = data["end_of_life_date"].isoformat()
-        return data
-
-
-class ModelCapabilitiesTable(Base):
-    """SQLAlchemy model for storing capabilities in a database."""
-
-    __tablename__ = "model_capabilities"
-
-    id = Column(Integer, primary_key=True)
-    model_name = Column(String, unique=True, nullable=False)
-    family = Column(String, nullable=False)
-    capabilities = Column(JSON, nullable=False)
-    is_preview = Column(Boolean, default=False)
-    is_deprecated = Column(Boolean, default=False)
-    min_api_version = Column(String)
-    release_date = Column(DateTime)
-    end_of_life_date = Column(DateTime)
-    recommended_replacement = Column(String)
-
-    @classmethod
-    def from_descriptor(cls, descriptor: ModelDescriptor) -> "ModelCapabilitiesTable":
-        """Create a database record from a model descriptor."""
-        return cls(
-            model_name=descriptor.name,
-            family=descriptor.family,
-            capabilities=descriptor.capabilities.dict(),
-            is_preview=descriptor.is_preview,
-            is_deprecated=descriptor.is_deprecated,
-            min_api_version=descriptor.min_api_version,
-            release_date=descriptor.release_date,
-            end_of_life_date=descriptor.end_of_life_date,
-            recommended_replacement=descriptor.recommended_replacement,
-        )
-
-    def to_descriptor(self) -> ModelDescriptor:
-        """Convert database record to a model descriptor."""
-        # Convert capabilities to a string-keyed dictionary
-        capabilities_dict = {str(k): v for k, v in self.capabilities.items()}
-
-        # Get values from SQLAlchemy columns
-        name = getattr(self.model_name, "value", self.model_name)
-        family = getattr(self.family, "value", self.family)
-        is_preview = getattr(self.is_preview, "value", self.is_preview)
-        is_deprecated = getattr(self.is_deprecated, "value", self.is_deprecated)
-        min_api_version = getattr(self.min_api_version, "value", self.min_api_version)
-        release_date = getattr(self.release_date, "value", self.release_date)
-        end_of_life_date = getattr(self.end_of_life_date, "value", self.end_of_life_date)
-        recommended_replacement = getattr(self.recommended_replacement, "value", self.recommended_replacement)
-
-        return ModelDescriptor(
-            name=str(name),
-            family=str(family),
-            capabilities=ModelCapabilities(**capabilities_dict),
-            is_preview=bool(is_preview),
-            is_deprecated=bool(is_deprecated),
-            min_api_version=str(min_api_version) if min_api_version is not None else None,
-            release_date=release_date.replace(tzinfo=None) if release_date is not None else None,
-            end_of_life_date=end_of_life_date.replace(tzinfo=None) if end_of_life_date is not None else None,
-            recommended_replacement=str(recommended_replacement) if recommended_replacement is not None else None,
-        )
-
-
-class ModelRegistry:
-    """Registry of available LLM models and their capabilities."""
-
-    def __init__(self, provider_registry: Optional[ProviderRegistry] = None):
-        self._models: Dict[str, ModelDescriptor] = {}
-        self._provider_registry = provider_registry or ProviderRegistry()
-
-    def register(self, descriptor: ModelDescriptor) -> None:
-        """Register a model descriptor."""
-        self._models[descriptor.name] = descriptor
-
-    def register_from_provider(self, provider: str, model_name: str) -> None:
-        """Register a model using provider configuration.
-
-        Args:
-            provider: Provider name
-            model_name: Model name to register
-
-        Raises:
-            ValueError: If provider or model configuration not found
-        """
-        model_config = self._provider_registry.get_provider_model_config(provider, model_name)
-        if not model_config:
-            raise ValueError(f"No configuration found for model {model_name} from provider {provider}")
-
-        # Create basic capabilities from provider model config
-        capabilities = ModelCapabilities(
-            max_context_window=model_config.context_window,
-            typical_speed=model_config.typical_speed,
-            input_cost_per_1k_tokens=model_config.cost.get("input_per_1k", 0.0),
-            output_cost_per_1k_tokens=model_config.cost.get("output_per_1k", 0.0),
-            supported_languages={"en"},  # Default to English
-            supports_streaming=True,  # Most modern models support this
-        )
-
-        # Add features from provider config
-        for feature in model_config.features:
-            if hasattr(capabilities, feature):
-                setattr(capabilities, feature, True)
-
-        descriptor = ModelDescriptor(
-            name=model_name,
-            family=model_config.family,
-            capabilities=capabilities,
-        )
-        self.register(descriptor)
-
-    def get_model(self, name: str) -> Optional[ModelDescriptor]:
-        """Get a model by name."""
-        return self._models.get(name)
-
-    def get_family_models(self, family: ModelFamily) -> List[ModelDescriptor]:
-        """Get all models in a family."""
-        return [model for model in self._models.values() if model.family == family]
-
-    def get_models_by_capability(
-        self,
-        capability: str,
-        min_context_window: Optional[int] = None,
-        max_cost_per_1k: Optional[float] = None,
-        required_languages: Optional[Set[str]] = None,
-        min_speed: Optional[float] = None,
-    ) -> List[ModelDescriptor]:
-        """Get models that support a specific capability."""
-        matching_models = []
-
-        for model in self._models.values():
-            if not hasattr(model.capabilities, capability):
-                continue
-
-            if getattr(model.capabilities, capability) is not True:
-                continue
-
-            if min_context_window and model.capabilities.max_context_window < min_context_window:
-                continue
-
-            if max_cost_per_1k and model.capabilities.input_cost_per_1k_tokens:
-                if model.capabilities.input_cost_per_1k_tokens > max_cost_per_1k:
-                    continue
-
-            if required_languages and not required_languages.issubset(model.capabilities.supported_languages):
-                continue
-
-            if min_speed and (not model.capabilities.typical_speed or model.capabilities.typical_speed < min_speed):
-                continue
-
-            matching_models.append(model)
-
-        return matching_models
-
-    def validate_model(self, name: str) -> tuple[bool, Optional[str]]:
-        """Validate if a model exists and is usable."""
-        descriptor = self.get_model(name)
-        if not descriptor:
-            return False, f"Unknown model {name}"
-
-        if descriptor.is_deprecated:
-            msg = f"Model {name} is deprecated"
-            if descriptor.recommended_replacement:
-                msg += f". Consider using {descriptor.recommended_replacement} instead"
-            if descriptor.end_of_life_date:
-                msg += f". End of life date: {descriptor.end_of_life_date}"
-            return False, msg
-
-        return True, None
-
-    def get_provider_config(self, provider: str) -> Optional[ProviderConfig]:
-        """Get configuration for a provider."""
-        return self._provider_registry.get_provider(provider)
-
-    async def detect_and_register_model(self, provider: str, model_name: str, api_key: str) -> ModelDescriptor:
-        """Detects capabilities of a model and registers it in the registry.
-
-        Args:
-            provider: The LLM provider (e.g., "anthropic", "openai")
-            model_name: Name of the model to detect capabilities for
-            api_key: API key for authentication
-
-        Returns:
-            ModelDescriptor for the registered model
-        """
-        # First check if provider configuration exists
-        provider_config = self.get_provider_config(provider)
-        if provider_config:
-            try:
-                self.register_from_provider(provider, model_name)
-                model = self.get_model(model_name)
-                if model:
-                    return model
-            except ValueError:
-                pass  # Fall through to dynamic detection if provider registration fails
-
-        # Detect capabilities dynamically
-        capabilities = await ModelCapabilitiesDetector.detect_capabilities(provider, model_name, api_key)
-
-        # Create and register descriptor
-        descriptor = ModelDescriptor(
-            name=model_name,
-            family=provider,  # Use provider as family when not in provider registry
-            capabilities=capabilities,
-            min_api_version="2024-02-29",
-            release_date=datetime.now(),
-        )
-        self.register(descriptor)
-        return descriptor
-
-    @classmethod
-    def from_json(cls, path: Union[str, Path]) -> "ModelRegistry":
-        """Load registry from a JSON file."""
-        registry = cls()
-        with open(path) as f:
-            data = json.load(f)
-            for model_data in data["models"]:
-                # Convert string representations of sets back to actual sets
-                if "capabilities" in model_data:
-                    caps = model_data["capabilities"]
-                    if "supported_languages" in caps and isinstance(caps["supported_languages"], str):
-                        caps["supported_languages"] = eval(caps["supported_languages"])
-                    if "supported_media_types" in caps and isinstance(caps["supported_media_types"], str):
-                        caps["supported_media_types"] = eval(caps["supported_media_types"])
-                registry.register(ModelDescriptor(**model_data))
-        return registry
-
-    @classmethod
-    def from_yaml(cls, path: Union[str, Path]) -> "ModelRegistry":
-        """Load registry from a YAML file."""
-        registry = cls()
-        with open(path) as f:
-            data = yaml.safe_load(f)
-            for model_data in data["models"]:
-                # Convert string representations of sets back to actual sets
-                if "capabilities" in model_data:
-                    caps = model_data["capabilities"]
-                    if "supported_languages" in caps and isinstance(caps["supported_languages"], str):
-                        caps["supported_languages"] = eval(caps["supported_languages"])
-                    if "supported_media_types" in caps and isinstance(caps["supported_media_types"], str):
-                        caps["supported_media_types"] = eval(caps["supported_media_types"])
-                registry.register(ModelDescriptor(**model_data))
-        return registry
-
-    @classmethod
-    def from_database(cls, session, query_filter: Optional[Dict[str, Any]] = None) -> "ModelRegistry":
-        """Load registry from database records."""
-        registry = cls()
-        query = session.query(ModelCapabilitiesTable)
-        if query_filter:
-            query = query.filter_by(**query_filter)
-
-        for record in query.all():
-            registry.register(record.to_descriptor())
-        return registry
-
-    def to_json(self, path: Union[str, Path]) -> None:
-        """Save registry to a JSON file."""
-        data = {"models": [model.model_dump() for model in self._models.values()]}
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
-    def to_yaml(self, path: Union[str, Path]) -> None:
-        """Save registry to a YAML file."""
-        data = {"models": [model.model_dump() for model in self._models.values()]}
-        with open(path, "w") as f:
-            yaml.dump(data, f, sort_keys=False)
-
-
-class ModelCapabilitiesDetector:
-    """Dynamically detects and generates model capabilities by querying the provider's API."""
-
-    @classmethod
-    async def detect_capabilities(cls, provider: str, model_name: str, api_key: str) -> ModelCapabilities:
-        """
-        Detects model capabilities by making API calls to the provider.
-
-        Args:
-            provider: The LLM provider (e.g., "anthropic", "openai")
-            model_name: Name of the model to detect capabilities for
-            api_key: API key for authentication
-
-        Returns:
-            ModelCapabilities object with detected capabilities
-        """
-        detector = cls._get_detector(provider)
-        return await detector(model_name, api_key)
-
-    @classmethod
-    def _get_detector(cls, provider: str):
-        """Returns the appropriate detector method for the given provider."""
-        detectors = {
-            "anthropic": cls._detect_anthropic_capabilities,
-            "openai": cls._detect_openai_capabilities,
-        }
-        if provider.lower() not in detectors:
-            raise ValueError(f"Unsupported provider for capability detection: {provider}")
-        return detectors[provider.lower()]
-
-    @staticmethod
-    async def _detect_anthropic_capabilities(model_name: str, api_key: str) -> ModelCapabilities:
-        """Detects capabilities for Anthropic models."""
-        from anthropic import Anthropic
-
-        try:
-            # Initialize client to verify API key
-            client = Anthropic(api_key=api_key)
-            # Make a simple API call to verify the key works
-            client.messages.create(model=model_name, max_tokens=1, messages=[{"role": "user", "content": "test"}])
-
-            # Test streaming
-            supports_streaming = True  # Anthropic supports streaming by default
-
-            # Test function calling and tools
-            supports_tools = "claude-3" in model_name.lower()
-            supports_function_calling = supports_tools
-
-            # Test vision capabilities
-            supports_vision = "claude-3" in model_name.lower()
-
-            # Get context window and other limits
-            if "claude-3" in model_name.lower():
-                max_context_window = 200000
-                typical_speed = 100.0
-            else:
-                max_context_window = 100000
-                typical_speed = 70.0
-
-            # Determine supported mime types
-            supported_media_types = set()
-            if supports_vision:
-                supported_media_types.update({"image/jpeg", "image/png"})
-                if "opus" in model_name.lower():
-                    supported_media_types.add("image/gif")
-                    supported_media_types.add("image/webp")
-
-            # Create capabilities object
-            return ModelCapabilities(
-                supports_streaming=supports_streaming,
-                supports_function_calling=supports_function_calling,
-                supports_vision=supports_vision,
-                supports_embeddings=False,
-                max_context_window=max_context_window,
-                max_output_tokens=4096,
-                typical_speed=typical_speed,
-                input_cost_per_1k_tokens=0.015 if "claude-3" in model_name.lower() else 0.008,
-                output_cost_per_1k_tokens=0.075
-                if "opus" in model_name.lower()
-                else (0.015 if "sonnet" in model_name.lower() else 0.024),
-                daily_request_limit=150000,
-                supports_json_mode="claude-3" in model_name.lower(),
-                supports_system_prompt=True,
-                supports_message_role=True,
-                supports_tools=supports_tools,
-                supports_parallel_requests=True,
-                supported_languages={"en"},
-                supported_media_types=supported_media_types,
-                temperature=RangeConfig(min_value=0.0, max_value=1.0, default_value=0.7),
-                top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
-                supports_frequency_penalty=False,
-                supports_presence_penalty=False,
-                supports_stop_sequences=True,
-                supports_semantic_search=True,
-                supports_code_completion=True,
-                supports_chat_memory="claude-3" in model_name.lower(),
-                supports_few_shot_learning=True,
-            )
-        except Exception as e:
-            raise RuntimeError("Failed to detect Anthropic capabilities") from e
-
-    @staticmethod
-    async def _detect_openai_capabilities(model_name: str, api_key: str) -> ModelCapabilities:
-        """Detects capabilities for OpenAI models."""
-        from openai import AsyncOpenAI
-
-        try:
-            # Initialize client and verify API key
-            client = AsyncOpenAI(api_key=api_key)
-            model_info = await client.models.retrieve(model_name)
-
-            # Determine capabilities based on model name and info
-            is_gpt4 = "gpt-4" in model_name.lower()
-            is_vision = "vision" in model_name.lower()
-
-            # Get context window from model info or use default
-            try:
-                context_window = getattr(model_info, "context_window", 4096)
-            except AttributeError:
-                context_window = 4096  # Default if not available
-
-            # Create capabilities object
-            return ModelCapabilities(
-                supports_streaming=True,
-                supports_function_calling=True,
-                supports_vision=is_vision,
-                supports_embeddings=False,
-                max_context_window=context_window,
-                max_output_tokens=4096,
-                typical_speed=150.0,
-                input_cost_per_1k_tokens=0.01 if is_gpt4 else 0.0015,
-                output_cost_per_1k_tokens=0.03 if is_gpt4 else 0.002,
-                daily_request_limit=200000,
-                supports_json_mode=True,
-                supports_system_prompt=True,
-                supports_message_role=True,
-                supports_tools=True,
-                supports_parallel_requests=True,
-                supported_languages={"en", "es", "fr", "de", "it", "pt", "nl", "ru", "zh", "ja", "ko"},
-                supported_media_types={"image/jpeg", "image/png", "image/gif", "image/webp"} if is_vision else set(),
-                temperature=RangeConfig(min_value=0.0, max_value=2.0, default_value=1.0),
-                top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
-                supports_frequency_penalty=True,
-                supports_presence_penalty=True,
-                supports_stop_sequences=True,
-                supports_semantic_search=True,
-                supports_code_completion=True,
-                supports_chat_memory=False,
-                supports_few_shot_learning=True,
-            )
-        except Exception as e:
-            raise RuntimeError("Failed to detect OpenAI capabilities") from e
-
-
-async def register_claude_3_5_sonnet_latest(api_key: str) -> ModelDescriptor:
-    """
-    Registers the claude-3-5-sonnet-latest model with dynamically detected capabilities.
-
-    Args:
-        api_key: Anthropic API key
-
-    Returns:
-        ModelDescriptor for the registered model
-    """
-    registry = ModelRegistry()
-    return await registry.detect_and_register_model(
-        provider="anthropic", model_name="claude-3-5-sonnet-latest", api_key=api_key
-    )
-
-
-async def register_all_models(
-    anthropic_api_key: Optional[str] = None, openai_api_key: Optional[str] = None
-) -> ModelRegistry:
-    """
-    Register all available models from supported providers.
-
-    Args:
-        anthropic_api_key: API key for Anthropic models
-        openai_api_key: API key for OpenAI models
-
-    Returns:
-        ModelRegistry with all registered models
-    """
-    registry = ModelRegistry()
-
-    # Register Anthropic models
-    if anthropic_api_key:
-        try:
-            await registry.detect_and_register_model(
-                provider="anthropic", model_name="claude-3-5-sonnet-latest", api_key=anthropic_api_key
-            )
-        except Exception as e:
-            print(f"Failed to register Anthropic model: {e}")
-
-    # Register OpenAI models
-    if openai_api_key:
-        for model_name in ["gpt-4-turbo-preview", "gpt-4", "gpt-3.5-turbo"]:
-            try:
-                await registry.detect_and_register_model(
-                    provider="openai", model_name=model_name, api_key=openai_api_key
-                )
-            except Exception as e:
-                print(f"Failed to register OpenAI model {model_name}: {e}")
-
-    return registry

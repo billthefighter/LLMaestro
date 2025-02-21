@@ -1,0 +1,103 @@
+# Provider-level configuration
+provider:
+  provider_name: gemini
+  api_base: "https://api.google.com/v1"
+  rate_limits:
+    requests_per_minute: 1000
+    tokens_per_minute: 100000
+  features:
+    - supports_batch_requests
+    - supports_async_requests
+
+# Model configurations
+models:
+  - name: gemini-pro
+    family: gemini
+    description: Most capable Gemini model for text generation and analysis
+
+    # Resource Limits
+    max_context_window: 32000
+    max_output_tokens: 4096
+
+    # Core Features
+    supports_streaming: true
+    supports_function_calling: true
+    supports_vision: false
+    supports_embeddings: true
+    supports_json_mode: true
+    supports_system_prompt: false
+    supports_tools: true
+    supports_parallel_requests: true
+
+    # Advanced Features
+    supports_frequency_penalty: false
+    supports_presence_penalty: false
+    supports_stop_sequences: true
+    supports_message_role: true
+
+    # Performance & Cost
+    typical_speed: 150.0
+    supported_languages: ["en"]
+    input_cost_per_1k_tokens: 0.00025
+    output_cost_per_1k_tokens: 0.0005
+
+    # Quality Settings
+    temperature:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 0.7
+    top_p:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 1.0
+
+  - name: gemini-pro-vision
+    family: gemini
+    description: Gemini model with vision capabilities
+
+    # Resource Limits
+    max_context_window: 32000
+    max_output_tokens: 4096
+
+    # Core Features
+    supports_streaming: true
+    supports_function_calling: true
+    supports_vision: true
+    supports_embeddings: true
+    supports_json_mode: true
+    supports_system_prompt: false
+    supports_tools: true
+    supports_parallel_requests: true
+
+    # Advanced Features
+    supports_frequency_penalty: false
+    supports_presence_penalty: false
+    supports_stop_sequences: true
+    supports_message_role: true
+
+    # Performance & Cost
+    typical_speed: 150.0
+    supported_languages: ["en"]
+    input_cost_per_1k_tokens: 0.00025
+    output_cost_per_1k_tokens: 0.0005
+
+    # Quality Settings
+    temperature:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 0.7
+    top_p:
+      min_value: 0.0
+      max_value: 1.0
+      default_value: 1.0
+
+    # Vision Capabilities
+    vision_capabilities:
+      max_images_per_request: 1
+      supported_formats: ["png", "jpeg", "webp"]
+      max_image_size_mb: 20
+      max_image_resolution: 2048
+      supports_image_annotations: false
+      supports_image_analysis: true
+      supports_image_generation: false
+      cost_per_image: 0.0025

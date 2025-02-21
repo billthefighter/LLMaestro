@@ -1,5 +1,16 @@
 """LLM module initialization."""
-from .models import ModelDescriptor, ModelRegistry
-from .provider_registry import ProviderConfig, ProviderRegistry
+from .capability_factory import ModelCapabilityDetectorFactory
+from .enums import MediaType, ModelFamily
+from .llm_registry import LLMRegistry
+from .models import LLMProfile, Provider
+from .provider_registry import ProviderRegistry
 
-__all__ = ["ModelDescriptor", "ModelRegistry", "ProviderConfig", "ProviderRegistry"]
+__all__ = [
+    "LLMProfile",
+    "LLMRegistry",
+    "Provider",
+    "ProviderRegistry",
+    "ModelCapabilityDetectorFactory",
+    "ModelFamily",
+    "MediaType",
+]

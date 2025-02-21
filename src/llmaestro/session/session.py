@@ -1,21 +1,28 @@
+"""Session management for LLM interactions."""
 import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from llmaestro.agents.models.config import AgentPoolConfig as AgentModelsConfig
-from llmaestro.core.config import ConfigurationManager, get_config
+from llmaestro.config import ConfigurationManager
+from llmaestro.config.agent import AgentRuntimeConfig, AgentTypeConfig
 from llmaestro.core.conversations import ConversationNode
-from llmaestro.core.models import AgentConfig, LLMResponse
+from llmaestro.core.models import LLMResponse
 from llmaestro.core.orchestrator import ExecutionMetadata, Orchestrator
 from llmaestro.core.storage import Artifact, FileSystemArtifactStorage
 from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.interfaces.factory import create_llm_interface
-from llmaestro.llm.llm_registry import ModelRegistry
-from llmaestro.llm.models import ModelCapabilities, ModelDescriptor
+from llmaestro.llm.llm_registry import LLMRegistry
+from llmaestro.llm.models import LLMCapabilities, LLMProfile
+from llmaestro.llm.provider_registry import Provider
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def get_default_config() -> ConfigurationManager:
+    """Get default configuration manager."""
+    return ConfigurationManager.from_env()
 
 
 class Session(BaseModel):
@@ -31,8 +38,8 @@ class Session(BaseModel):
     """
 
     # Core configuration
-    config: ConfigurationManager = Field(default_factory=get_config)
-    model_registry: ModelRegistry = Field(default_factory=ModelRegistry)
+    config: ConfigurationManager = Field(default_factory=get_default_config)
+    llm_registry: Optional[LLMRegistry] = None
     prompt_loader: PromptLoader = Field(default_factory=PromptLoader)
 
     # Session metadata
@@ -56,17 +63,28 @@ class Session(BaseModel):
     def __init__(self, **data):
         super().__init__(**data)
         self.storage = FileSystemArtifactStorage.create(self.storage_path)
+        self.llm_registry = self.config.llm_registry
+
+        # Update provider configurations with API keys
+        if self.api_key:
+            # Update the provider API configuration with the API key
+            provider = self.config.user_config.default_model.provider
+            provider_config = self.config.provider_registry.get_provider(provider)
+            if provider_config:
+                # Create a new provider config with the API key
+                updated_config = provider_config.model_dump()
+                updated_config["api_key"] = self.api_key
+                self.config.provider_registry.register_provider(provider, Provider(**updated_config))
+
         self._initialize_orchestrator()
 
     def _initialize_orchestrator(self) -> None:
         """Initialize the orchestrator with LLM interface."""
         llm_interface = self.get_llm_interface()
-        if llm_interface and self.config.agents:
+        if llm_interface and self.config.user_config.agents:
             from llmaestro.agents.agent_pool import AgentPool
 
-            # Convert config type to the expected AgentPoolConfig
-            agent_config = AgentModelsConfig.model_validate(self.config.agents.model_dump())
-            agent_pool = AgentPool(agent_config)
+            agent_pool = AgentPool(self.config.user_config.agents)
             self.orchestrator = Orchestrator(agent_pool)
 
     @field_validator("storage_path", mode="before")
@@ -181,18 +199,18 @@ class Session(BaseModel):
             return conversation.get_node_history(node_id, max_depth)
         return list(conversation.nodes.values())
 
-    def get_model_capabilities(self, model_name: Optional[str] = None) -> Optional[ModelDescriptor]:
+    def get_model_capabilities(self, model_name: Optional[str] = None) -> Optional[LLMProfile]:
         """Get model capabilities from registry."""
         try:
-            agent_config = self.config.get_agent_config()
-            if not isinstance(agent_config, dict):
+            if not self.llm_registry:
                 return None
 
-            model_name = model_name or agent_config.get("model", "")
+            agent_config = self.config.get_agent_config()
+            model_name = model_name or agent_config.model
             if not model_name:
                 return None
 
-            return self.model_registry.get_model(model_name)
+            return self.llm_registry.get_model(model_name)
         except Exception as e:
             print(f"Error getting model capabilities: {e}")
             return None
@@ -224,26 +242,23 @@ class Session(BaseModel):
             if not default_model:
                 return None
 
-            provider = default_model.get("provider", "")
-            model = default_model.get("name", "")
+            provider = default_model.provider
+            model = default_model.name
             api_key = self.api_key or self.config.user_config.api_keys.get(provider, "")
 
             if not all([provider, model, api_key]):
                 return None
 
-            # Get model configuration from system config
-            model_config = self.config.get_model_config(provider, model)
-            if not model_config:
-                return None
-
-            agent_config = AgentConfig(
+            # Create agent configuration
+            agent_config = AgentTypeConfig(
                 provider=provider,
-                model_name=model,
-                api_key=api_key,
-                max_tokens=model_config.get("max_tokens", 8192),
-                temperature=model_config.get("temperature", 0.7),
+                model=model,
+                max_tokens=default_model.settings.get("max_tokens", 8192),
+                temperature=default_model.settings.get("temperature", 0.7),
+                runtime=AgentRuntimeConfig(),  # Use default runtime settings
             )
 
+            # Create LLM interface with agent config
             self._llm_interface = create_llm_interface(agent_config)
             return self._llm_interface
         except Exception as e:
@@ -304,7 +319,7 @@ class Session(BaseModel):
 
     def validate_model_for_task(self, task_requirements: Dict[str, Any]) -> bool:
         """
-        Validate if the current model meets task requirements using ModelRegistry.
+        Validate if the current model meets task requirements using LLMRegistry.
 
         Args:
             task_requirements: Dictionary of required model features
@@ -316,8 +331,8 @@ class Session(BaseModel):
         if not model_config:
             return False
 
-        # Access capabilities through the ModelCapabilities interface
-        model_caps = ModelCapabilities.model_validate(model_config.model_dump())
+        # Access capabilities through the LLMCapabilities interface
+        model_caps = LLMCapabilities.model_validate(model_config.model_dump())
 
         for feature, required_value in task_requirements.items():
             if not hasattr(model_caps, feature):
@@ -347,7 +362,7 @@ class Session(BaseModel):
         """Asynchronous session summary generation."""
         return await asyncio.to_thread(self.summary)
 
-    async def add_node_to_conversation(
+    def add_node_to_conversation(
         self,
         content: Union[BasePrompt, LLMResponse],
         node_type: str,
@@ -387,9 +402,4 @@ class Session(BaseModel):
         parent_id: Optional[str] = None,
     ) -> str:
         """Asynchronous conversation node addition."""
-
-        # Create a sync function to wrap the call
-        def _add_node() -> str:
-            return self.add_node_to_conversation(content, node_type, metadata, parent_id)
-
-        return await asyncio.to_thread(_add_node)
+        return await asyncio.to_thread(self.add_node_to_conversation, content, node_type, metadata, parent_id)

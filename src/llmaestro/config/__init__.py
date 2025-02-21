@@ -2,20 +2,20 @@
 
 from llmaestro.config.agent import AgentPoolConfig, AgentRuntimeConfig, AgentTypeConfig
 from llmaestro.config.base import (
-    DefaultModelConfig,
+    LLMProfileReference,
     LoggingConfig,
     StorageConfig,
     VisualizationConfig,
 )
 from llmaestro.config.manager import ConfigurationManager
-from llmaestro.config.provider import ProviderAPIConfig
 from llmaestro.config.system import SystemConfig
 from llmaestro.config.user import UserConfig
-from llmaestro.llm.provider_registry import ModelConfig, ProviderConfig
+from llmaestro.llm.models import LLMProfile
+from llmaestro.llm.provider_registry import Provider
 
 __all__ = [
     # Base configuration
-    "DefaultModelConfig",
+    "LLMProfileReference",
     "LoggingConfig",
     "StorageConfig",
     "VisualizationConfig",
@@ -24,9 +24,8 @@ __all__ = [
     "AgentRuntimeConfig",
     "AgentTypeConfig",
     # Provider configuration
-    "ModelConfig",
-    "ProviderAPIConfig",
-    "ProviderConfig",
+    "Provider",
+    "LLMProfile",
     # System configuration
     "SystemConfig",
     # User configuration

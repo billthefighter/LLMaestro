@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from llmaestro.llm import ModelDescriptor
+from llmaestro.llm import LLMProfile
 
 
 class TokenUsage(BaseModel):
@@ -46,7 +46,7 @@ class LLMResponse(BaseResponse):
     """Response from an LLM model."""
 
     content: str = Field(..., description="The content of the response")
-    model: ModelDescriptor = Field(..., description="The model used to generate the response")
+    model: LLMProfile = Field(..., description="The model used to generate the response")
     token_usage: TokenUsage = Field(..., description="Token usage statistics")
     context_metrics: Optional[ContextMetrics] = Field(default=None, description="Context window metrics")
 

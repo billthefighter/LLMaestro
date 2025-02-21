@@ -4,21 +4,16 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, Protocol, Set, TypeVar, cast
 
-from llmaestro.agents.models.models import Agent, AgentCapability, AgentMetrics, AgentState
+from llmaestro.agents.capabilities import AgentCapability
+from llmaestro.agents.models import Agent, AgentCapability, AgentMetrics, AgentState
 from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig
+from llmaestro.config.manager import ConfigurationManager
 from llmaestro.llm.interfaces import LLMResponse
 from llmaestro.llm.interfaces.factory import create_llm_interface
-from llmaestro.llm.llm_registry import ModelRegistry
+from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.prompts.base import BasePrompt
 
 T = TypeVar("T")
-
-
-def get_config():
-    """Get the global configuration instance."""
-    from llmaestro.core.config import get_config as core_get_config
-
-    return core_get_config()
 
 
 class JsonOutputTransform(Protocol):
@@ -108,7 +103,7 @@ class AgentPool:
             config: Optional agent pool configuration. If None, uses config from global config.
         """
         self._config = config or get_config().agents
-        self._model_registry = ModelRegistry()
+        self._llm_registry = LLMRegistry()
         self._active_agents: Dict[str, RuntimeAgent] = {}
         self.executor = ThreadPoolExecutor(max_workers=self._config.max_agents)
         self.prompts: Dict[str, asyncio.Task[Any]] = {}
@@ -225,3 +220,8 @@ class AgentPool:
                 for agent in self._active_agents.values()
             ],
         }
+
+
+def get_config() -> ConfigurationManager:
+    """Get the global configuration manager instance."""
+    return ConfigurationManager.get_instance()

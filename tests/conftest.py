@@ -1,15 +1,38 @@
-import pytest
+"""Root test configuration and common fixtures."""
+import os
+from datetime import datetime
 from pathlib import Path
+from typing import Dict, Optional
 
-from llmaestro.core.config import (
+import pytest
+from pydantic import BaseModel
+
+from llmaestro.config import (
     AgentPoolConfig,
     AgentTypeConfig,
     ConfigurationManager,
     SystemConfig,
     UserConfig,
 )
-from llmaestro.llm.models import ModelRegistry
-from llmaestro.llm.provider_registry import ProviderRegistry
+from llmaestro.config.base import LLMProfileReference
+from llmaestro.llm.models import (
+    LLMCapabilities,
+    LLMProfile,
+    ModelFamily,
+    LLMMetadata,
+    RangeConfig,
+    VisionCapabilities,
+)
+from llmaestro.llm.llm_registry import LLMRegistry
+from llmaestro.llm.provider_registry import Provider, ProviderRegistry
+from llmaestro.config import TestConfig
+
+
+class TestConfig(BaseModel):
+    """Test configuration for fixtures."""
+    use_real_tokens: bool = False
+    test_provider: str = "openai"
+    test_model: str = "gpt-4-turbo-preview"
 
 
 def pytest_addoption(parser):
@@ -27,6 +50,14 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers",
         "integration: mark test as an integration test"
+    )
+
+
+@pytest.fixture(scope="session")
+def test_settings(request) -> TestConfig:
+    """Get test settings."""
+    return TestConfig(
+        use_real_tokens=request.config.getoption("--use-llm-tokens")
     )
 
 
@@ -51,55 +82,59 @@ def user_config(test_config_dir: Path) -> UserConfig:
 
 
 @pytest.fixture
-def provider_registry(system_config: SystemConfig) -> ProviderRegistry:
-    """Create a test provider registry."""
-    registry = ProviderRegistry()
-    for name, config in system_config.providers.items():
-        registry.register_provider(name, config)
-    return registry
+def llm_registry() -> LLMRegistry:
+    """Create a test LLMRegistry with default configurations."""
+    return LLMRegistry.create_default()
 
 
 @pytest.fixture
-def model_registry(provider_registry: ProviderRegistry) -> ModelRegistry:
-    """Create a test model registry."""
-    return ModelRegistry(provider_registry)
+def mock_LLMProfile(test_settings: TestConfig, llm_registry: LLMRegistry) -> LLMProfile:
+    """Create a mock LLMProfile for testing."""
+    return llm_registry.get_model("mock-model") or next(iter(llm_registry._models.values()))
+
+
+@pytest.fixture
+def provider_registry(system_config: SystemConfig, llm_registry: LLMRegistry) -> ProviderRegistry:
+    """Create a test ProviderRegistry with default configurations."""
+    return llm_registry.provider_registry
 
 
 @pytest.fixture
 def agent_pool_config(user_config: UserConfig) -> AgentPoolConfig:
     """Create a test agent pool configuration."""
-    agent_types = {}
-    for name, config in user_config.agents["agent_types"].items():
-        agent_types[name] = AgentTypeConfig(
-            provider=config["provider"],
-            model=config["model"],
-            max_tokens=config.get("max_tokens", 8192),
-            temperature=config.get("temperature", 0.7),
-            description=config.get("description", f"{name} test agent"),
-        )
-
-    return AgentPoolConfig(
-        max_agents=user_config.agents["max_agents"],
-        default_agent_type=user_config.agents["default_agent_type"],
-        agent_types=agent_types,
-    )
+    return user_config.agents
 
 
 @pytest.fixture
 def config_manager(
     user_config: UserConfig,
     system_config: SystemConfig,
+    llm_registry: LLMRegistry,
     provider_registry: ProviderRegistry,
-    model_registry: ModelRegistry,
-    agent_pool_config: AgentPoolConfig,
+    mock_LLMProfile: LLMProfile,
+    test_settings: TestConfig
 ) -> ConfigurationManager:
     """Create a test configuration manager with all components initialized."""
-    manager = ConfigurationManager()
-    manager.initialize(user_config, system_config)
+    # Create a test provider with our mock model
+    test_provider = Provider(
+        name=test_settings.test_provider,
+        api_base=f"https://api.{test_settings.test_provider}.com/v1",
+        capabilities_detector=f"{test_settings.test_provider}.CapabilityDetector",
+        rate_limits={"requests_per_minute": 60},
+        features=set(),
+        models={mock_LLMProfile.name: mock_LLMProfile}
+    )
+    provider_registry.register_provider(test_settings.test_provider, test_provider)
 
-    # Override the registries with our test instances
+    # Create manager without registering models yet
+    manager = ConfigurationManager.__new__(ConfigurationManager)
+    ConfigurationManager.__init__(manager, user_config=user_config, system_config=system_config)
+
+    # Set our test registries
     manager._provider_registry = provider_registry
-    manager._model_registry = model_registry
-    manager._agent_pool_config = agent_pool_config
+    manager._llm_registry = llm_registry
+
+    # Now register models
+    manager._register_models()
 
     return manager

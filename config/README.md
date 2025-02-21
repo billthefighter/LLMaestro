@@ -23,7 +23,7 @@ class ModelConfig(BaseModel):
     features: Set[str]
     cost: Dict[str, float]
 
-class ProviderConfig(BaseModel):
+class Provider(BaseModel):
     api_base: str
     capabilities_detector: str
     models: Dict[str, ModelConfig]
@@ -36,7 +36,7 @@ Example YAML:
 providers:
   anthropic:
     api_base: https://api.anthropic.com/v1
-    capabilities_detector: llm.models.ModelCapabilitiesDetector._detect_anthropic_capabilities
+    capabilities_detector: llm.models.LLMCapabilitiesDetector._detect_anthropic_capabilities
     models:
       claude-3-sonnet-20240229:
         family: claude

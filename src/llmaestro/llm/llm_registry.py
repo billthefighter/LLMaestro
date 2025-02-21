@@ -1,178 +1,31 @@
-"""Registry for managing LLM models and their capabilities."""
-
+"""Registry for managing LLM models."""
 import json
+import logging
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union
 
 import yaml
 
-from llmaestro.llm.models import ModelCapabilities, ModelCapabilitiesTable, ModelDescriptor, ModelFamily, RangeConfig
-from llmaestro.llm.provider_registry import ProviderConfig, ProviderRegistry
+from .capability_factory import ModelCapabilityDetectorFactory
+from .models import LLMCapabilities, LLMMetadata, LLMProfile, ModelFamily
+from .provider_registry import Provider, ProviderRegistry
 
 
-class ModelCapabilitiesDetector:
-    """Dynamically detects and generates model capabilities by querying the provider's API."""
+@dataclass
+class LLMRegistry:
+    """Registry for managing LLM models and their configurations."""
 
-    @classmethod
-    async def detect_capabilities(cls, provider: str, model_name: str, api_key: str) -> ModelCapabilities:
-        """
-        Detects model capabilities by making API calls to the provider.
+    provider_registry: ProviderRegistry = field(default_factory=ProviderRegistry)
+    strict_capability_detection: bool = False
+    _models: Dict[str, LLMProfile] = field(default_factory=dict)
 
-        Args:
-            provider: The LLM provider (e.g., "anthropic", "openai")
-            model_name: Name of the model to detect capabilities for
-            api_key: API key for authentication
+    def __post_init__(self):
+        """Initialize after dataclass creation."""
+        pass  # No longer needed since provider_registry is properly initialized
 
-        Returns:
-            ModelCapabilities object with detected capabilities
-        """
-        detector = cls._get_detector(provider)
-        return await detector(model_name, api_key)
-
-    @classmethod
-    def _get_detector(cls, provider: str):
-        """Returns the appropriate detector method for the given provider."""
-        detectors = {
-            "anthropic": cls._detect_anthropic_capabilities,
-            "openai": cls._detect_openai_capabilities,
-        }
-        if provider.lower() not in detectors:
-            raise ValueError(f"Unsupported provider for capability detection: {provider}")
-        return detectors[provider.lower()]
-
-    @staticmethod
-    async def _detect_anthropic_capabilities(model_name: str, api_key: str) -> ModelCapabilities:
-        """Detects capabilities for Anthropic models."""
-        from anthropic import Anthropic
-
-        try:
-            # Initialize client to verify API key
-            client = Anthropic(api_key=api_key)
-            # Make a simple API call to verify the key works
-            client.messages.create(model=model_name, max_tokens=1, messages=[{"role": "user", "content": "test"}])
-
-            # Test streaming
-            supports_streaming = True  # Anthropic supports streaming by default
-
-            # Test function calling and tools
-            supports_tools = "claude-3" in model_name.lower()
-            supports_function_calling = supports_tools
-
-            # Test vision capabilities
-            supports_vision = "claude-3" in model_name.lower()
-
-            # Get context window and other limits
-            if "claude-3" in model_name.lower():
-                max_context_window = 200000
-                typical_speed = 100.0
-            else:
-                max_context_window = 100000
-                typical_speed = 70.0
-
-            # Determine supported mime types
-            supported_media_types = set()
-            if supports_vision:
-                supported_media_types.update({"image/jpeg", "image/png"})
-                if "opus" in model_name.lower():
-                    supported_media_types.add("image/gif")
-                    supported_media_types.add("image/webp")
-
-            # Create capabilities object
-            return ModelCapabilities(
-                supports_streaming=supports_streaming,
-                supports_function_calling=supports_function_calling,
-                supports_vision=supports_vision,
-                supports_embeddings=False,
-                max_context_window=max_context_window,
-                max_output_tokens=4096,
-                typical_speed=typical_speed,
-                input_cost_per_1k_tokens=0.015 if "claude-3" in model_name.lower() else 0.008,
-                output_cost_per_1k_tokens=0.075
-                if "opus" in model_name.lower()
-                else (0.015 if "sonnet" in model_name.lower() else 0.024),
-                daily_request_limit=150000,
-                supports_json_mode="claude-3" in model_name.lower(),
-                supports_system_prompt=True,
-                supports_message_role=True,
-                supports_tools=supports_tools,
-                supports_parallel_requests=True,
-                supported_languages={"en"},
-                supported_media_types=supported_media_types,
-                temperature=RangeConfig(min_value=0.0, max_value=1.0, default_value=0.7),
-                top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
-                supports_frequency_penalty=False,
-                supports_presence_penalty=False,
-                supports_stop_sequences=True,
-                supports_semantic_search=True,
-                supports_code_completion=True,
-                supports_chat_memory="claude-3" in model_name.lower(),
-                supports_few_shot_learning=True,
-            )
-        except Exception as e:
-            raise RuntimeError("Failed to detect Anthropic capabilities") from e
-
-    @staticmethod
-    async def _detect_openai_capabilities(model_name: str, api_key: str) -> ModelCapabilities:
-        """Detects capabilities for OpenAI models."""
-        from openai import AsyncOpenAI
-
-        try:
-            # Initialize client and verify API key
-            client = AsyncOpenAI(api_key=api_key)
-            model_info = await client.models.retrieve(model_name)
-
-            # Determine capabilities based on model name and info
-            is_gpt4 = "gpt-4" in model_name.lower()
-            is_vision = "vision" in model_name.lower()
-
-            # Get context window from model info or use default
-            try:
-                context_window = getattr(model_info, "context_window", 4096)
-            except AttributeError:
-                context_window = 4096  # Default if not available
-
-            # Create capabilities object
-            return ModelCapabilities(
-                supports_streaming=True,
-                supports_function_calling=True,
-                supports_vision=is_vision,
-                supports_embeddings=False,
-                max_context_window=context_window,
-                max_output_tokens=4096,
-                typical_speed=150.0,
-                input_cost_per_1k_tokens=0.01 if is_gpt4 else 0.0015,
-                output_cost_per_1k_tokens=0.03 if is_gpt4 else 0.002,
-                daily_request_limit=200000,
-                supports_json_mode=True,
-                supports_system_prompt=True,
-                supports_message_role=True,
-                supports_tools=True,
-                supports_parallel_requests=True,
-                supported_languages={"en", "es", "fr", "de", "it", "pt", "nl", "ru", "zh", "ja", "ko"},
-                supported_media_types={"image/jpeg", "image/png", "image/gif", "image/webp"} if is_vision else set(),
-                temperature=RangeConfig(min_value=0.0, max_value=2.0, default_value=1.0),
-                top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
-                supports_frequency_penalty=True,
-                supports_presence_penalty=True,
-                supports_stop_sequences=True,
-                supports_semantic_search=True,
-                supports_code_completion=True,
-                supports_chat_memory=False,
-                supports_few_shot_learning=True,
-            )
-        except Exception as e:
-            raise RuntimeError("Failed to detect OpenAI capabilities") from e
-
-
-class ModelRegistry:
-    """Registry of available LLM models and their capabilities."""
-
-    def __init__(self, provider_registry: Optional[ProviderRegistry] = None):
-        self._models: Dict[str, ModelDescriptor] = {}
-        self._provider_registry = provider_registry or ProviderRegistry()
-
-    def register(self, descriptor: ModelDescriptor) -> None:
+    def register(self, descriptor: LLMProfile) -> None:
         """Register a model descriptor."""
         self._models[descriptor.name] = descriptor
 
@@ -186,37 +39,115 @@ class ModelRegistry:
         Raises:
             ValueError: If provider or model configuration not found
         """
-        model_config = self._provider_registry.get_provider_model_config(provider, model_name)
+        provider_config = self.provider_registry.get_provider(provider)
+        if not provider_config:
+            raise ValueError(f"Unknown provider: {provider}")
+
+        model_config = provider_config.models.get(model_name)
         if not model_config:
             raise ValueError(f"No configuration found for model {model_name} from provider {provider}")
 
         # Create basic capabilities from provider model config
-        capabilities = ModelCapabilities(
-            max_context_window=model_config.context_window,
-            typical_speed=model_config.typical_speed,
-            input_cost_per_1k_tokens=model_config.cost.get("input_per_1k", 0.0),
-            output_cost_per_1k_tokens=model_config.cost.get("output_per_1k", 0.0),
+        capabilities = LLMCapabilities(
+            name=model_name,
+            family=model_config.capabilities.family,
+            max_context_window=model_config.capabilities.max_context_window,
+            typical_speed=model_config.capabilities.typical_speed,
+            input_cost_per_1k_tokens=model_config.capabilities.input_cost_per_1k_tokens,
+            output_cost_per_1k_tokens=model_config.capabilities.output_cost_per_1k_tokens,
             supported_languages={"en"},  # Default to English
             supports_streaming=True,  # Most modern models support this
         )
 
-        # Add features from provider config
-        for feature in model_config.features:
-            if hasattr(capabilities, feature):
-                setattr(capabilities, feature, True)
+        # Add features from provider config if available
+        if provider_config.features:
+            for feature in provider_config.features:
+                feature_name = feature.replace("supports_", "")
+                feature_attr = f"supports_{feature_name}"
+                if hasattr(capabilities, feature_attr):
+                    setattr(capabilities, feature_attr, True)
 
-        descriptor = ModelDescriptor(
-            name=model_name,
-            family=model_config.family,
+        # Create metadata with defaults
+        metadata = LLMMetadata(
+            is_preview=False,
+            is_deprecated=False,
+        )
+
+        descriptor = LLMProfile(
             capabilities=capabilities,
+            metadata=metadata,
         )
         self.register(descriptor)
 
-    def get_model(self, name: str) -> Optional[ModelDescriptor]:
+    async def detect_and_register_model(self, provider: str, model_name: str, api_key: str) -> LLMProfile:
+        """Detects capabilities of a model and registers it in the registry.
+
+        Args:
+            provider: The LLM provider (e.g., "anthropic", "openai")
+            model_name: Name of the model to detect capabilities for
+            api_key: API key for authentication
+
+        Returns:
+            LLMProfile for the registered model
+
+        Raises:
+            ValueError: If strict_capability_detection is True and capability detection fails
+        """
+        logger = logging.getLogger(__name__)
+
+        # First check if provider configuration exists
+        provider_config = self.provider_registry.get_provider(provider)
+        if provider_config:
+            try:
+                self.register_from_provider(provider, model_name)
+                model = self.get_model(model_name)
+                if model:
+                    return model
+            except ValueError:
+                pass  # Fall through to dynamic detection if provider registration fails
+
+        try:
+            # Get the appropriate detector and detect capabilities
+            capabilities = await ModelCapabilityDetectorFactory.detect_capabilities(provider, model_name, api_key)
+            capabilities.name = model_name
+            capabilities.family = ModelFamily(provider)  # Convert provider string to ModelFamily enum
+        except (ValueError, RuntimeError) as e:
+            if self.strict_capability_detection:
+                raise ValueError(f"Failed to detect capabilities for {model_name}: {str(e)}") from e
+            else:
+                logger.warning(
+                    f"Capability detection failed for {model_name}, using default capabilities. Error: {str(e)}"
+                )
+                # Create basic capabilities with conservative defaults
+                capabilities = LLMCapabilities(
+                    name=model_name,
+                    family=ModelFamily(provider),
+                    max_context_window=4096,  # Conservative default
+                    typical_speed=50.0,  # Conservative estimate
+                    input_cost_per_1k_tokens=0.01,  # Default cost
+                    output_cost_per_1k_tokens=0.02,  # Default cost
+                    supports_streaming=True,  # Most modern models support this
+                )
+
+        # Create metadata with release info
+        metadata = LLMMetadata(
+            release_date=datetime.now(),
+            min_api_version="2024-02-29",
+        )
+
+        # Create and register descriptor
+        descriptor = LLMProfile(
+            capabilities=capabilities,
+            metadata=metadata,
+        )
+        self.register(descriptor)
+        return descriptor
+
+    def get_model(self, name: str) -> Optional[LLMProfile]:
         """Get a model by name."""
         return self._models.get(name)
 
-    def get_family_models(self, family: ModelFamily) -> List[ModelDescriptor]:
+    def get_family_models(self, family: ModelFamily) -> List[LLMProfile]:
         """Get all models in a family."""
         return [model for model in self._models.values() if model.family == family]
 
@@ -227,7 +158,7 @@ class ModelRegistry:
         max_cost_per_1k: Optional[float] = None,
         required_languages: Optional[Set[str]] = None,
         min_speed: Optional[float] = None,
-    ) -> List[ModelDescriptor]:
+    ) -> List[LLMProfile]:
         """Get models that support a specific capability."""
         matching_models = []
 
@@ -261,110 +192,133 @@ class ModelRegistry:
         if not descriptor:
             return False, f"Unknown model {name}"
 
-        if descriptor.is_deprecated:
+        if descriptor.metadata.is_deprecated:
             msg = f"Model {name} is deprecated"
-            if descriptor.recommended_replacement:
-                msg += f". Consider using {descriptor.recommended_replacement} instead"
-            if descriptor.end_of_life_date:
-                msg += f". End of life date: {descriptor.end_of_life_date}"
+            if descriptor.metadata.recommended_replacement:
+                msg += f". Consider using {descriptor.metadata.recommended_replacement} instead"
+            if descriptor.metadata.end_of_life_date:
+                msg += f". End of life date: {descriptor.metadata.end_of_life_date}"
             return False, msg
 
         return True, None
 
-    def get_provider_config(self, provider: str) -> Optional[ProviderConfig]:
+    def get_provider_config(self, provider: str) -> Optional[Provider]:
         """Get configuration for a provider."""
-        return self._provider_registry.get_provider(provider)
+        return self.provider_registry.get_provider(provider)
 
-    async def detect_and_register_model(self, provider: str, model_name: str, api_key: str) -> ModelDescriptor:
-        """Detects capabilities of a model and registers it in the registry.
-
-        Args:
-            provider: The LLM provider (e.g., "anthropic", "openai")
-            model_name: Name of the model to detect capabilities for
-            api_key: API key for authentication
+    def list_models(self) -> List[str]:
+        """Get a list of all registered model names.
 
         Returns:
-            ModelDescriptor for the registered model
+            List of model names in the registry
         """
-        # First check if provider configuration exists
-        provider_config = self.get_provider_config(provider)
-        if provider_config:
+        return list(self._models.keys())
+
+    @property
+    def models(self) -> List[str]:
+        """Get a list of all registered model names.
+
+        Returns:
+            List of model names in the registry
+        """
+        return self.list_models()
+
+    @classmethod
+    def load_from_file(cls, path: Union[str, Path], strict_capability_detection: bool = False) -> "LLMRegistry":
+        """Load registry from a JSON or YAML file.
+
+        The file can either be:
+        1. A single configuration file with "providers" and "models" sections
+        2. A provider-specific file with "provider" and "models" sections
+
+        Args:
+            path: Path to configuration file
+            strict_capability_detection: Whether to enforce strict capability detection
+
+        Returns:
+            Configured LLMRegistry instance
+        """
+        registry = cls(strict_capability_detection=strict_capability_detection)
+
+        with open(path) as f:
+            data = json.load(f) if str(path).endswith(".json") else yaml.safe_load(f)
+
+            # Handle provider configuration
+            if "provider" in data:
+                # Provider-specific file format
+                provider = Provider(**data["provider"])
+                registry.provider_registry.register_provider(provider.name, provider)
+            elif "providers" in data:
+                # Multi-provider configuration format
+                for provider_data in data["providers"]:
+                    provider = Provider(**provider_data)
+                    registry.provider_registry.register_provider(provider.name, provider)
+
+            # Load model configurations
+            for model_data in data.get("models", []):
+                # Convert string representations of sets back to actual sets
+                if "capabilities" in model_data:
+                    caps = model_data["capabilities"]
+                    for set_field in ["supported_languages", "supported_media_types"]:
+                        if set_field in caps and isinstance(caps[set_field], str):
+                            caps[set_field] = eval(caps[set_field])
+
+                # If this is a provider-specific file, ensure family matches provider
+                if "provider" in data:
+                    if "capabilities" not in model_data:
+                        model_data["capabilities"] = {}
+                    model_data["capabilities"]["family"] = ModelFamily(data["provider"]["provider_name"])
+
+                registry.register(LLMProfile(**model_data))
+
+        return registry
+
+    @classmethod
+    def create_default(cls, strict_capability_detection: bool = False) -> "LLMRegistry":
+        """Create a LLMRegistry with default configurations from the model library.
+
+        Args:
+            strict_capability_detection: Whether to enforce strict capability detection
+
+        Returns:
+            LLMRegistry instance with default configurations loaded from all provider files
+        """
+        registry = cls(strict_capability_detection=strict_capability_detection)
+        library_path = Path(__file__).parent / "model_library"
+
+        # Load all YAML files from the model library
+        yaml_files = list(library_path.glob("*.yaml"))
+        if not yaml_files:
+            raise ValueError(f"No provider configuration files found in {library_path}")
+
+        # Load each provider file
+        for config_file in yaml_files:
             try:
-                self.register_from_provider(provider, model_name)
-                model = self.get_model(model_name)
-                if model:
-                    return model
-            except ValueError:
-                pass  # Fall through to dynamic detection if provider registration fails
+                loaded_registry = cls.load_from_file(config_file, strict_capability_detection)
+                # Merge configurations
+                for provider in loaded_registry.provider_registry.list_providers():
+                    registry.provider_registry.register_provider(provider.name, provider)
+                for model in loaded_registry._models.values():
+                    registry.register(model)
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.warning(f"Failed to load {config_file}: {str(e)}")
 
-        # Detect capabilities dynamically
-        capabilities = await ModelCapabilitiesDetector.detect_capabilities(provider, model_name, api_key)
-
-        # Create and register descriptor
-        descriptor = ModelDescriptor(
-            name=model_name,
-            family=provider,  # Use provider as family when not in provider registry
-            capabilities=capabilities,
-            min_api_version="2024-02-29",
-            release_date=datetime.now(),
-        )
-        self.register(descriptor)
-        return descriptor
-
-    @classmethod
-    def from_json(cls, path: Union[str, Path]) -> "ModelRegistry":
-        """Load registry from a JSON file."""
-        registry = cls()
-        with open(path) as f:
-            data = json.load(f)
-            for model_data in data["models"]:
-                # Convert string representations of sets back to actual sets
-                if "capabilities" in model_data:
-                    caps = model_data["capabilities"]
-                    if "supported_languages" in caps and isinstance(caps["supported_languages"], str):
-                        caps["supported_languages"] = eval(caps["supported_languages"])
-                    if "supported_media_types" in caps and isinstance(caps["supported_media_types"], str):
-                        caps["supported_media_types"] = eval(caps["supported_media_types"])
-                registry.register(ModelDescriptor(**model_data))
         return registry
 
-    @classmethod
-    def from_yaml(cls, path: Union[str, Path]) -> "ModelRegistry":
-        """Load registry from a YAML file."""
-        registry = cls()
-        with open(path) as f:
-            data = yaml.safe_load(f)
-            for model_data in data["models"]:
-                # Convert string representations of sets back to actual sets
-                if "capabilities" in model_data:
-                    caps = model_data["capabilities"]
-                    if "supported_languages" in caps and isinstance(caps["supported_languages"], str):
-                        caps["supported_languages"] = eval(caps["supported_languages"])
-                    if "supported_media_types" in caps and isinstance(caps["supported_media_types"], str):
-                        caps["supported_media_types"] = eval(caps["supported_media_types"])
-                registry.register(ModelDescriptor(**model_data))
-        return registry
+    def to_file(self, path: Union[str, Path]) -> None:
+        """Save registry to a JSON or YAML file.
 
-    @classmethod
-    def from_database(cls, session, query_filter: Optional[Dict[str, Any]] = None) -> "ModelRegistry":
-        """Load registry from database records."""
-        registry = cls()
-        query = session.query(ModelCapabilitiesTable)
-        if query_filter:
-            query = query.filter_by(**query_filter)
+        Args:
+            path: Path to save configuration to
+        """
+        data = {
+            "providers": [provider.model_dump() for provider in self.provider_registry.list_providers()],
+            "models": [model.model_dump() for model in self._models.values()],
+        }
 
-        for record in query.all():
-            registry.register(record.to_descriptor())
-        return registry
-
-    def to_json(self, path: Union[str, Path]) -> None:
-        """Save registry to a JSON file."""
-        data = {"models": [model.model_dump() for model in self._models.values()]}
         with open(path, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-
-    def to_yaml(self, path: Union[str, Path]) -> None:
-        """Save registry to a YAML file."""
-        data = {"models": [model.model_dump() for model in self._models.values()]}
-        with open(path, "w") as f:
-            yaml.dump(data, f, sort_keys=False)
+            if str(path).endswith(".json"):
+                json.dump(data, f, indent=2, default=str)
+            else:
+                yaml.dump(data, f, sort_keys=False)

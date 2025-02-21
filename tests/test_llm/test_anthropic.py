@@ -12,11 +12,12 @@ from anthropic.types import Message, MessageParam, TextBlock
 
 from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
 from llmaestro.llm.interfaces.base import MediaType, ImageInput
-from llmaestro.core.models import AgentConfig, TokenUsage
+from llmaestro.config.agent import AgentTypeConfig
 from llmaestro.llm.rate_limiter import RateLimitConfig
-from llmaestro.llm.models import ModelFamily, ModelRegistry, ModelDescriptor, ModelCapabilities, RangeConfig
+from llmaestro.llm.models import ModelFamily, LLMProfile, LLMCapabilities, RangeConfig
 from llmaestro.llm.token_utils import TokenCounter, TokenizerRegistry, BaseTokenizer
 from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
+from llmaestro.llm.llm_registry import LLMRegistry
 
 # Test Data
 @pytest.fixture
@@ -30,12 +31,12 @@ def test_response():
     }
 
 @pytest.fixture
-def mock_model_registry():
+def mock_llm_registry():
     """Create a mock model registry with our test model."""
-    registry = ModelRegistry()
+    registry = LLMRegistry()
 
     # Create test model descriptor
-    capabilities = ModelCapabilities(
+    capabilities = LLMCapabilities(
         supports_streaming=True,
         supports_vision=True,
         max_context_window=200000,
@@ -53,7 +54,7 @@ def mock_model_registry():
         top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0)
     )
 
-    descriptor = ModelDescriptor(
+    descriptor = LLMProfile(
         name="claude-3-sonnet-20240229",
         family=ModelFamily.CLAUDE,
         capabilities=capabilities,
@@ -130,15 +131,15 @@ def test_config():
     )
 
 @pytest.fixture
-def anthropic_llm(test_config, mock_anthropic_client, mock_model_registry, mock_tokenizer, monkeypatch):
+def anthropic_llm(test_config, mock_anthropic_client, mock_llm_registry, mock_tokenizer, monkeypatch):
     """Create AnthropicLLM instance with mocked dependencies."""
     def mock_registry_init(self):
-        self._models = mock_model_registry._models
+        self._models = mock_llm_registry._models
 
     def mock_get_tokenizer(model_family: ModelFamily, model_name: str) -> BaseTokenizer:
         return mock_tokenizer(model_name)
 
-    monkeypatch.setattr(ModelRegistry, "__init__", mock_registry_init)
+    monkeypatch.setattr(LLMRegistry, "__init__", mock_registry_init)
     monkeypatch.setattr(TokenizerRegistry, "get_tokenizer", mock_get_tokenizer)
     return AnthropicLLM(config=test_config)
 
@@ -180,15 +181,15 @@ def mock_token_counter(monkeypatch):
 class TestAnthropicLLM:
     """Unit tests for AnthropicLLM class."""
 
-    def test_init(self, test_config, mock_model_registry, mock_tokenizer, monkeypatch):
+    def test_init(self, test_config, mock_llm_registry, mock_tokenizer, monkeypatch):
         """Test initialization."""
         def mock_registry_init(self):
-            self._models = mock_model_registry._models
+            self._models = mock_llm_registry._models
 
         def mock_get_tokenizer(model_family: ModelFamily, model_name: str) -> BaseTokenizer:
             return mock_tokenizer(model_name)
 
-        monkeypatch.setattr(ModelRegistry, "__init__", mock_registry_init)
+        monkeypatch.setattr(LLMRegistry, "__init__", mock_registry_init)
         monkeypatch.setattr(TokenizerRegistry, "get_tokenizer", mock_get_tokenizer)
         llm = AnthropicLLM(config=test_config)
         assert llm.config == test_config
