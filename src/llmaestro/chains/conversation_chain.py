@@ -1,14 +1,12 @@
 """Conversation-aware chain system for LLM orchestration."""
 
 import asyncio
-from typing import Any, Dict, List, Optional, Set, cast
+from typing import Any, Dict, List, Optional, cast
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from llmaestro.chains.chains import ChainGraph, ChainNode, ChainEdge, NodeType, RetryStrategy
+from llmaestro.chains.chains import ChainEdge, ChainGraph, ChainNode, NodeType, RetryStrategy
 from llmaestro.core.conversations import ConversationGraph
-from llmaestro.core.orchestrator import Orchestrator, ExecutionMetadata
+from llmaestro.core.orchestrator import ExecutionMetadata, Orchestrator
 from llmaestro.prompts.base import BasePrompt
 
 
@@ -33,7 +31,7 @@ class ConversationChainNode(ChainNode):
             prompt=prompt,
             node_type=node_type,
             retry_strategy=retry_strategy or RetryStrategy(),
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
 
@@ -45,23 +43,20 @@ class ConversationChain(ChainGraph):
         self.orchestrator = orchestrator
         self.conversation: Optional[ConversationGraph] = None
 
-    async def initialize(self, 
-        name: str,
-        initial_prompt: BasePrompt,
-        metadata: Optional[Dict[str, Any]] = None
+    async def initialize(
+        self, name: str, initial_prompt: BasePrompt, metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """Initialize the chain with a conversation."""
         self.conversation = await self.orchestrator.create_conversation(
-            name=name,
-            initial_prompt=initial_prompt,
-            metadata=metadata
+            name=name, initial_prompt=initial_prompt, metadata=metadata
         )
 
-    async def add_prompt_node(self,
+    async def add_prompt_node(
+        self,
         prompt: BasePrompt,
         dependencies: Optional[List[str]] = None,
         retry_strategy: Optional[RetryStrategy] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Add a prompt node to both the chain and conversation."""
         if not self.conversation:
@@ -69,21 +64,14 @@ class ConversationChain(ChainGraph):
 
         # Create chain node
         node = await ConversationChainNode.create(
-            prompt=prompt,
-            node_type=NodeType.SEQUENTIAL,
-            retry_strategy=retry_strategy,
-            metadata=metadata
+            prompt=prompt, node_type=NodeType.SEQUENTIAL, retry_strategy=retry_strategy, metadata=metadata
         )
         node_id = self.add_node(node)
 
         # Add dependencies
         if dependencies:
             for dep_id in dependencies:
-                self.add_edge(ChainEdge(
-                    source_id=dep_id,
-                    target_id=node_id,
-                    edge_type="depends_on"
-                ))
+                self.add_edge(ChainEdge(source_id=dep_id, target_id=node_id, edge_type="depends_on"))
 
         return node_id
 
@@ -105,9 +93,7 @@ class ConversationChain(ChainGraph):
 
         # Execute in conversation
         response_id = await self.orchestrator.execute_prompt(
-            conversation_id=self.conversation.id,
-            prompt=node.prompt,
-            dependencies=dependencies
+            conversation_id=self.conversation.id, prompt=node.prompt, dependencies=dependencies
         )
 
         # Update node with conversation references
@@ -118,7 +104,7 @@ class ConversationChain(ChainGraph):
 
     async def execute(self) -> Dict[str, str]:
         """Execute the entire chain.
-        
+
         Returns:
             Dict mapping chain node IDs to conversation response node IDs
         """
@@ -131,14 +117,11 @@ class ConversationChain(ChainGraph):
         # Execute nodes level by level
         for level in execution_order:
             # Execute nodes in current level in parallel
-            level_tasks = [
-                self.execute_node(node_id)
-                for node_id in level
-            ]
+            level_tasks = [self.execute_node(node_id) for node_id in level]
             level_results = await asyncio.gather(*level_tasks)
 
             # Store results
-            for node_id, response_id in zip(level, level_results):
+            for node_id, response_id in zip(level, level_results, strict=False):
                 results[node_id] = response_id
 
         return results
@@ -156,6 +139,5 @@ class ConversationChain(ChainGraph):
             raise ValueError(f"Node {node_id} has not been executed")
 
         return self.orchestrator.get_execution_status(
-            conversation_id=self.conversation.id,
-            node_id=node.response_node_id
-        ) 
+            conversation_id=self.conversation.id, node_id=node.response_node_id
+        )
