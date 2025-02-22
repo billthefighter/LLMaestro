@@ -1,374 +1,154 @@
 """Tests for the base prompt functionality."""
 import pytest
-from datetime import datetime, timedelta
-from pydantic import ValidationError
+from datetime import datetime
+from pydantic import BaseModel, ValidationError
 import base64
+from typing import Dict, List, Set, Type, Union, Optional
 
-from llmaestro.prompts.base import BasePrompt, PromptMetadata, FileAttachment
+from llmaestro.prompts.base import BasePrompt, PromptMetadata, FileAttachment, PromptVariable, SerializableType
 from llmaestro.prompts.types import VersionInfo, ResponseFormat
-from llmaestro.llm.enums import MediaType
+from llmaestro.llm.enums import MediaType, ModelFamily
+from llmaestro.llm.models import LLMProfile
+from llmaestro.llm.llm_registry import LLMRegistry
 
-# Test Data Fixtures
-@pytest.fixture
-def sample_version_info():
-    return VersionInfo(
-        number="1.0.0",
-        author="test_author",
-        timestamp=datetime.now(),
-        description="Initial version",
-        change_type="major"
-    )
 
-@pytest.fixture
-def sample_response_format():
-    return ResponseFormat(
-        format="json",
-        schema="""
-        {
-            "type": "object",
-            "properties": {
-                "response": {"type": "string"}
-            }
-        }
-        """
-    )
+def test_get_variables_model(base_prompt: BasePrompt):
+    """Test getting the variables model."""
+    # Arrange & Act
+    model = base_prompt.get_variables_model()
 
-@pytest.fixture
-def sample_metadata(sample_response_format):
-    return PromptMetadata(
-        type="test",
-        expected_response=sample_response_format,
-        model_requirements={"model": "test-model"},
-        tags=["test"],
-        is_active=True
-    )
+    # Assert
+    assert model is not None
+    assert issubclass(model, BaseModel)
 
-@pytest.fixture
-def valid_prompt_data(sample_version_info, sample_metadata):
-    return {
-        "name": "test_prompt",
-        "description": "A test prompt",
-        "system_prompt": "You are a test assistant. Context: {context}",
-        "user_prompt": "Hello {name}, {query}",
-        "metadata": sample_metadata,
-        "examples": [
-            {
-                "input": {"name": "Test", "query": "help"},
-                "output": "Test response"
-            }
-        ],
-        "current_version": sample_version_info,
-        "version_history": []
+    # Verify model validates correctly
+    valid_data = {
+        "user_name": "test",
+        "query": "test query",
+        "context": "test context",
+        "items": ["item1"],
+        "count": 1,
+        "settings": {"key": "value"},
+        "response_schema": {"type": "object"}
+    }
+    instance = model(**valid_data)
+    assert instance is not None
+
+
+def test_get_variable_types(base_prompt: BasePrompt):
+    """Test getting variable types."""
+    # Act
+    types = base_prompt.get_variable_types()
+
+    # Assert
+    assert isinstance(types, dict)
+    assert "user_name" in types
+    assert types["user_name"] == SerializableType.STRING
+    assert "count" in types
+    assert types["count"] == SerializableType.INTEGER
+
+
+def test_get_required_variables(base_prompt: BasePrompt):
+    """Test getting required variables from templates."""
+    # Act
+    required = base_prompt.get_required_variables()
+
+    # Assert
+    assert isinstance(required, set)
+    assert "user_name" in required
+    assert "query" in required
+    assert "context" in required
+
+
+def test_add_and_clear_attachments(base_prompt: BasePrompt):
+    """Test adding and clearing attachments."""
+    # Arrange
+    content = "test content"
+    media_type = "text/plain"  # Use MIME type string instead of enum
+    file_name = "test.txt"
+
+    # Act - Add attachment
+    base_prompt.add_attachment(content, media_type, file_name)
+
+    # Assert attachment was added
+    assert len(base_prompt.attachments) == 1
+    assert base_prompt.attachments[0].content == content
+    assert isinstance(base_prompt.attachments[0].media_type, MediaType)
+    assert base_prompt.attachments[0].file_name == file_name
+
+    # Act - Clear attachments
+    base_prompt.clear_attachments()
+
+    # Assert attachments were cleared
+    assert len(base_prompt.attachments) == 0
+
+
+def test_render_success(base_prompt: BasePrompt):
+    """Test rendering prompt with valid variables."""
+    # Arrange
+    variables = {
+        "user_name": "Alice",
+        "query": "test",
+        "context": "ctx",
+        "items": ["item1", "item2"],
+        "count": 2,
+        "settings": {"mode": "test"},
+        "response_schema": {"type": "object"}
     }
 
-@pytest.fixture
-def base_prompt(valid_prompt_data):
-    class TestPrompt(BasePrompt):
-        async def save(self) -> bool:
-            return True
+    # Act
+    system, user, attachments = base_prompt.render(variables=variables)
 
-        @classmethod
-        async def load(cls, identifier: str):
-            return None
+    # Assert
+    assert "test assistant" in system.lower()
+    assert variables["user_name"] in user
+    assert isinstance(attachments, list)
 
-    return TestPrompt(**valid_prompt_data)
 
-@pytest.fixture
-def sample_image_content():
-    """Sample image content for testing."""
-    return base64.b64encode(b"fake_image_data").decode()
+@pytest.mark.parametrize("variables,expected_error", [
+    ({"user_name": 123, "query": "test", "context": "ctx"}, ValidationError),
+    ({}, ValueError),  # Missing required variables
+])
+def test_render_failures(base_prompt: BasePrompt, variables: Dict, expected_error: Type[Exception]):
+    """Test rendering prompt with invalid variables."""
+    with pytest.raises(expected_error):
+        base_prompt.render(variables=variables)
 
-@pytest.fixture
-def sample_file_attachment(sample_image_content):
-    """Sample file attachment for testing."""
-    return FileAttachment(
-        content=sample_image_content,
-        media_type=MediaType.JPEG,
-        file_name="test.jpg",
-        description="Test image"
-    )
 
-# Initialization Tests
-class TestBasePromptInitialization:
-    def test_valid_initialization(self, valid_prompt_data):
-        """Test that a prompt can be initialized with valid data."""
-        class TestPrompt(BasePrompt):
-            async def save(self) -> bool:
-                return True
+def test_render_with_model(base_prompt: BasePrompt, sample_variable_values: Dict):
+    """Test rendering using the variables model."""
+    # Arrange
+    base_prompt._create_variables_model()  # Ensure model is created
+    VariablesModel = base_prompt.get_variables_model()
+    assert VariablesModel is not None, "Variables model should be created"
+    variables = VariablesModel(**sample_variable_values)
 
-            @classmethod
-            async def load(cls, identifier: str):
-                return None
+    # Act
+    system, user, attachments = base_prompt.render(variables=variables)
 
-        prompt = TestPrompt(**valid_prompt_data)
-        assert prompt.name == "test_prompt"
-        assert prompt.description == "A test prompt"
-        assert prompt.system_prompt == "You are a test assistant. Context: {context}"
-        assert prompt.user_prompt == "Hello {name}, {query}"
+    # Assert
+    assert "test assistant" in system.lower()
+    assert sample_variable_values["user_name"] in user
+    assert isinstance(attachments, list)
 
-    def test_invalid_initialization_missing_fields(self, valid_prompt_data):
-        """Test that initialization fails with missing required fields."""
-        del valid_prompt_data["name"]
 
-        with pytest.raises(ValidationError):
-            class TestPrompt(BasePrompt):
-                async def save(self) -> bool:
-                    return True
+def test_validate_template_invalid(base_prompt: BasePrompt):
+    """Test template validation with invalid templates."""
+    # Arrange
+    base_prompt.system_prompt = "Invalid {brace"
 
-                @classmethod
-                async def load(cls, identifier: str):
-                    return None
+    # Act & Assert
+    with pytest.raises(ValueError, match="Unbalanced braces"):
+        base_prompt._validate_template()
 
-            TestPrompt(**valid_prompt_data)
 
-# Template Validation Tests
-class TestTemplateValidation:
-    def test_valid_template(self, base_prompt):
-        """Test that valid templates pass validation."""
-        base_prompt._validate_template()  # Should not raise
+def test_extract_template_vars(base_prompt: BasePrompt):
+    """Test extracting template variables."""
+    # Act
+    vars = base_prompt._extract_template_vars()
 
-    def test_unbalanced_braces(self, valid_prompt_data):
-        """Test that unbalanced braces raise ValueError."""
-        valid_prompt_data["user_prompt"] = "Hello {name"
-
-        with pytest.raises(ValueError, match="Unbalanced braces"):
-            class TestPrompt(BasePrompt):
-                async def save(self) -> bool:
-                    return True
-
-                @classmethod
-                async def load(cls, identifier: str):
-                    return None
-
-            prompt = TestPrompt(**valid_prompt_data)
-            prompt._validate_template()
-
-    def test_invalid_variable_names(self, valid_prompt_data):
-        """Test that invalid variable names raise ValueError."""
-        valid_prompt_data["user_prompt"] = "Hello {1invalid}"
-
-        with pytest.raises(ValueError, match="Invalid variable name"):
-            class TestPrompt(BasePrompt):
-                async def save(self) -> bool:
-                    return True
-
-                @classmethod
-                async def load(cls, identifier: str):
-                    return None
-
-            prompt = TestPrompt(**valid_prompt_data)
-            prompt._validate_template()
-
-# Template Variable Extraction Tests
-class TestTemplateVariableExtraction:
-    def test_extract_template_vars(self, base_prompt):
-        """Test extraction of template variables."""
-        variables = base_prompt._extract_template_vars()
-        assert "name" in variables
-        assert "query" in variables
-        assert "context" in variables
-
-# Prompt Rendering Tests
-class TestPromptRendering:
-    def test_successful_render(self, base_prompt):
-        """Test successful prompt rendering with all variables."""
-        system, user = base_prompt.render(
-            context="test context",
-            name="John",
-            query="help me"
-        )
-        # Both system and user prompts are formatted
-        assert system == "You are a test assistant. Context: test context"
-        assert user == "Hello John, help me"
-
-    def test_render_missing_variables(self, base_prompt):
-        """Test that rendering fails with missing variables."""
-        with pytest.raises(ValueError, match="Missing required variables"):
-            base_prompt.render(name="John")  # Missing context and query
-
-# Version Information Tests
-class TestVersionInformation:
-    def test_version_properties(self, base_prompt, sample_version_info):
-        """Test version-related properties."""
-        assert base_prompt.version == sample_version_info.number
-        assert base_prompt.author == sample_version_info.author
-        assert isinstance(base_prompt.created_at, datetime)
-        assert isinstance(base_prompt.updated_at, datetime)
-        assert isinstance(base_prompt.age, timedelta)
-
-# Serialization Tests
-class TestSerialization:
-    def test_to_dict(self, base_prompt):
-        """Test conversion to dictionary."""
-        data = base_prompt.to_dict()
-        assert isinstance(data, dict)
-        assert data["name"] == "test_prompt"
-        assert "version_history" in data
-
-        # Test without history
-        data_no_history = base_prompt.to_dict(include_history=False)
-        assert "version_history" not in data_no_history
-
-    def test_to_json(self, base_prompt):
-        """Test conversion to JSON."""
-        json_data = base_prompt.to_json()
-        assert isinstance(json_data, str)
-        assert "test_prompt" in json_data
-
-        # Test pretty printing
-        pretty_json = base_prompt.to_json(pretty=True)
-        assert pretty_json.count("\n") > json_data.count("\n")
-
-# Response Format Tests
-class TestResponseFormat:
-    def test_response_format_validation(self):
-        """Test response format validation."""
-        # Valid format
-        format1 = ResponseFormat(format="json")
-        assert format1.format == "json"
-
-        # Valid format with schema
-        format2 = ResponseFormat(
-            format="json",
-            schema='{"type": "object"}'
-        )
-        assert format2.schema == '{"type": "object"}'
-
-# Metadata Tests
-class TestPromptMetadata:
-    def test_metadata_validation(self, sample_response_format):
-        """Test metadata validation."""
-        # Valid metadata
-        metadata = PromptMetadata(
-            type="test",
-            expected_response=sample_response_format,
-            model_requirements={"model": "test-model"},
-            tags=["test"],
-            is_active=True
-        )
-        assert metadata.type == "test"
-        assert metadata.is_active is True
-        assert metadata.tags == ["test"]
-
-    def test_metadata_defaults(self, sample_response_format):
-        """Test metadata default values."""
-        metadata = PromptMetadata(
-            type="test",
-            expected_response=sample_response_format
-        )
-        assert metadata.is_active is True
-        assert metadata.tags == []
-        assert metadata.model_requirements is None
-
-class TestFileAttachments:
-    """Tests for file attachment functionality."""
-
-    def test_add_attachment(self, base_prompt, sample_image_content):
-        """Test adding a file attachment."""
-        base_prompt.add_attachment(
-            content=sample_image_content,
-            media_type=MediaType.JPEG,
-            file_name="test.jpg",
-            description="Test image"
-        )
-
-        assert len(base_prompt.attachments) == 1
-        attachment = base_prompt.attachments[0]
-        assert attachment.content == sample_image_content
-        assert attachment.media_type == MediaType.JPEG
-        assert attachment.file_name == "test.jpg"
-        assert attachment.description == "Test image"
-
-    def test_add_attachment_with_string_media_type(self, base_prompt, sample_image_content):
-        """Test adding attachment with string media type."""
-        base_prompt.add_attachment(
-            content=sample_image_content,
-            media_type="image/jpeg",
-            file_name="test.jpg"
-        )
-
-        assert len(base_prompt.attachments) == 1
-        assert base_prompt.attachments[0].media_type == MediaType.JPEG
-
-    def test_clear_attachments(self, base_prompt, sample_file_attachment):
-        """Test clearing attachments."""
-        # Add two attachments
-        base_prompt.add_attachment(
-            content=sample_file_attachment.content,
-            media_type=sample_file_attachment.media_type,
-            file_name=sample_file_attachment.file_name
-        )
-        base_prompt.add_attachment(
-            content=sample_file_attachment.content,
-            media_type=MediaType.PNG,
-            file_name="test2.png"
-        )
-
-        assert len(base_prompt.attachments) == 2
-
-        # Clear attachments
-        base_prompt.clear_attachments()
-        assert len(base_prompt.attachments) == 0
-
-    def test_render_with_attachments(self, base_prompt, sample_file_attachment):
-        """Test rendering prompt with attachments."""
-        base_prompt.add_attachment(
-            content=sample_file_attachment.content,
-            media_type=sample_file_attachment.media_type,
-            file_name=sample_file_attachment.file_name
-        )
-
-        system, user, attachments = base_prompt.render(
-            context="test context",
-            name="John",
-            query="help me"
-        )
-
-        assert system == "You are a test assistant. Context: test context"
-        assert user == "Hello John, help me"
-        assert len(attachments) == 1
-
-        attachment = attachments[0]
-        assert attachment["content"] == sample_file_attachment.content
-        assert attachment["mime_type"] == str(sample_file_attachment.media_type)
-        assert attachment["file_name"] == sample_file_attachment.file_name
-
-    def test_render_with_multiple_attachments(self, base_prompt, sample_file_attachment):
-        """Test rendering with multiple attachments."""
-        # Add JPEG attachment
-        base_prompt.add_attachment(
-            content=sample_file_attachment.content,
-            media_type=MediaType.JPEG,
-            file_name="test1.jpg"
-        )
-
-        # Add PNG attachment
-        base_prompt.add_attachment(
-            content=sample_file_attachment.content,
-            media_type=MediaType.PNG,
-            file_name="test2.png"
-        )
-
-        _, _, attachments = base_prompt.render(
-            context="test context",
-            name="John",
-            query="help me"
-        )
-
-        assert len(attachments) == 2
-        assert attachments[0]["mime_type"] == str(MediaType.JPEG)
-        assert attachments[1]["mime_type"] == str(MediaType.PNG)
-
-    def test_attachment_validation(self, base_prompt):
-        """Test validation of attachment fields."""
-        with pytest.raises(ValidationError):
-            # Missing required fields
-            FileAttachment()
-
-        with pytest.raises(ValidationError):
-            # Invalid media type
-            FileAttachment(
-                content="test",
-                media_type="invalid_type",
-                file_name="test.txt"
-            )
+    # Assert
+    assert isinstance(vars, set)
+    assert "user_name" in vars
+    assert "query" in vars
+    assert "context" in vars

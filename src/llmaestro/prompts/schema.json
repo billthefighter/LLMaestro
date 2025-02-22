@@ -21,6 +21,33 @@
       "type": "string",
       "description": "Brief explanation of what this prompt does"
     },
+    "variables": {
+      "type": "array",
+      "description": "List of variables used in the prompt template",
+      "items": {
+        "type": "object",
+        "required": ["name", "expected_input_type"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name of the variable used in the template"
+          },
+          "description": {
+            "type": "string",
+            "description": "Optional description of what the variable represents"
+          },
+          "expected_input_type": {
+            "type": "string",
+            "description": "Expected type of the input value",
+            "enum": ["string", "integer", "float", "boolean", "list", "dict", "schema"]
+          },
+          "string_conversion_template": {
+            "type": ["string", "null"],
+            "description": "Optional template string for converting the value to string format. Functions cannot be serialized in JSON and must be set programmatically."
+          }
+        }
+      }
+    },
     "system_prompt": {
       "type": "string",
       "description": "System-level instructions for the LLM"

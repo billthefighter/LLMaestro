@@ -17,7 +17,7 @@ from transformers import AutoTokenizer
 from llmaestro.config.agent import AgentTypeConfig, AgentRuntimeConfig
 from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
 from llmaestro.llm.rate_limiter import RateLimitConfig
-from llmaestro.llm.models import LLMCapabilities, LLMProfile, ModelFamily, RangeConfig
+from llmaestro.llm.models import ModelFamily
 from llmaestro.llm.token_utils import TokenCounter, BaseTokenizer, TokenizerRegistry
 
 # Test constants

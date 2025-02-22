@@ -14,7 +14,8 @@ from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
 from llmaestro.llm.interfaces.base import MediaType, ImageInput
 from llmaestro.config.agent import AgentTypeConfig
 from llmaestro.llm.rate_limiter import RateLimitConfig
-from llmaestro.llm.models import ModelFamily, LLMProfile, LLMCapabilities, RangeConfig
+from llmaestro.llm.models import ModelFamily, LLMProfile, LLMCapabilities
+from llmaestro.llm.capabilities import RangeConfig
 from llmaestro.llm.token_utils import TokenCounter, TokenizerRegistry, BaseTokenizer
 from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
 from llmaestro.llm.llm_registry import LLMRegistry

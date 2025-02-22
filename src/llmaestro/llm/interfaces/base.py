@@ -88,12 +88,12 @@ class BaseLLMInterface(ABC):
         """Initialize the LLM interface.
 
         Args:
-            provider: The LLM provider (e.g., "anthropic", "openai")
-            model: The model to use
-            api_key: API key for authentication
+            provider: Provider name (e.g. openai, anthropic)
+            model: Model name
+            api_key: API key for the provider
             max_tokens: Maximum tokens to generate
-            temperature: Sampling temperature
-            rate_limit: Optional rate limiting configuration
+            temperature: Temperature for sampling
+            rate_limit: Optional rate limit configuration
             max_context_tokens: Maximum context window size
             stream: Whether to stream responses
         """
@@ -105,12 +105,17 @@ class BaseLLMInterface(ABC):
         self.max_context_tokens = max_context_tokens
         self.stream = stream
 
-        # Initialize rate limiter if config provided
-        self.rate_limiter = RateLimiter(rate_limit, provider, model) if rate_limit else None
-        self.token_counter = TokenCounter()
-
+        # Initialize context
         self.context = ConversationContext([])
         self._total_tokens = 0
+
+        # Initialize token counter
+        self.token_counter = TokenCounter(api_key=api_key, llm_registry=LLMRegistry())
+
+        # Set up rate limiter if configured
+        self.rate_limiter = None
+        if rate_limit:
+            self.rate_limiter = RateLimiter(provider=provider, model=model, **rate_limit.model_dump())
 
         # Validate API key
         if not self.api_key:

@@ -4,7 +4,6 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, Protocol, Set, TypeVar, cast
 
-from llmaestro.agents.capabilities import AgentCapability
 from llmaestro.agents.models import Agent, AgentCapability, AgentMetrics, AgentState
 from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig
 from llmaestro.config.manager import ConfigurationManager

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from llmaestro.config import ConfigurationManager
 from llmaestro.config.agent import AgentRuntimeConfig, AgentTypeConfig
+from llmaestro.core import logging_config
 from llmaestro.core.conversations import ConversationNode
 from llmaestro.core.models import LLMResponse
 from llmaestro.core.orchestrator import ExecutionMetadata, Orchestrator
@@ -18,6 +19,9 @@ from llmaestro.llm.provider_registry import Provider
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+# Configure module logger
+logger = logging_config.configure_logging(module_name=__name__)
 
 
 def get_default_config() -> ConfigurationManager:
@@ -61,31 +65,45 @@ class Session(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
     def __init__(self, **data):
+        logger.info(f"Initializing new session with ID: {data.get('session_id', 'to be generated')}")
         super().__init__(**data)
+
+        logger.debug("Setting up storage")
         self.storage = FileSystemArtifactStorage.create(self.storage_path)
+
+        logger.debug("Initializing LLM registry")
         self.llm_registry = self.config.llm_registry
 
         # Update provider configurations with API keys
         if self.api_key:
+            logger.debug("Updating provider configurations with API key")
             # Update the provider API configuration with the API key
             provider = self.config.user_config.default_model.provider
             provider_config = self.config.provider_registry.get_provider(provider)
             if provider_config:
+                logger.debug(f"Configuring provider: {provider}")
                 # Create a new provider config with the API key
                 updated_config = provider_config.model_dump()
                 updated_config["api_key"] = self.api_key
                 self.config.provider_registry.register_provider(provider, Provider(**updated_config))
 
+        logger.debug("Initializing orchestrator")
         self._initialize_orchestrator()
+        logger.info("Session initialization complete")
 
     def _initialize_orchestrator(self) -> None:
         """Initialize the orchestrator with LLM interface."""
+        logger.debug("Getting LLM interface for orchestrator")
         llm_interface = self.get_llm_interface()
         if llm_interface and self.config.user_config.agents:
+            logger.debug("Creating agent pool")
             from llmaestro.agents.agent_pool import AgentPool
 
             agent_pool = AgentPool(self.config.user_config.agents)
             self.orchestrator = Orchestrator(agent_pool)
+            logger.info("Orchestrator initialized successfully")
+        else:
+            logger.warning("Could not initialize orchestrator - missing LLM interface or agents")
 
     @field_validator("storage_path", mode="before")
     @classmethod
@@ -105,13 +123,17 @@ class Session(BaseModel):
         Returns:
             str: ID of the created conversation
         """
+        logger.info(f"Starting new conversation: {name}")
         if not self.orchestrator:
+            logger.error("Cannot start conversation - orchestrator not initialized")
             raise RuntimeError("Orchestrator not initialized")
 
+        logger.debug("Creating conversation with initial prompt")
         conversation = await self.orchestrator.create_conversation(
             name=name, initial_prompt=initial_prompt, metadata={"session_id": self.session_id}
         )
         self.active_conversation_id = conversation.id
+        logger.info(f"Conversation started with ID: {conversation.id}")
         return conversation.id
 
     async def execute_prompt(
@@ -127,14 +149,22 @@ class Session(BaseModel):
         Returns:
             str: ID of the response node
         """
+        logger.debug(f"Executing prompt with dependencies: {dependencies}")
         if not self.orchestrator:
+            logger.error("Cannot execute prompt - orchestrator not initialized")
             raise RuntimeError("Orchestrator not initialized")
 
         conv_id = conversation_id or self.active_conversation_id
         if not conv_id:
+            logger.error("No active conversation for prompt execution")
             raise ValueError("No active conversation")
 
-        return await self.orchestrator.execute_prompt(conversation_id=conv_id, prompt=prompt, dependencies=dependencies)
+        logger.debug(f"Executing prompt in conversation: {conv_id}")
+        node_id = await self.orchestrator.execute_prompt(
+            conversation_id=conv_id, prompt=prompt, dependencies=dependencies
+        )
+        logger.info(f"Prompt executed successfully, node ID: {node_id}")
+        return node_id
 
     async def execute_parallel(
         self, prompts: List[BasePrompt], max_parallel: Optional[int] = None, conversation_id: Optional[str] = None
@@ -233,13 +263,17 @@ class Session(BaseModel):
 
     def get_llm_interface(self) -> Optional[BaseLLMInterface]:
         """Get or create the LLM interface."""
+        logger.debug("Getting LLM interface")
         if self._llm_interface:
+            logger.debug("Using existing LLM interface")
             return self._llm_interface
 
         try:
+            logger.debug("Creating new LLM interface")
             # Get default model configuration from user config
             default_model = self.config.user_config.default_model
             if not default_model:
+                logger.warning("No default model configuration found")
                 return None
 
             provider = default_model.provider
@@ -247,8 +281,10 @@ class Session(BaseModel):
             api_key = self.api_key or self.config.user_config.api_keys.get(provider, "")
 
             if not all([provider, model, api_key]):
+                logger.warning("Missing required configuration for LLM interface")
                 return None
 
+            logger.debug(f"Configuring agent for provider: {provider}, model: {model}")
             # Create agent configuration
             agent_config = AgentTypeConfig(
                 provider=provider,
@@ -260,9 +296,10 @@ class Session(BaseModel):
 
             # Create LLM interface with agent config
             self._llm_interface = create_llm_interface(agent_config)
+            logger.info(f"LLM interface created successfully for {provider}/{model}")
             return self._llm_interface
         except Exception as e:
-            print(f"Error creating LLM interface: {e}")
+            logger.error(f"Error creating LLM interface: {e}", exc_info=True)
             return None
 
     def store_artifact(
@@ -280,14 +317,20 @@ class Session(BaseModel):
         Returns:
             Artifact representing the stored data
         """
+        logger.debug(f"Storing artifact: {name} of type {content_type}")
         artifact = Artifact(name=name, data=data, content_type=content_type, metadata=metadata or {})
 
         if not self.storage:
+            logger.debug("Creating new storage instance")
             self.storage = FileSystemArtifactStorage.create(self.storage_path)
 
         if self.storage.save_artifact(artifact):
+            logger.info(f"Artifact stored successfully: {name}")
             return artifact
-        raise RuntimeError(f"Failed to save artifact: {name}")
+
+        error_msg = f"Failed to save artifact: {name}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
     def get_artifact(self, artifact_id: str) -> Optional[Artifact]:
         """

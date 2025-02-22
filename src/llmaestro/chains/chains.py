@@ -3,12 +3,13 @@
 import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Generic, List, Optional, Protocol, Set, TypeVar, cast
+from typing import Any, Callable, Dict, Generic, List, Optional, Protocol, Set, Tuple, TypeVar, cast
 from uuid import uuid4
 
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.base import BasePrompt
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ValidationResult
 from pydantic import BaseModel, ConfigDict, Field
 
 T = TypeVar("T")
@@ -22,6 +23,7 @@ class NodeType(str, Enum):
     PARALLEL = "parallel"
     CONDITIONAL = "conditional"
     AGENT = "agent"
+    VALIDATION = "validation"  # New type for validation nodes
 
 
 class AgentType(str, Enum):
@@ -131,7 +133,7 @@ class ChainStep(BaseModel, Generic[T]):
                 system_prompt=self.prompt.system_prompt.format(**transformed_data),
                 user_prompt=self.prompt.user_prompt.format(**transformed_data),
                 metadata=self.prompt.metadata,
-                current_version=self.prompt.current_version,
+                variables=self.prompt.variables,
             )
 
         # Execute prompt
@@ -184,6 +186,75 @@ class ChainExecutor:
                     raise
                 await asyncio.sleep(delay)
         raise RuntimeError("Node execution failed after all retries")
+
+
+class ValidationNode(ChainNode):
+    """A specialized node for response validation and retry logic."""
+
+    def __init__(
+        self,
+        response_format: ResponseFormat,
+        retry_strategy: Optional[RetryStrategy] = None,
+        error_handler: Optional[Callable[[ValidationResult], Dict[str, Any]]] = None,
+    ):
+        super().__init__(
+            node_type=NodeType.VALIDATION,
+            step=ChainStep(
+                prompt=self._create_retry_prompt(),
+                retry_strategy=retry_strategy or RetryStrategy(),
+            ),
+        )
+        self.response_format = response_format
+        self.error_handler = error_handler
+
+    async def validate_and_retry(
+        self,
+        response: LLMResponse,
+        agent_pool: AgentPool,
+        context: ChainContext,
+    ) -> Tuple[bool, Any]:
+        """Validate response and handle retries if needed.
+
+        Args:
+            response: The LLM response to validate
+            agent_pool: Pool of agents for retry execution
+            context: Current chain context
+
+        Returns:
+            Tuple of (is_valid, final_result)
+        """
+        validation_result = self.response_format.validate_response(response.content)
+
+        if validation_result.is_valid:
+            return True, validation_result.formatted_response
+
+        # Handle retry if needed
+        retry_prompt = self.response_format.generate_retry_prompt(validation_result)
+        if not retry_prompt:
+            if self.error_handler:
+                return False, self.error_handler(validation_result)
+            return False, validation_result
+
+        # Update prompt with retry context
+        self.step.prompt.user_prompt = retry_prompt
+
+        # Execute retry
+        retry_response = await self.step.execute(agent_pool, context)
+        validation_result.retry_count += 1
+
+        # Validate retry response
+        return await self.validate_and_retry(retry_response, agent_pool, context)
+
+    def _create_retry_prompt(self) -> BasePrompt:
+        """Create a prompt for retry attempts."""
+        return BasePrompt(
+            name="validation_retry",
+            description="Retry prompt for invalid responses",
+            system_prompt="You are helping to fix an invalid response. Please address the validation errors and provide a corrected response.",
+            user_prompt="{retry_message}",
+            metadata=PromptMetadata(type="validation", expected_response=self.response_format),
+            variables=[],  # No version control for retry prompts
+        )
 
 
 class ChainGraph(BaseModel):
@@ -254,7 +325,21 @@ class ChainGraph(BaseModel):
                 node = self.nodes[node_id]
                 # Get results from dependencies
                 dep_results = {dep_id: results[dep_id] for dep_id in self.get_node_dependencies(node_id)}
-                # Prepare node execution
+
+                # Special handling for validation nodes
+                if isinstance(node, ValidationNode):
+                    # Find the response to validate from dependencies
+                    response_to_validate = next(
+                        (result for result in dep_results.values() if isinstance(result, LLMResponse)), None
+                    )
+                    if response_to_validate:
+                        is_valid, validated_result = await node.validate_and_retry(
+                            response_to_validate, self.agent_pool, self.context
+                        )
+                        results[node_id] = validated_result
+                        continue
+
+                # Regular node execution
                 task = ChainExecutor.execute_with_retry(
                     node=node,
                     agent_pool=self.agent_pool,

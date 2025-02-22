@@ -2,14 +2,88 @@
 import json
 import re
 from abc import abstractmethod
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from datetime import datetime
+from enum import Enum
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 
 from llmaestro.llm.enums import MediaType
-from llmaestro.llm.models import ModelFamily
-from llmaestro.llm.token_utils import TokenCounter
-from llmaestro.prompts.types import PromptMetadata, VersionInfo
-from pydantic import BaseModel, Field
+from llmaestro.prompts.mixins import VersionMixin
+from llmaestro.prompts.types import PromptMetadata
+from pydantic import BaseModel, Field, create_model
+
+
+# Type definitions for prompt variables
+class SerializableType(str, Enum):
+    """Enumeration of serializable types for prompt variables."""
+
+    STRING = "string"
+    INTEGER = "integer"
+    FLOAT = "float"
+    BOOLEAN = "boolean"
+    LIST = "list"
+    DICT = "dict"
+    SCHEMA = "schema"
+
+
+# Mapping of SerializableType to Python types
+TYPE_MAPPING = {
+    SerializableType.STRING: str,
+    SerializableType.INTEGER: int,
+    SerializableType.FLOAT: float,
+    SerializableType.BOOLEAN: bool,
+    SerializableType.LIST: list,
+    SerializableType.DICT: dict,
+    SerializableType.SCHEMA: Union[dict, str],
+}
+
+
+class PromptVariable(BaseModel):
+    """Represents a variable in a prompt template."""
+
+    name: str
+    description: Optional[str] = None
+    expected_input_type: SerializableType = SerializableType.STRING
+    string_conversion_template: Optional[Union[str, Callable]] = None
+
+    def convert_value(self, value: Any) -> str:
+        """Convert the input value to a string using the template or default str() method."""
+        if value is None:
+            raise ValueError(f"Value for variable {self.name} cannot be None")
+
+        # Special handling for SCHEMA type
+        if self.expected_input_type == SerializableType.SCHEMA:
+            if not isinstance(value, (dict, str)):
+                raise ValueError(f"Schema variable {self.name} expects a dict or JSON string, got {type(value)}")
+
+            # If it's already a string, validate it's valid JSON
+            if isinstance(value, str):
+                try:
+                    json.loads(value)
+                    return value
+                except json.JSONDecodeError as e:
+                    raise ValueError(f"Schema variable {self.name} contains invalid JSON: {e}")
+
+            # If it's a dict, convert to JSON string
+            try:
+                return json.dumps(value)
+            except TypeError as e:
+                raise ValueError(f"Schema variable {self.name} contains non-serializable values: {e}")
+
+        if self.string_conversion_template is None:
+            return str(value)
+
+        if isinstance(self.string_conversion_template, str):
+            return self.string_conversion_template.format(value=value)
+
+        if callable(self.string_conversion_template):
+            try:
+                return self.string_conversion_template(value)
+            except Exception as e:
+                raise ValueError(
+                    f"Function passed to string_conversion_template for variable {self.name} raised an error: {e}"
+                ) from e
+
+        raise ValueError(f"Invalid string_conversion_template for variable {self.name}")
 
 
 class FileAttachment(BaseModel):
@@ -22,22 +96,87 @@ class FileAttachment(BaseModel):
 
 
 class BasePrompt(BaseModel):
-    """Base class for all prompts."""
+    """Base class for all prompts.
+
+    This class handles the core prompt functionality without version control.
+    For versioning support, use VersionedPrompt instead.
+    """
 
     name: str
     description: str
-    system_prompt: str
-    user_prompt: str
-    metadata: PromptMetadata
+    system_prompt: str = Field(description="System prompt template")
+    user_prompt: str = Field(description="User prompt template")
+    metadata: Optional[PromptMetadata] = Field(default=None, description="Optional metadata about the prompt")
     examples: Optional[List[Dict[str, Any]]] = None
-    attachments: List[FileAttachment] = Field(default_factory=list)
+    attachments: List[FileAttachment] = Field(default_factory=list, description="List of file attachments")
+    variables: List[PromptVariable] = Field(default_factory=list, description="List of variable definitions")
 
-    # Version control
-    current_version: VersionInfo
-    version_history: List[VersionInfo] = Field(default_factory=list)
+    # Variables model for validation
+    _variables_model: Optional[Type[BaseModel]] = None
 
-    # Token counting
-    _token_counter: Optional[TokenCounter] = None
+    model_config = {"json_encoders": {datetime: lambda v: v.isoformat()}}
+
+    def __init__(self, **data):
+        """Initialize the prompt."""
+        super().__init__(**data)
+        self._create_variables_model()
+        self._validate_template()
+
+    def _create_variables_model(self) -> None:
+        """Create a Pydantic model for the prompt variables."""
+        if not self.variables:
+            return
+
+        fields = {}
+        for var in self.variables:
+            python_type = TYPE_MAPPING[var.expected_input_type]
+            fields[var.name] = (python_type, Field(description=var.description or ""))
+
+        # Create a new model with the fields
+        model_name = f"{self.name.title()}Variables"
+        self._variables_model = create_model(model_name, __base__=BaseModel, **fields)
+
+    def get_variables_model(self) -> Optional[Type[BaseModel]]:
+        """Get the Pydantic model for the prompt variables.
+
+        Returns:
+            A Pydantic model class with fields matching the prompt variables,
+            or None if no variables are defined.
+
+        Example:
+            ```python
+            prompt = BasePrompt(
+                name="example",
+                variables=[
+                    PromptVariable(name="user_name", expected_input_type=SerializableType.STRING),
+                    PromptVariable(name="count", expected_input_type=SerializableType.INTEGER)
+                ],
+                ...
+            )
+
+            # Get the variables model
+            VariablesModel = prompt.get_variables_model()
+
+            # Create and validate variables
+            vars = VariablesModel(user_name="Alice", count=5)
+
+            # Use in render
+            prompt.render(variables=vars.model_dump())
+            ```
+        """
+        return self._variables_model
+
+    def get_variable_types(self) -> Dict[str, SerializableType]:
+        """Get a dictionary mapping variable names to their expected types."""
+        return {var.name: var.expected_input_type for var in self.variables}
+
+    def get_required_variables(self) -> Set[str]:
+        """Get the set of required variable names used in the prompt templates.
+
+        Returns:
+            Set of variable names that must be provided when rendering.
+        """
+        return self._extract_template_vars()
 
     def add_attachment(
         self,
@@ -66,26 +205,69 @@ class BasePrompt(BaseModel):
         """Remove all attachments from the prompt."""
         self.attachments.clear()
 
-    def model_dump_json(self, **kwargs) -> str:
-        data = self.model_dump(**kwargs)
-        if "current_version" in data and "timestamp" in data["current_version"]:
-            data["current_version"]["timestamp"] = data["current_version"]["timestamp"].isoformat()
-        for version in data.get("version_history", []):
-            if "timestamp" in version:
-                version["timestamp"] = version["timestamp"].isoformat()
-        return json.dumps(data, **kwargs)
-
-    def render(self, **kwargs) -> Tuple[str, str, List[Dict[str, Any]]]:
+    def render(
+        self, variables: Optional[Union[Dict[str, Any], BaseModel]] = None, **additional_kwargs: Any
+    ) -> Tuple[str, str, List[Dict[str, Any]]]:
         """Render the prompt template with the given variables.
+
+        Args:
+            variables: Dictionary or Pydantic model containing variable values.
+                      If using the variables model from get_variables_model(),
+                      values will be validated against expected types.
+            additional_kwargs: Additional keyword arguments for backward compatibility.
 
         Returns:
             Tuple of (system_prompt, user_prompt, attachments)
             where attachments is a list of dicts compatible with LLM interface
+
+        Raises:
+            ValueError: If required variables are missing or if variable values don't match expected types.
+
+        Example:
+            ```python
+            # Using the variables model (recommended)
+            VariablesModel = prompt.get_variables_model()
+            vars = VariablesModel(user_name="Alice", items=["item1", "item2"])
+            system, user, attachments = prompt.render(variables=vars)
+
+            # Using a dictionary (types will still be validated)
+            system, user, attachments = prompt.render(
+                variables={"user_name": "Alice", "items": ["item1", "item2"]}
+            )
+            ```
         """
-        self._validate_template()  # Validate before rendering
+        self._validate_template()
+
+        # Convert variables to dict if it's a model
+        var_dict: Dict[str, Any] = {}
+        if isinstance(variables, BaseModel):
+            var_dict = variables.model_dump()
+        elif variables is not None:
+            # If we have a variables model, validate the dict
+            if self._variables_model is not None:
+                var_dict = self._variables_model(**variables).model_dump()
+            else:
+                var_dict = variables
+
+        # Add additional kwargs
+        all_kwargs = {**var_dict, **additional_kwargs}
+
         try:
-            formatted_system_prompt = self.system_prompt.format(**kwargs)
-            formatted_user_prompt = self.user_prompt.format(**kwargs)
+            # Convert variables using their defined conversion methods
+            converted_kwargs: Dict[str, str] = {}
+            for var in self.variables:
+                if var.name in all_kwargs:
+                    converted_kwargs[var.name] = var.convert_value(all_kwargs[var.name])
+                elif var.name in self._extract_template_vars():
+                    raise ValueError(f"Missing required variable: {var.name}")
+
+            # Add any remaining kwargs that don't have PromptVariable definitions
+            for key, value in all_kwargs.items():
+                if key not in converted_kwargs:
+                    converted_kwargs[key] = str(value)
+
+            formatted_system_prompt = self.system_prompt.format(**converted_kwargs)
+            formatted_user_prompt = self.user_prompt.format(**converted_kwargs)
 
             # Format attachments for LLM interface
             formatted_attachments = [
@@ -96,7 +278,7 @@ class BasePrompt(BaseModel):
             return formatted_system_prompt, formatted_user_prompt, formatted_attachments
         except KeyError as e:
             required_vars = self._extract_template_vars()
-            missing_vars = [var for var in required_vars if var not in kwargs]
+            missing_vars = [var for var in required_vars if var not in all_kwargs]
             raise ValueError(f"Missing required variables: {missing_vars}. Error: {e}") from e
 
     def _validate_template(self) -> None:
@@ -122,131 +304,63 @@ class BasePrompt(BaseModel):
         user_vars = set(re.findall(pattern, self.user_prompt))
         return system_vars.union(user_vars)
 
-    @property
-    def version(self) -> str:
-        """Get current version number."""
-        return self.current_version.number
-
-    @property
-    def author(self) -> str:
-        """Get original author."""
-        return self.version_history[0].author if self.version_history else self.current_version.author
-
-    @property
-    def created_at(self) -> datetime:
-        """Get creation timestamp."""
-        return self.version_history[0].timestamp if self.version_history else self.current_version.timestamp
-
-    @property
-    def updated_at(self) -> datetime:
-        """Get last update timestamp."""
-        return self.current_version.timestamp
-
-    @property
-    def age(self) -> timedelta:
-        """Get the age of this prompt."""
-        return datetime.now() - self.created_at
-
-    def to_dict(self, include_history: bool = True) -> Dict[str, Any]:
-        """Convert prompt to dictionary format."""
-        data = self.model_dump(mode="json")
-        if not include_history:
-            data.pop("version_history", None)
-        return data
-
-    def to_json(self, include_history: bool = True, pretty: bool = False) -> str:
-        """Convert prompt to JSON format."""
-        data = self.to_dict(include_history=include_history)
-        return json.dumps(data, indent=2 if pretty else None, ensure_ascii=False)
-
     @abstractmethod
     async def save(self) -> bool:
-        """Save the prompt to its storage backend."""
-        pass
+        """Save the prompt to its storage backend.
+
+        Returns:
+            bool: True if save was successful, False otherwise.
+
+        Raises:
+            NotImplementedError: If the storage backend is not implemented.
+        """
+        raise NotImplementedError("Storage backend not implemented")
 
     @classmethod
     @abstractmethod
     async def load(cls, identifier: str) -> Optional["BasePrompt"]:
-        """Load a prompt from its storage backend."""
+        """Load a prompt from its storage backend.
+
+        Args:
+            identifier: String identifier for the prompt (e.g., file path, URL, etc.)
+
+        Returns:
+            Optional[BasePrompt]: The loaded prompt, or None if not found.
+
+        Raises:
+            NotImplementedError: If the storage backend is not implemented.
+        """
+        raise NotImplementedError("Storage backend not implemented")
+
+
+class VersionedPrompt(BasePrompt, VersionMixin):
+    """A prompt with version control support."""
+
+    model_config = {
+        "json_encoders": {datetime: lambda v: v.isoformat()},
+        "exclude": {"version_history": {"exclude": True}},  # Allow excluding version history in dumps
+    }
+
+    @abstractmethod
+    async def save(self) -> bool:
+        """Save the prompt with version information to its storage backend.
+
+        This method should handle saving both the prompt content and its version history.
+
+        Returns:
+            bool: True if save was successful, False otherwise.
+        """
         pass
 
-    @property
-    def token_counter(self) -> TokenCounter:
-        """Get or create token counter."""
-        if self._token_counter is None:
-            self._token_counter = TokenCounter()
-        return self._token_counter
-
-    def estimate_tokens(
-        self, model_family: ModelFamily, model_name: str, variables: Optional[Dict] = None
-    ) -> Dict[str, int]:
-        """Estimate tokens for this prompt.
+    @classmethod
+    @abstractmethod
+    async def load(cls, identifier: str) -> Optional["VersionedPrompt"]:
+        """Load a versioned prompt from its storage backend.
 
         Args:
-            model_family: The model family (e.g. GPT, CLAUDE)
-            model_name: Specific model name
-            variables: Optional variable values for rendering
+            identifier: String identifier for the prompt (e.g., file path, URL, etc.)
 
         Returns:
-            Dict containing token counts and metadata
+            Optional[VersionedPrompt]: The loaded prompt with version history, or None if not found.
         """
-        try:
-            # Try to render with provided variables
-            if variables:
-                system, user, _ = self.render(**variables)
-            else:
-                # Use template analysis for estimation
-                system = self.system_prompt
-                user = self.user_prompt
-
-                # Add placeholder estimates for variables
-                for var in self._extract_template_vars():
-                    placeholder = "X" * 10  # Assume 10 chars per var
-                    if "{" + var + "}" in system:
-                        system = system.replace("{" + var + "}", placeholder)
-                    if "{" + var + "}" in user:
-                        user = user.replace("{" + var + "}", placeholder)
-
-        except Exception:
-            # Fallback to raw templates if rendering fails
-            system = self.system_prompt
-            user = self.user_prompt
-
-        # Format as messages for token counter
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
-
-        # Get token estimates
-        counts = self.token_counter.estimate_messages(messages, model_family, model_name)
-
-        # Create result with both counts and metadata
-        result = {
-            **counts,
-            "has_variables": bool(self._extract_template_vars()),
-            "is_estimate": variables is None,
-            "model_family": model_family.name,
-            "model_name": model_name,
-        }
-
-        return result
-
-    def validate_context(
-        self, model_family: ModelFamily, model_name: str, max_completion_tokens: int, variables: Optional[Dict] = None
-    ) -> Tuple[bool, str]:
-        """Check if prompt fits in model's context window.
-
-        Args:
-            model_family: The model family (e.g. GPT, CLAUDE)
-            model_name: Specific model name
-            max_completion_tokens: Maximum tokens needed for completion
-            variables: Optional variable values
-
-        Returns:
-            Tuple of (is_valid, error_message)
-        """
-        counts = self.estimate_tokens(model_family, model_name, variables)
-
-        is_valid, error = self.token_counter.validate_context(
-            counts["total_tokens"], max_completion_tokens, model_family, model_name
-        )
-
-        return is_valid, error or ""
+        pass

@@ -216,14 +216,16 @@ TokenizerRegistry.register(ModelFamily.GEMINI, SimpleWordTokenizer)
 class TokenCounter:
     """Unified token counting and estimation."""
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, llm_registry: Optional[LLMRegistry] = None):
         """Initialize token counter.
 
         Args:
             api_key: Optional API key for providers that require it (e.g. Anthropic)
+            llm_registry: Optional LLMRegistry instance. If not provided, a new instance will be created.
         """
         self._tokenizers: Dict[str, BaseTokenizer] = {}
         self._api_key = api_key
+        self._llm_registry = llm_registry or LLMRegistry()
 
     def get_tokenizer(self, model_family: ModelFamily, model_name: str) -> BaseTokenizer:
         """Get or create a tokenizer for the specified model."""
@@ -241,7 +243,7 @@ class TokenCounter:
     ) -> Dict[str, int]:
         """Estimate tokens for a list of messages."""
         # Validate model exists
-        descriptor = _llm_registry.get_model(model_name)
+        descriptor = self._llm_registry.get_model(model_name)
         if not descriptor:
             raise ValueError(f"Unknown model {model_name} in family {model_family.name}")
 
@@ -277,7 +279,7 @@ class TokenCounter:
     ) -> Tuple[bool, Optional[str]]:
         """Check if total tokens fit within model's context window."""
         # Get model descriptor for context limit
-        descriptor = _llm_registry.get_model(model_name)
+        descriptor = self._llm_registry.get_model(model_name)
         if not descriptor:
             return False, f"Unknown model {model_name} in family {model_family.name}"
 
@@ -309,7 +311,7 @@ class TokenCounter:
         Returns:
             Estimated token count for the images
         """
-        descriptor = _llm_registry.get_model(model_name)
+        descriptor = self._llm_registry.get_model(model_name)
         if not descriptor or not descriptor.capabilities.supports_vision:
             return 0
 
@@ -371,7 +373,7 @@ class TokenCounter:
         self, token_counts: Dict[str, int], image_count: int, model_family: ModelFamily, model_name: str
     ) -> float:
         """Calculate total cost including both tokens and images."""
-        descriptor = _llm_registry.get_model(model_name)
+        descriptor = self._llm_registry.get_model(model_name)
         if not descriptor:
             return 0.0
 

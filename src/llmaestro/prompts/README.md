@@ -44,6 +44,65 @@ class CustomPrompt(BasePrompt, GitMixin):
         # ... custom save logic ...
 ```
 
+## Prompt Variables
+
+The system supports type-safe variable handling for prompt templates:
+
+1. **Variable Definition**:
+   ```yaml
+   variables:
+     - name: "user_name"
+       description: "Name of the user to address"
+       expected_input_type: "string"
+     - name: "items"
+       description: "List of items to process"
+       expected_input_type: "list"
+       string_conversion_template: "{value:,}"  # Join with commas
+   ```
+
+2. **Type-Safe Usage**:
+   ```python
+   # Get the strongly-typed model for variables
+   VariablesModel = prompt.get_variables_model()
+
+   # Create and validate variables
+   vars = VariablesModel(
+       user_name="Alice",
+       items=["item1", "item2"]
+   )
+
+   # Render with validated variables
+   system, user, _ = prompt.render(variables=vars)
+   ```
+
+3. **Supported Types**:
+   - `string`: Text values
+   - `integer`: Whole numbers
+   - `float`: Decimal numbers
+   - `boolean`: True/False values
+   - `list`: Arrays/sequences
+   - `dict`: Key-value mappings
+   - `schema`: JSON schema (as string or dict)
+
+4. **Custom Formatting**:
+   ```python
+   from typing import List
+
+   def format_items(items: List[str]) -> str:
+       return "• " + "\n• ".join(items)
+
+   prompt = BasePrompt(
+       variables=[
+           PromptVariable(
+               name="items",
+               expected_input_type="list",
+               string_conversion_template=format_items
+           )
+       ],
+       user_prompt="Process these items:\n{items}"
+   )
+   ```
+
 ## Version Control
 
 Prompts now support sophisticated version control with:
@@ -72,6 +131,13 @@ Each prompt includes the following structure:
 ```yaml
 name: "unique_prompt_name"
 description: "Brief description of what this prompt does"
+variables:
+  - name: "user_name"
+    description: "Name of the user to address"
+    expected_input_type: "string"
+  - name: "items"
+    description: "List of items to process"
+    expected_input_type: "list"
 metadata:
   type: "task_type"  # e.g., pdf_analysis, code_refactor, lint_fix
   model_requirements:
@@ -87,30 +153,21 @@ metadata:
   tags: ["category1", "category2"]
   is_active: true
 
-current_version:
-  number: "1.0.0"
-  timestamp: "2024-03-20T12:00:00Z"
-  author: "Author Name"
-  description: "Initial version"
-  change_type: "major"
-  git_commit: "abc123..."  # Optional
-
 system_prompt: |
-  Clear description of the assistant's role and task.
-  Can be multiple lines.
+  You are helping {user_name} with their task.
+  Follow these instructions carefully.
 
 user_prompt: |
-  Template for the user's input with {variables}.
-  Can include multiple lines and formatting.
+  Process these items for {user_name}:
+  {items}
 
 examples:
   - input:
-      variable1: "example value 1"
-      variable2: "example value 2"
+      user_name: "Alice"
+      items: ["item1", "item2"]
     expected_output: |
       {
-        "field1": "example response",
-        "field2": ["item1", "item2"]
+        "processed": ["item1_result", "item2_result"]
       }
 ```
 
@@ -119,35 +176,34 @@ examples:
 1. **Loading Prompts**:
    ```python
    loader = PromptLoader()
-
-   # Load from file
-   file_prompt = await loader.load_prompt("file", "prompts/my_prompt.yaml")
-
-   # Load from git repo
-   git_prompt = await loader.load_prompt("git", "repo:path/to/prompt.yaml@main")
+   prompt = await loader.load_prompt("file", "prompts/my_prompt.yaml")
    ```
 
-2. **Using Prompts**:
+2. **Using Variables**:
    ```python
-   # Render template
-   system, user = prompt.render(variable1="value1", variable2="value2")
+   # Get type information
+   var_types = prompt.get_variable_types()
+   required_vars = prompt.get_required_variables()
 
-   # Validate response
-   is_valid, error = prompt.validate_response(llm_response)
+   # Get the variables model
+   VariablesModel = prompt.get_variables_model()
 
-   # Estimate tokens
-   system_tokens, user_tokens = prompt.estimate_tokens()
+   # Create type-safe variables
+   try:
+       vars = VariablesModel(
+           user_name="Alice",
+           items=["item1", "item2"]
+       )
+   except ValidationError as e:
+       print("Invalid variables:", e)
+
+   # Render the prompt
+   system, user, attachments = prompt.render(variables=vars)
    ```
 
 3. **Version Management**:
    ```python
-   # Update version
-   prompt.bump_version_with_git("minor", "Updated prompt structure")
-
-   # Check version info
-   print(f"Current version: {prompt.version}")
-   print(f"Created: {prompt.created_at}")
-   print(f"Last modified: {prompt.updated_at}")
+   prompt.bump_version_with_git("minor", "Updated variable types")
    ```
 
 4. **Example Management**:
@@ -164,27 +220,29 @@ examples:
 
 ## Best Practices
 
-1. **Storage Selection**:
+1. **Variable Handling**:
+   - Define variables explicitly with types and descriptions
+   - Use the variables model for type safety
+   - Provide custom formatting when needed
+   - Document variable requirements in examples
+
+2. **Storage Selection**:
    - Use `FilePrompt` for simple local storage
    - Use `GitRepoPrompt` for version-controlled prompts
    - Use `S3Prompt` for cloud-based deployments
 
-2. **Version Control**:
+3. **Version Control**:
    - Use `bump_version_with_git()` to maintain git metadata
    - Document significant changes in version descriptions
    - Use appropriate change types (major/minor/patch)
 
-3. **Examples and Testing**:
+4. **Examples and Testing**:
    - Include diverse examples covering edge cases
    - Validate examples before saving
    - Use the token estimation for context management
 
-4. **Git Integration**:
-   - Use meaningful commit messages
-   - Track breaking changes appropriately
-   - Maintain clean git history
-
 5. **Error Handling**:
-   - Check for validation errors before using prompts
-   - Handle storage backend failures gracefully
+   - Validate variables before rendering
+   - Handle type conversion errors gracefully
+   - Check for missing required variables
    - Validate templates before rendering

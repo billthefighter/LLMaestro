@@ -8,11 +8,10 @@ import yaml
 
 from llmaestro.llm.models import (
     ModelFamily,
-    RangeConfig,
     LLMCapabilities,
     LLMProfile,
 )
-
+from llmaestro.llm.capabilities import RangeConfig
 # Test data based on claude.yaml
 
 
