@@ -150,6 +150,35 @@ interface = await create_llm_interface(
   - Provider-specific capability detection
   - Automatic capability updates
   - Fallback to YAML configurations
+  - Flexible detector specification (string paths or class references)
+
+#### Detector Resolution
+The system supports two ways to specify capability detectors:
+
+1. **String Path**:
+   ```yaml
+   # In provider.yaml
+   provider:
+     name: "openai"
+     capabilities_detector: "llmaestro.providers.openai.OpenAICapabilitiesDetector"
+   ```
+
+2. **Direct Class Reference**:
+   ```python
+   from llmaestro.providers.openai import OpenAICapabilitiesDetector
+
+   provider_config = Provider(
+       name="openai",
+       capabilities_detector=OpenAICapabilitiesDetector,
+       # ... other config
+   )
+   ```
+
+The resolution system will:
+- Import and validate string paths at runtime
+- Verify proper inheritance from `BaseCapabilityDetector`
+- Handle both forms transparently in the configuration system
+- Provide clear error messages for invalid detectors
 
 ## Usage Examples
 

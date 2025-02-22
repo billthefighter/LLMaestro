@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Set, Union
 
 import yaml
 
+from .capabilities import RangeConfig
 from .capability_factory import ModelCapabilityDetectorFactory
 from .models import LLMCapabilities, LLMMetadata, LLMProfile, ModelFamily
 from .provider_registry import Provider, ProviderRegistry
@@ -79,7 +80,30 @@ class LLMRegistry:
 
             # Register models
             for model_data in data["models"]:
-                self.register(LLMProfile(**model_data))
+                # Handle both old and new format for backward compatibility
+                if "capabilities" in model_data:
+                    # New format with separate capabilities and metadata
+                    capabilities = LLMCapabilities(**model_data["capabilities"])
+                    metadata = LLMMetadata(**model_data.get("metadata", {}))
+                    profile = LLMProfile(capabilities=capabilities, metadata=metadata)
+                else:
+                    # Old format - extract capabilities and metadata
+                    capabilities_data = {
+                        k: v for k, v in model_data.items() if k not in ["metadata", "vision_capabilities"]
+                    }
+                    metadata_data = model_data.get("metadata", {})
+                    if not metadata_data:
+                        metadata_data = {
+                            "release_date": datetime.now(),
+                            "min_api_version": "2024-02-29",
+                            "is_deprecated": False,
+                        }
+
+                    capabilities = LLMCapabilities(**capabilities_data)
+                    metadata = LLMMetadata(**metadata_data)
+                    profile = LLMProfile(capabilities=capabilities, metadata=metadata)
+
+                self.register(profile)
 
     def register(self, descriptor: LLMProfile) -> None:
         """Register a model descriptor."""
@@ -190,8 +214,13 @@ class LLMRegistry:
 
         try:
             capabilities = await ModelCapabilityDetectorFactory.detect_capabilities(provider, model_name, api_key)
+            # Ensure required fields are set
             capabilities.name = model_name
             capabilities.family = ModelFamily(provider)
+            if not capabilities.version:
+                capabilities.version = "latest"
+            if not capabilities.description:
+                capabilities.description = f"Auto-detected capabilities for {model_name}"
         except (ValueError, RuntimeError) as e:
             if self.strict_capability_detection:
                 raise ValueError(f"Failed to detect capabilities for {model_name}: {str(e)}") from e
@@ -199,19 +228,20 @@ class LLMRegistry:
             capabilities = LLMCapabilities(
                 name=model_name,
                 family=ModelFamily(provider),
+                version="latest",
+                description=f"Default capabilities for {model_name}",
                 max_context_window=4096,
                 typical_speed=50.0,
                 input_cost_per_1k_tokens=0.01,
                 output_cost_per_1k_tokens=0.02,
                 supports_streaming=True,
+                temperature=RangeConfig(min_value=0.0, max_value=2.0, default_value=1.0),
+                top_p=RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0),
             )
 
         descriptor = LLMProfile(
             capabilities=capabilities,
-            metadata=LLMMetadata(
-                release_date=datetime.now(),
-                min_api_version="2024-02-29",
-            ),
+            metadata=LLMMetadata(release_date=datetime.now(), min_api_version="2024-02-29", is_deprecated=False),
         )
         self.register(descriptor)
         return descriptor

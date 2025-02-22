@@ -3,7 +3,7 @@ providers:
     provider: "openai"
     name: "OpenAI"
     api_base: "https://api.openai.com/v1"
-    capabilities_detector: "llmaestro.providers.openai.capabilities.OpenAICapabilitiesDetector"
+    capabilities_detector: "llmaestro.llm.capability_detector.OpenAICapabilityDetector"
     models:
       gpt-4-turbo-preview:
         name: gpt-4-turbo-preview

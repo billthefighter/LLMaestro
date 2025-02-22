@@ -124,7 +124,7 @@ def mock_LLMProfile(test_settings: TestConfig) -> LLMProfile:
     """Create a mock LLMProfile for testing."""
     return LLMProfile(
         capabilities=LLMCapabilities(
-            name="mock-model",
+            name=test_settings.test_model,
             family=ModelFamily.GPT,
             max_context_window=4096,
             typical_speed=50.0,
@@ -161,27 +161,23 @@ def config_manager(
     test_settings: TestConfig
 ) -> ConfigurationManager:
     """Create a test configuration manager with all components initialized."""
-    # Create a test provider with our mock model
-    test_provider = Provider(
-        name=test_settings.test_provider,
-        api_base=f"https://api.{test_settings.test_provider}.com/v1",
-        capabilities_detector=f"{test_settings.test_provider}.CapabilityDetector",
-        rate_limits={"requests_per_minute": 60},
-        features=set(),
-        models={mock_LLMProfile.name: mock_LLMProfile}
+    # First, ensure the system config uses our mock detector
+    if test_settings.test_provider in system_config.providers:
+        provider_config = system_config.providers[test_settings.test_provider]
+        if isinstance(provider_config, dict):
+            provider_config["capabilities_detector"] = "tests.conftest.MockCapabilityDetector"
+        else:
+            provider_config.capabilities_detector = "tests.conftest.MockCapabilityDetector"
+
+    # Create the manager with our pre-configured system config
+    manager = ConfigurationManager(
+        user_config=user_config,
+        system_config=system_config,
+        llm_registry=llm_registry  # Pass our pre-configured registry
     )
-    provider_registry.register_provider(test_settings.test_provider, test_provider)
 
-    # Create manager without registering models yet
-    manager = ConfigurationManager.__new__(ConfigurationManager)
-    ConfigurationManager.__init__(manager, user_config=user_config, system_config=system_config)
-
-    # Set our test registries
-    manager._provider_registry = provider_registry
-    manager._llm_registry = llm_registry
-
-    # Now register models
-    manager._register_models()
+    # Register our mock model
+    llm_registry.register(mock_LLMProfile)
 
     return manager
 

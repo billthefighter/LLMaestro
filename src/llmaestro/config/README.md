@@ -63,6 +63,35 @@ class Provider(BaseModel):
     rate_limits: Dict[str, int]
 ```
 
+#### Capability Detector Configuration
+The `capabilities_detector` field supports two formats:
+
+1. **String Path** (in YAML or environment):
+   ```yaml
+   providers:
+     openai:
+       capabilities_detector: "llmaestro.providers.openai.OpenAICapabilitiesDetector"
+       api_base: "https://api.openai.com/v1"
+       # ... other settings
+   ```
+
+2. **Direct Class Reference** (in code):
+   ```python
+   from llmaestro.providers.openai import OpenAICapabilitiesDetector
+
+   provider = Provider(
+       capabilities_detector=OpenAICapabilitiesDetector,
+       api_base="https://api.openai.com/v1",
+       # ... other settings
+   )
+   ```
+
+The configuration system will automatically:
+- Resolve string paths to actual detector classes
+- Validate that detectors inherit from `BaseCapabilityDetector`
+- Provide clear error messages for invalid configurations
+- Handle both formats seamlessly in the ConfigurationManager
+
 ### Agent Configuration (`agent.py`)
 Agent-specific configuration including runtime settings:
 ```python

@@ -134,11 +134,8 @@ class Provider(BaseModel):
         from .llm_registry import LLMRegistry
 
         registry = LLMRegistry.create_default()
-        return {
-            name: model
-            for name, model in registry._models.items()
-            if model.capabilities.family == ModelFamily(self.name)
-        }
+        family = ModelFamily.from_provider(self.name)
+        return {name: model for name, model in registry._models.items() if model.capabilities.family == family}
 
     def validate_api_base(self) -> None:
         """Validate the api_base URL."""
@@ -150,9 +147,13 @@ class Provider(BaseModel):
             raise ValueError(f"Invalid API base URL: {str(e)}")
 
     @field_validator("capabilities_detector")
-    def validate_capabilities_detector(cls, v: Type[BaseCapabilityDetector]) -> Type[BaseCapabilityDetector]:
+    def validate_capabilities_detector(
+        cls, v: Optional[Type[BaseCapabilityDetector]]
+    ) -> Optional[Type[BaseCapabilityDetector]]:
         """Validate the capabilities detector is a proper subclass."""
-        if not issubclass(v, BaseCapabilityDetector):
+        if v is None:
+            return None
+        if not isinstance(v, type) or not issubclass(v, BaseCapabilityDetector):
             raise ValueError("Capabilities detector must be a subclass of BaseCapabilityDetector")
         return v
 

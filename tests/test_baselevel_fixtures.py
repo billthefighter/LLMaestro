@@ -92,19 +92,19 @@ def test_agent_pool_config(agent_pool_config):
 def test_config_manager(config_manager):
     """Test that config_manager fixture returns a valid ConfigurationManager."""
     assert isinstance(config_manager, ConfigurationManager)
-    assert config_manager._provider_registry is not None
-    assert config_manager._llm_registry is not None
     assert config_manager.user_config is not None
     assert config_manager.system_config is not None
+    assert config_manager.llm_registry is not None
+    assert config_manager.llm_registry.provider_registry is not None
 
     # Log available models from config manager's model registry
     logger.info("Available models in config_manager.llm_registry:")
-    for model in config_manager._llm_registry.models:
+    for model in config_manager.llm_registry.models:
         logger.info(f"- {model}")
 
     # Log available providers
-    logger.info("Available providers in config_manager.provider_registry:")
-    providers = config_manager._provider_registry.list_providers()
+    logger.info("Available providers in config_manager.llm_registry.provider_registry:")
+    providers = config_manager.llm_registry.provider_registry.list_providers()
     for provider in providers:
         logger.info(f"- {provider.name}")
         logger.info("  Models:")

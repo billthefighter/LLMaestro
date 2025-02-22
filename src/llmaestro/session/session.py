@@ -39,6 +39,42 @@ class Session(BaseModel):
     - LLM orchestration and execution
     - Response tracking and storage
     - Conversation management
+
+    Initialization:
+        There are two ways to initialize a Session:
+
+        1. Using the recommended factory method (preferred):
+        ```python
+        session = await Session.create_default(
+            api_key="your-api-key",
+            storage_path="./custom_storage"
+        )
+        # Session is ready to use immediately
+        ```
+
+        2. Manual initialization (advanced):
+        ```python
+        session = Session(api_key="your-api-key")
+        await session.initialize()  # Required before use
+        ```
+
+        The factory method is recommended as it:
+        - Ensures proper initialization of all components
+        - Handles both sync and async setup automatically
+        - Provides clear parameter validation
+        - Returns a fully initialized session ready for use
+
+    Attributes:
+        config (ConfigurationManager): Core configuration manager
+        llm_registry (Optional[LLMRegistry]): Registry for managing LLM models
+        prompt_loader (PromptLoader): Loader for managing prompts
+        session_id (str): Unique identifier for this session
+        created_at (datetime): Session creation timestamp
+        storage_path (Path): Path for artifact storage
+        storage (Optional[FileSystemArtifactStorage]): Storage manager
+        orchestrator (Optional[Orchestrator]): Conversation orchestrator
+        active_conversation_id (Optional[str]): Current conversation ID
+        api_key (Optional[str]): API key for LLM provider
     """
 
     # Core configuration
@@ -61,12 +97,80 @@ class Session(BaseModel):
     # LLM interface configuration
     api_key: Optional[str] = None
     _llm_interface: Optional[BaseLLMInterface] = None
+    initialized: bool = Field(default=False, exclude=True)
 
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
-    def __init__(self, **data):
-        logger.info(f"Initializing new session with ID: {data.get('session_id', 'to be generated')}")
-        super().__init__(**data)
+    @classmethod
+    async def create_default(
+        cls,
+        api_key: Optional[str] = None,
+        storage_path: Optional[Union[str, Path]] = None,
+        config: Optional[ConfigurationManager] = None,
+        llm_registry: Optional[LLMRegistry] = None,
+        prompt_loader: Optional[PromptLoader] = None,
+        session_id: Optional[str] = None,
+    ) -> "Session":
+        """Create and initialize a new session with default settings.
+
+        This is the recommended way to create a new session as it ensures proper
+        initialization of all components, including async initialization.
+
+        Args:
+            api_key: Optional API key for the default provider
+            storage_path: Optional custom storage path
+            config: Optional custom configuration manager
+            llm_registry: Optional custom LLM registry
+            prompt_loader: Optional custom prompt loader
+            session_id: Optional custom session ID
+
+        Returns:
+            A fully initialized Session instance
+
+        Example:
+            ```python
+            session = await Session.create_default(
+                api_key="your-api-key",
+                storage_path="./custom_storage"
+            )
+            # Session is ready to use
+            ```
+        """
+        logger.info("Creating new default session")
+
+        # Build initialization kwargs
+        kwargs = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+        if storage_path:
+            kwargs["storage_path"] = Path(storage_path)
+        if config:
+            kwargs["config"] = config
+        if llm_registry:
+            kwargs["llm_registry"] = llm_registry
+        if prompt_loader:
+            kwargs["prompt_loader"] = prompt_loader
+        if session_id:
+            kwargs["session_id"] = session_id
+
+        # Create session instance
+        session = cls(**kwargs)
+
+        # Perform async initialization
+        await session.initialize()
+
+        logger.info(f"Default session created with ID: {session.session_id}")
+        return session
+
+    def model_post_init(self, __context: Any) -> None:
+        """Perform synchronous post-initialization setup.
+
+        This method is called after the model is fully initialized, making it safe to
+        access all attributes and perform additional setup or validation.
+
+        Note: Async initialization is handled separately in initialize().
+        """
+        logger.info(f"Initializing new session with ID: {self.session_id}")
 
         logger.debug("Setting up storage")
         self.storage = FileSystemArtifactStorage.create(self.storage_path)
@@ -75,27 +179,29 @@ class Session(BaseModel):
         self.llm_registry = self.config.llm_registry
 
         # Update provider configurations with API keys
-        if self.api_key:
+        if self.api_key and self.llm_registry:
             logger.debug("Updating provider configurations with API key")
             # Update the provider API configuration with the API key
             provider = self.config.user_config.default_model.provider
-            provider_config = self.config.provider_registry.get_provider(provider)
+            provider_config = self.llm_registry.get_provider_config(provider)
             if provider_config:
                 logger.debug(f"Configuring provider: {provider}")
                 # Create a new provider config with the API key
                 updated_config = provider_config.model_dump()
                 updated_config["api_key"] = self.api_key
-                self.config.provider_registry.register_provider(provider, Provider(**updated_config))
+                self.llm_registry.provider_registry.register_provider(provider, Provider(**updated_config))
 
-        logger.debug("Initializing orchestrator")
-        self._initialize_orchestrator()
-        logger.info("Session initialization complete")
+    async def initialize(self) -> None:
+        """Complete async initialization of the session.
 
-    def _initialize_orchestrator(self) -> None:
-        """Initialize the orchestrator with LLM interface."""
-        logger.debug("Getting LLM interface for orchestrator")
-        llm_interface = self.get_llm_interface()
-        if llm_interface and self.config.user_config.agents:
+        This method must be called after creating a new session to ensure
+        all async components are properly initialized.
+        """
+        if self.initialized:
+            return
+
+        logger.debug("Performing async initialization")
+        if self.config.user_config.agents:
             logger.debug("Creating agent pool")
             from llmaestro.agents.agent_pool import AgentPool
 
@@ -103,7 +209,10 @@ class Session(BaseModel):
             self.orchestrator = Orchestrator(agent_pool)
             logger.info("Orchestrator initialized successfully")
         else:
-            logger.warning("Could not initialize orchestrator - missing LLM interface or agents")
+            logger.warning("Could not initialize orchestrator - missing agents configuration")
+
+        self.initialized = True
+        logger.info("Session async initialization complete")
 
     @field_validator("storage_path", mode="before")
     @classmethod
@@ -261,7 +370,7 @@ class Session(BaseModel):
             "model_capabilities": model_descriptor.model_dump() if model_descriptor else None,
         }
 
-    def get_llm_interface(self) -> Optional[BaseLLMInterface]:
+    async def get_llm_interface(self) -> Optional[BaseLLMInterface]:
         """Get or create the LLM interface."""
         logger.debug("Getting LLM interface")
         if self._llm_interface:
@@ -295,12 +404,17 @@ class Session(BaseModel):
             )
 
             # Create LLM interface with agent config
-            self._llm_interface = create_llm_interface(agent_config)
+            interface = await create_llm_interface(agent_config)
+            self._llm_interface = interface
             logger.info(f"LLM interface created successfully for {provider}/{model}")
-            return self._llm_interface
+            return interface
         except Exception as e:
             logger.error(f"Error creating LLM interface: {e}", exc_info=True)
             return None
+
+    async def get_llm_interface_async(self) -> Optional[BaseLLMInterface]:
+        """Asynchronous LLM interface retrieval."""
+        return await self.get_llm_interface()
 
     def store_artifact(
         self, name: str, data: Any, content_type: str, metadata: Optional[Dict[str, Any]] = None
@@ -396,10 +510,6 @@ class Session(BaseModel):
     async def get_artifact_async(self, artifact_id: str) -> Optional[Artifact]:
         """Asynchronous artifact retrieval."""
         return await asyncio.to_thread(self.get_artifact, artifact_id)
-
-    async def get_llm_interface_async(self) -> Optional[BaseLLMInterface]:
-        """Asynchronous LLM interface retrieval."""
-        return await asyncio.to_thread(self.get_llm_interface)
 
     async def summary_async(self) -> Dict[str, Any]:
         """Asynchronous session summary generation."""

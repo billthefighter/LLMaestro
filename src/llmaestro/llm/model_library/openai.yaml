@@ -1,5 +1,5 @@
 provider:
-  provider_name: openai
+  name: openai
   api_base: "https://api.openai.com/v1"
   rate_limits:
     requests_per_minute: 3500
@@ -10,115 +10,150 @@ provider:
 
 # Model configurations
 models:
-  - name: gpt-4-vision-preview
-    family: gpt
-    description: Most capable GPT-4 model with vision capabilities
+  - capabilities:
+      # Identity (required)
+      name: gpt-4-vision-preview
+      family: gpt
+      version: "2024-03"
+      description: Most capable GPT-4 model with vision capabilities
 
-    # Resource Limits
-    max_context_window: 128000
-    max_output_tokens: 4096
+      # Resource Limits
+      max_context_window: 128000
+      max_output_tokens: 4096
 
-    # Core Features
-    supports_streaming: true
-    supports_function_calling: true
-    supports_vision: true
-    supports_embeddings: false
-    supports_json_mode: true
-    supports_system_prompt: true
-    supports_tools: true
-    supports_parallel_requests: true
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: true
+      supports_embeddings: false
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_tools: true
+      supports_parallel_requests: true
 
-    # Advanced Features
-    supports_frequency_penalty: true
-    supports_presence_penalty: true
-    supports_stop_sequences: true
-    supports_message_role: true
+      # Advanced Features
+      supports_frequency_penalty: true
+      supports_presence_penalty: true
+      supports_stop_sequences: true
+      supports_message_role: true
 
-    # Performance & Cost
-    typical_speed: 150.0
-    supported_languages: ["en"]
-    input_cost_per_1k_tokens: 0.01
-    output_cost_per_1k_tokens: 0.03
+      # Performance & Cost
+      typical_speed: 150.0
+      supported_languages: ["en"]
+      input_cost_per_1k_tokens: 0.01
+      output_cost_per_1k_tokens: 0.03
 
-    # Quality Settings
-    temperature:
-      min_value: 0.0
-      max_value: 2.0
-      default_value: 0.7
-    top_p:
-      min_value: 0.0
-      max_value: 1.0
-      default_value: 1.0
+      # Quality Settings
+      temperature:
+        min_value: 0.0
+        max_value: 2.0
+        default_value: 0.7
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
 
-    # Vision Capabilities
-    vision_capabilities:
-      max_images_per_request: 1
-      supported_formats: ["png", "jpeg"]
-      max_image_size_mb: 20
-      max_image_resolution: 2048
-      supports_image_annotations: false
-      supports_image_analysis: true
-      supports_image_generation: false
-      cost_per_image: 0.01
+    metadata:
+      release_date: "2024-03-01"
+      min_api_version: "2024-02-29"
+      is_deprecated: false
+      vision_capabilities:
+        max_images_per_request: 1
+        supported_formats: ["png", "jpeg"]
+        max_image_size_mb: 20
+        max_image_resolution: 2048
+        supports_image_annotations: false
+        supports_image_analysis: true
+        supports_image_generation: false
+        cost_per_image: 0.01
 
-  - name: gpt-4-turbo-preview
-    family: gpt
-    description: Latest GPT-4 model optimized for performance and cost
+  - capabilities:
+      # Identity (required)
+      name: gpt-4-turbo-preview
+      family: gpt
+      version: "2024-03"
+      description: Latest GPT-4 model optimized for performance and cost
 
-    # Resource Limits
-    max_context_window: 128000
-    max_output_tokens: 4096
+      # Resource Limits
+      max_context_window: 128000
+      max_output_tokens: 4096
 
-    # Core Features
-    supports_streaming: true
-    supports_function_calling: true
-    supports_vision: false
-    supports_embeddings: false
-    supports_json_mode: true
-    supports_system_prompt: true
-    supports_tools: true
-    supports_parallel_requests: true
-
-    # Advanced Features
-    supports_frequency_penalty: true
-    supports_presence_penalty: true
-    supports_stop_sequences: true
-    supports_message_role: true
-
-    # Performance & Cost
-    typical_speed: 180.0
-    supported_languages: ["en"]
-    input_cost_per_1k_tokens: 0.01
-    output_cost_per_1k_tokens: 0.03
-
-    # Quality Settings
-    temperature:
-      min_value: 0.0
-      max_value: 2.0
-      default_value: 0.7
-    top_p:
-      min_value: 0.0
-      max_value: 1.0
-      default_value: 1.0
-
-  - name: gpt-3.5-turbo
-    family: gpt
-    context_window: 16385
-    max_tokens: 4096
-    capabilities:
+      # Core Features
       supports_streaming: true
       supports_function_calling: true
       supports_vision: false
       supports_embeddings: false
-      max_context_window: 16385
-      max_output_tokens: 4096
-      input_cost_per_1k_tokens: 0.0005
-      output_cost_per_1k_tokens: 0.0015
       supports_json_mode: true
       supports_system_prompt: true
-      supports_message_role: true
       supports_tools: true
       supports_parallel_requests: true
+
+      # Advanced Features
+      supports_frequency_penalty: true
+      supports_presence_penalty: true
+      supports_stop_sequences: true
+      supports_message_role: true
+
+      # Performance & Cost
+      typical_speed: 180.0
       supported_languages: ["en"]
-      supported_media_types: []
-    description: Fast and cost-effective GPT-3.5 model for most tasks
+      input_cost_per_1k_tokens: 0.01
+      output_cost_per_1k_tokens: 0.03
+
+      # Quality Settings
+      temperature:
+        min_value: 0.0
+        max_value: 2.0
+        default_value: 0.7
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+
+    metadata:
+      release_date: "2024-03-01"
+      min_api_version: "2024-02-29"
+      is_deprecated: false
+
+  - capabilities:
+      # Identity (required)
+      name: gpt-3.5-turbo
+      family: gpt
+      version: "2024-03"
+      description: Fast and cost-effective GPT-3.5 model for most tasks
+
+      # Resource Limits
+      max_context_window: 16385
+      max_output_tokens: 4096
+
+      # Core Features
+      supports_streaming: true
+      supports_function_calling: true
+      supports_vision: false
+      supports_embeddings: false
+      supports_json_mode: true
+      supports_system_prompt: true
+      supports_tools: true
+      supports_parallel_requests: true
+      supports_message_role: true
+
+      # Performance & Cost
+      typical_speed: 200.0
+      supported_languages: ["en"]
+      input_cost_per_1k_tokens: 0.0005
+      output_cost_per_1k_tokens: 0.0015
+
+      # Quality Settings
+      temperature:
+        min_value: 0.0
+        max_value: 2.0
+        default_value: 0.7
+      top_p:
+        min_value: 0.0
+        max_value: 1.0
+        default_value: 1.0
+
+    metadata:
+      release_date: "2024-03-01"
+      min_api_version: "2024-02-29"
+      is_deprecated: false

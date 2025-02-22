@@ -4,13 +4,62 @@ from enum import Enum
 
 
 class ModelFamily(str, Enum):
-    """Supported model families."""
+    """Supported model families with their provider associations."""
 
     CLAUDE = "claude"
     GPT = "gpt"
     GEMINI = "gemini"
     HUGGINGFACE = "huggingface"
     CUSTOM = "custom"
+
+    @classmethod
+    def from_provider(cls, provider_name: str) -> "ModelFamily":
+        """Get the model family for a provider name.
+
+        Args:
+            provider_name: Name of the provider (case-insensitive)
+
+        Returns:
+            Corresponding ModelFamily or CUSTOM if provider not recognized
+        """
+        mapping = {
+            "anthropic": cls.CLAUDE,
+            "openai": cls.GPT,
+            "google": cls.GEMINI,
+            "huggingface": cls.HUGGINGFACE,
+        }
+        return mapping.get(provider_name.lower(), cls.CUSTOM)
+
+    @property
+    def provider_name(self) -> str:
+        """Get the canonical provider name for this family.
+
+        Returns:
+            Provider name or 'custom' if no specific provider
+        """
+        mapping = {
+            self.CLAUDE: "anthropic",
+            self.GPT: "openai",
+            self.GEMINI: "google",
+            self.HUGGINGFACE: "huggingface",
+        }
+        return mapping.get(self, "custom")
+
+    @property
+    def display_name(self) -> str:
+        """Get a human-readable display name for this family.
+
+        Returns:
+            Display name for the family
+        """
+        mapping = {
+            self.CLAUDE: "Anthropic",
+            self.GPT: "OpenAI",
+            self.GEMINI: "Google",
+            self.HUGGINGFACE: "Hugging Face",
+            self.CUSTOM: "Custom",
+        }
+        return mapping[self]
 
 
 class MediaType(str, Enum):

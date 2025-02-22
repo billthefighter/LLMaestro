@@ -68,10 +68,16 @@ def mock_llm_response(mock_LLMProfile: LLMProfile) -> LLMResponse:
     )
 
 @pytest.fixture
-def basic_session(config_manager: ConfigurationManager, mock_storage_path: Path) -> Session:
-    """Create a basic session for testing."""
-    return Session(
+async def basic_session(config_manager: ConfigurationManager, mock_storage_path: Path) -> Session:
+    """Create a basic session for testing using the recommended factory method.
+
+    This fixture creates a fully initialized session using create_default,
+    which handles both sync and async initialization automatically.
+    """
+    return await Session.create_default(
         config=config_manager,
         storage_path=mock_storage_path,
         api_key="test-api-key"
     )
+
+session = Session()

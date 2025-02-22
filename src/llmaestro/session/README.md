@@ -23,15 +23,52 @@ The `Session` class provides a centralized, conversation-centric management syst
 - Dynamic interface creation
 - Automatic resource allocation
 
-## Basic Usage
+## Session Creation
 
-### Creating a Session and Starting a Conversation
+### Using the Factory Method (Recommended)
+The recommended way to create a session is using the `create_default` factory method:
+
 ```python
 from llmaestro.session.session import Session
-from llmaestro.prompts.base import BasePrompt
 
-# Initialize session
-session = Session()
+# Create a fully initialized session
+session = await Session.create_default(
+    api_key="your-api-key",
+    storage_path="./custom_storage"
+)
+# Session is ready to use immediately
+```
+
+The factory method supports several customization options:
+- `api_key`: API key for the default provider
+- `storage_path`: Custom storage location
+- `config`: Custom configuration manager
+- `llm_registry`: Custom LLM registry
+- `prompt_loader`: Custom prompt loader
+- `session_id`: Custom session identifier
+
+Benefits of using `create_default`:
+- Ensures proper initialization of all components
+- Handles both synchronous and asynchronous setup
+- Provides clear parameter documentation
+- Returns a fully initialized session ready for use
+- Maintains flexibility while providing convenience
+
+### Manual Creation (Advanced)
+For advanced use cases, you can create a session manually:
+
+```python
+session = Session(api_key="your-api-key")
+await session.initialize()  # Don't forget this step!
+```
+
+Note: When creating a session manually, you MUST call `initialize()` before using the session.
+
+## Basic Usage
+
+### Starting a Conversation
+```python
+from llmaestro.prompts.base import BasePrompt
 
 # Create initial prompt
 setup_prompt = BasePrompt(
@@ -108,11 +145,13 @@ all_artifacts = session.list_artifacts()
 - Efficient storage and retrieval
 
 ## Best Practices
-1. Use conversations to organize related prompts
-2. Leverage dependencies for complex workflows
-3. Use parallel execution for independent tasks
-4. Monitor execution status for long-running operations
-5. Store important artifacts for persistence
+1. Use `create_default` for session creation unless you need advanced customization
+2. Always provide API keys during session creation for seamless initialization
+3. Use conversations to organize related prompts
+4. Leverage dependencies for complex workflows
+5. Use parallel execution for independent tasks
+6. Monitor execution status for long-running operations
+7. Store important artifacts for persistence
 
 ## Error Handling
 - Comprehensive error tracking

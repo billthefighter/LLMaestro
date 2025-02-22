@@ -16,7 +16,7 @@ class ProviderSystemConfig(BaseModel):
     api_version: Optional[str] = None
 
     # Core settings
-    capabilities_detector: str
+    capabilities_detector: Optional[str] = None
 
     # Rate limiting and quotas
     rate_limits: Dict[str, int]
