@@ -10,7 +10,6 @@ from llmaestro.config import (
     UserConfig,
 )
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.provider_registry import ProviderRegistry
 from llmaestro.llm.models import LLMProfile
 
 
@@ -48,12 +47,6 @@ def test_user_config(user_config):
     """Test that user_config fixture returns a valid UserConfig."""
     assert isinstance(user_config, UserConfig)
     assert "openai" in user_config.api_keys
-
-
-def test_provider_registry(provider_registry):
-    """Test that provider_registry fixture returns a valid ProviderRegistry."""
-    assert provider_registry is not None
-    assert len(provider_registry.list_providers()) > 0
 
 
 def test_llm_registry(llm_registry):

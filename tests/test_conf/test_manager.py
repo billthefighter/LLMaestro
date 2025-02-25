@@ -175,14 +175,38 @@ class TestConfigurationManager:
                 anthropic:
                     name: anthropic
                     api_base: https://api.anthropic.com/v1
+                    capabilities_detector: llmaestro.llm.capability_detector.AnthropicCapabilityDetector
+                    rate_limits:
+                        requests_per_minute: 50
+                    models:
+                        claude-3-opus-20240229:
+                            family: claude
+                            context_window: 200000
+                            typical_speed: 100.0
+                            features:
+                                - streaming
+                                - function_calling
+                            cost:
+                                input_per_1k: 0.015
+                                output_per_1k: 0.024
         """)
 
         # Set environment variables
         monkeypatch.setenv("OPENAI_API_KEY", "test-key-openai")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-anthropic")
+        monkeypatch.setenv("ANTHROPIC_MODEL", "claude-3-opus-20240229")
+        monkeypatch.setenv("ANTHROPIC_MAX_TOKENS", "4096")
+        monkeypatch.setenv("ANTHROPIC_TEMPERATURE", "0.7")
+        monkeypatch.setenv("LLM_MAX_AGENTS", "10")
+        monkeypatch.setenv("LLM_DEFAULT_AGENT_TYPE", "default")
 
         config_manager = ConfigurationManager.from_env(system_config_path=str(system_config_path))
 
         assert isinstance(config_manager, ConfigurationManager)
         assert config_manager.user_config.api_keys["openai"] == "test-key-openai"
         assert config_manager.user_config.api_keys["anthropic"] == "test-key-anthropic"
+        assert config_manager.user_config.default_model.name == "claude-3-opus-20240229"
+        assert config_manager.user_config.default_model.settings["max_tokens"] == 4096
+        assert config_manager.user_config.default_model.settings["temperature"] == 0.7
+        assert config_manager.agents.max_agents == 10
+        assert config_manager.agents.default_agent_type == "default"

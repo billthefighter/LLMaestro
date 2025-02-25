@@ -6,32 +6,29 @@ This module provides a comprehensive system for managing and interacting with La
 
 ### Registry System
 
-The module implements a two-tier registry system where the LLMRegistry acts as the primary interface, while the ProviderRegistry manages provider-specific configurations:
+The module implements a registry system through the LLMRegistry which manages both provider configurations and model-specific functionality:
 
 #### LLM Registry (`llm_registry.py`)
-- **Purpose**: Central repository for all available LLM models and their capabilities
+- **Purpose**: Core registry for managing provider configurations, credentials, and model-specific functionality
 - **Key Features**:
+  - Provider registration and initialization
+  - Credential management integration
+  - API configuration storage
+  - Rate limit configurations
+  - Provider state management (registered vs. initialized)
   - Model registration and querying
   - Capability-based model filtering
   - Model validation and deprecation handling
   - Automatic capability updates
-  - YAML-based configuration management
-- **Usage**: Primary interface for:
+- **Usage**: High-level interface for:
+  - Managing provider lifecycles
+  - Handling provider credentials
+  - Validating provider states
+  - Storing provider configurations
   - Finding models with specific capabilities
   - Validating model availability
   - Managing model configurations
   - Auto-updating model capabilities
-
-#### Provider Registry (`provider_registry.py`)
-- **Purpose**: Internal registry used by LLMRegistry to manage provider configurations
-- **Key Features**:
-  - Provider API configuration storage
-  - Rate limit configurations
-  - Provider-specific model mappings
-- **Usage**: Typically accessed through LLMRegistry for:
-  - Provider API settings
-  - Rate limit configurations
-  - Provider-specific features
 
 ### Interface Factory System
 
@@ -60,8 +57,11 @@ The module uses a factory pattern to create provider-specific interfaces:
 # Create registry with configurations
 registry = LLMRegistry.create_default(
     auto_update_capabilities=True,
-    api_keys={"anthropic": "key"}
+    credential_manager=credential_manager
 )
+
+# Initialize provider with API key
+registry.initialize_provider("anthropic", "key")
 
 # Create interface using registry
 interface = await create_llm_interface(
@@ -76,29 +76,48 @@ interface = await create_llm_interface(
 # - API configuration
 ```
 
-### Registry Relationship
+### Registry Structure
 
 ```
 ┌─────────────────────────────────────┐
-│            LLMRegistry             │
+│           LLMRegistry              │
 ├─────────────────────────────────────┤
-│ - Manages model profiles           │
-│ - Handles capability detection     │
-│ - Provides primary API interface   │
-│                                   │
-│  ┌───────────────────────────┐    │
-│  │    ProviderRegistry       │    │
-│  ├───────────────────────────┤    │
-│  │ - Stores provider configs │    │
-│  │ - Manages rate limits    │    │
-│  │ - API settings          │    │
-│  └───────────────────────────┘    │
+│ - Manages provider lifecycles      │
+│ - Handles credentials              │
+│ - Stores provider configurations   │
+│ - Validates provider states        │
+│ - Manages model profiles          │
+│ - Handles capabilities            │
+│ - Model validation               │
 └─────────────────────────────────────┘
 ```
 
+### Initialization Flow
+
+1. **Registry Setup and Provider Initialization**:
+   ```python
+   # Create and initialize registry
+   registry = LLMRegistry.create_default()
+   
+   # Initialize provider with credentials
+   registry.initialize_provider(
+       provider_name="anthropic",
+       api_key="sk-ant-..."
+   )
+   ```
+
+2. **Interface Creation**:
+   ```python
+   # Create interface using LLM registry
+   interface = await create_llm_interface(
+       config=agent_config,
+       llm_registry=registry
+   )
+   ```
+
 ### Configuration Flow
 
-1. **YAML Configuration**:
+1. **Provider Configuration**:
    ```yaml
    # provider.yaml
    provider:
@@ -106,31 +125,22 @@ interface = await create_llm_interface(
      api_base: "https://api.anthropic.com/v1"
      rate_limits:
        requests_per_minute: 1000
-   models:
-     - name: "claude-3-opus"
-       capabilities:
-         max_context_window: 200000
-         # ... other capabilities
+     models:
+       claude-3-opus:
+         capabilities:
+           max_context_window: 200000
+           # ... other capabilities
    ```
 
 2. **Registry Initialization**:
    ```python
-   # Initialize with automatic capability updates
-   registry = LLMRegistry.create_default(
-       auto_update_capabilities=True,
-       api_keys={
-           "anthropic": "your-key",
-           "openai": "your-key"
-       }
-   )
-   ```
-
-3. **Interface Creation**:
-   ```python
-   # Create interface with registry configuration
-   interface = await create_llm_interface(
-       config=agent_config,
-       llm_registry=registry
+   # Create and initialize registry
+   registry = LLMRegistry.create_default()
+   
+   # Initialize with credentials
+   registry.initialize_provider(
+       provider_name="anthropic",
+       api_key="your-key"
    )
    ```
 
@@ -139,46 +149,22 @@ interface = await create_llm_interface(
 #### Models (`models.py`)
 - **Purpose**: Core domain models and data structures
 - **Key Components**:
-  - `ModelFamily`: Enumeration of supported model families
+  - `ModelFamily`: Enumeration of supported model families (e.g., CLAUDE, GPT)
   - `LLMCapabilities`: Model capability specification
   - `LLMProfile`: Complete model configuration
   - `Provider`: Provider configuration with API settings
 
-#### Capability Detection (`capability_detector.py`)
-- **Purpose**: Dynamic detection and verification of model capabilities
-- **Key Features**:
-  - Provider-specific capability detection
-  - Automatic capability updates
-  - Fallback to YAML configurations
-  - Flexible detector specification (string paths or class references)
+#### Provider State Management
+The system maintains clear provider states:
+1. **Registered**: Provider configuration loaded but not initialized
+2. **Initialized**: Provider has valid credentials and is ready for use
 
-#### Detector Resolution
-The system supports two ways to specify capability detectors:
-
-1. **String Path**:
-   ```yaml
-   # In provider.yaml
-   provider:
-     name: "openai"
-     capabilities_detector: "llmaestro.providers.openai.OpenAICapabilitiesDetector"
-   ```
-
-2. **Direct Class Reference**:
-   ```python
-   from llmaestro.providers.openai import OpenAICapabilitiesDetector
-
-   provider_config = Provider(
-       name="openai",
-       capabilities_detector=OpenAICapabilitiesDetector,
-       # ... other config
-   )
-   ```
-
-The resolution system will:
-- Import and validate string paths at runtime
-- Verify proper inheritance from `BaseCapabilityDetector`
-- Handle both forms transparently in the configuration system
-- Provide clear error messages for invalid detectors
+```python
+# Check provider state
+if registry.is_provider_initialized("anthropic"):
+    # Provider is ready to use
+    model = registry.get_model("claude-3-opus")
+```
 
 ## Usage Examples
 
@@ -186,18 +172,16 @@ The resolution system will:
 
 ```python
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.interfaces.factory import create_llm_interface
+from llmaestro.llm.models import ModelFamily
 
-# Create registry with automatic updates
-registry = LLMRegistry.create_default(
-    auto_update_capabilities=True,
-    api_keys={
-        "anthropic": "your-anthropic-key",
-        "openai": "your-openai-key"
-    }
+# Create and initialize registry
+registry = LLMRegistry.create_default()
+registry.initialize_provider(
+    provider_name="anthropic",
+    api_key="your-anthropic-key"
 )
 
-# Create interface for a model
+# Create interface
 interface = await create_llm_interface(
     config=agent_config,
     llm_registry=registry
@@ -210,39 +194,35 @@ response = await interface.generate("Your prompt here")
 ### Manual Capability Updates
 
 ```python
-# Create without auto-updates
-registry = LLMRegistry.create_default(auto_update_capabilities=False)
+# Create registry
+registry = LLMRegistry.create_default(
+    auto_update_capabilities=False
+)
 
 # Update specific model
 model = await registry.detect_and_register_model(
-    provider="anthropic",
+    provider_name="anthropic",
     model_name="claude-3-opus",
     api_key="your-key"
 )
 ```
 
-### Saving Updated Configurations
-
-```python
-# Save updated configurations back to YAML
-registry.to_provider_files("path/to/model_library")
-```
-
 ## Design Goals
 
-1. **Single Source of Truth**: YAML files provide base configurations
-2. **Dynamic Updates**: Automatic capability verification and updates
-3. **Separation of Concerns**: LLMRegistry for external interface, ProviderRegistry for internal management
-4. **Type Safety**: Strong typing throughout
+1. **Unified Registry**: Single registry managing both provider and model functionality
+2. **State Management**: Clear provider lifecycle states
+3. **Type Safety**: Using ModelFamily enum instead of strings
+4. **Just-in-Time Initialization**: Providers can be initialized when credentials become available
 5. **Configuration Management**: Flexible, persistent configuration
-6. **Runtime Efficiency**: Concurrent capability updates
 
 ## Contributing
 
 When contributing to this module:
 
-1. Follow the existing architecture patterns
-2. Update YAML configurations for new models
-3. Implement capability detectors for new providers
-4. Add comprehensive tests
-5. Update documentation
+1. Follow the unified registry pattern
+2. Use ModelFamily enum for provider identification
+3. Maintain clear provider states
+4. Update YAML configurations for new models
+5. Implement capability detectors for new providers
+6. Add comprehensive tests
+7. Update documentation

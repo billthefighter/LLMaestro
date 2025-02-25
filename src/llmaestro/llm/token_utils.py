@@ -22,19 +22,6 @@ except ImportError:
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.llm.models import ModelFamily
 
-# Initialize and load model registry
-_llm_registry = LLMRegistry()
-_models_dir = Path(__file__).parent / "models"
-if _models_dir.exists():
-    for model_file in _models_dir.glob("*.yaml"):
-        try:
-            loaded_registry = LLMRegistry.from_yaml(model_file)
-            for model in loaded_registry._models.values():
-                _llm_registry.register(model)
-        except Exception as e:
-            print(f"Error loading model file {model_file}: {e}")
-
-
 class BaseTokenizer(ABC):
     """Abstract base class for model-specific tokenizers."""
 

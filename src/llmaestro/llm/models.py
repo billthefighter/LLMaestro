@@ -3,9 +3,11 @@ import mimetypes
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Type
 from urllib.parse import urlparse
+from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationInfo
 
+from ..config.agent import RateLimitConfig
 from .capabilities import LLMCapabilities
 from .capability_detector import BaseCapabilityDetector
 from .enums import ModelFamily
@@ -94,10 +96,15 @@ class LLMProfile(BaseModel):
         return True, None
 
 
+
+
+
 class Provider(BaseModel):
     """Configuration for an LLM provider."""
 
-    name: str
+    ModelFamily: ModelFamily = Field(
+        description="The canonical provider identifier"
+    )
     api_base: str = Field(
         description="Base URL for the provider's API",
         pattern=r"^https?://[^\s/$.?#].[^\s]*$",  # Basic URL validation
@@ -105,37 +112,26 @@ class Provider(BaseModel):
     capabilities_detector: Optional[Type[BaseCapabilityDetector]] = Field(
         default=None, description="Optional capability detector class for this provider"
     )
-    rate_limits: Dict[str, int]
-    features: Optional[Set[str]] = None
+    rate_limits: RateLimitConfig = Field(
+        default_factory=RateLimitConfig,
+        description="Rate limits for the provider"
+    )
+    features: Set[str] = Field(
+        default_factory=set,
+        description="Set of supported features"
+    )
 
-    def get_api_config(self, model_name: str) -> Dict[str, Any]:
-        """Get API configuration for a specific model.
-
-        Args:
-            model_name: Name of the model
+    def get_api_config(self) -> Dict[str, Any]:
+        """Get API configuration
 
         Returns:
             Dictionary containing API configuration
         """
         return {
             "api_base": self.api_base,
-            "rate_limits": self.rate_limits,
-            "features": self.features or set(),
-            "model": model_name,
+            "rate_limits": self.rate_limits.model_dump(),
+            "features": list(self.features)
         }
-
-    @property
-    def models(self) -> Dict[str, LLMProfile]:
-        """Get models associated with this provider.
-
-        This property ensures we only get models that are actually associated
-        with this provider, preventing synchronization issues.
-        """
-        from .llm_registry import LLMRegistry
-
-        registry = LLMRegistry.create_default()
-        family = ModelFamily.from_provider(self.name)
-        return {name: model for name, model in registry._models.items() if model.capabilities.family == family}
 
     def validate_api_base(self) -> None:
         """Validate the api_base URL."""
@@ -156,5 +152,32 @@ class Provider(BaseModel):
         if not isinstance(v, type) or not issubclass(v, BaseCapabilityDetector):
             raise ValueError("Capabilities detector must be a subclass of BaseCapabilityDetector")
         return v
+
+    @classmethod
+    def from_name(cls, provider_name: str, **kwargs) -> "Provider":
+        """Create a ProviderConfig instance from a provider name.
+        
+        Args:
+            provider_name: Name of the provider
+            **kwargs: Additional provider configuration
+            
+        Returns:
+            ProviderConfig instance with correct provider and defaults
+            
+        Raises:
+            ValueError: If provider name is not recognized
+        """
+        provider = ModelFamily.from_name(provider_name)
+        if provider == ModelFamily.CUSTOM:
+            raise ValueError(f"Unrecognized provider name: {provider_name}")
+            
+        # Use default API base if not specified
+        if "api_base" not in kwargs:
+            kwargs["api_base"] = provider.default_api_base
+            
+        return cls(
+            ModelFamily=ModelFamily,
+            **kwargs
+        )
 
     model_config = ConfigDict(validate_assignment=True)

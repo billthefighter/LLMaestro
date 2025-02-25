@@ -4,17 +4,28 @@ import logging
 import sys
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Optional, Type, Union
+from typing import Any, Optional, Type, Union, Dict, List
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
-from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig
+from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig, RateLimitConfig
 from llmaestro.config.system import SystemConfig
 from llmaestro.config.user import UserConfig
+from llmaestro.config.security_manager import SecurityManager, SecurityPolicy
+from llmaestro.config.credential_manager import CredentialManager
 from llmaestro.llm import LLMRegistry
 from llmaestro.llm.capability_detector import BaseCapabilityDetector
 from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.provider_registry import Provider
+from llmaestro.llm.models import (
+    LLMCapabilities,
+    LLMMetadata,
+    LLMProfile,
+    ModelFamily,
+    Provider,
+    ProviderConfig,
+)
 
 
 def resolve_capability_detector(
@@ -104,6 +115,8 @@ class ConfigurationManager(BaseModel):
 
     user_config: UserConfig
     system_config: SystemConfig
+    credential_manager: CredentialManager = Field(default_factory=CredentialManager)
+    security_manager: SecurityManager = Field(default_factory=SecurityManager)
     llm_registry: LLMRegistry = Field(
         default_factory=lambda: LLMRegistry.create_default(auto_update_capabilities=False),
         description="Registry for managing LLM models and their configurations",
@@ -126,44 +139,154 @@ class ConfigurationManager(BaseModel):
 
         logger.debug("Starting ConfigurationManager post-initialization")
 
-        # Initialize registry with API keys if using the default
-        if isinstance(self.llm_registry, LLMRegistry) and not self.llm_registry.provider_registry.list_providers():
-            logger.debug("Creating default LLMRegistry with API keys")
-            self.llm_registry = LLMRegistry.create_default(
-                auto_update_capabilities=True, api_keys=self.user_config.api_keys
-            )
+        # Initialize security manager with system config
+        self._init_security_manager()
 
-        # Register any additional provider configurations from system config
-        logger.debug("Processing provider configurations from system config")
-        for name, config in self.system_config.providers.items():
-            logger.debug(f"Processing provider: {name}")
-            logger.debug(f"Provider config type: {type(config)}")
-            logger.debug(f"Provider config: {config}")
+        # Initialize credential manager with user config
+        self._init_credential_manager()
 
-            if isinstance(config, dict):
-                logger.debug(f"Converting dict config to Provider: {config}")
-                config = Provider(**config)
-            elif not isinstance(config, Provider):
-                # Get capability detector class if specified
-                detector = None
-                if hasattr(config, "capabilities_detector"):
-                    logger.debug(f"Found capabilities_detector: {config.capabilities_detector}")
-                    detector = resolve_capability_detector(config.capabilities_detector)
-
-                # Convert ProviderSystemConfig to Provider
-                logger.debug("Converting ProviderSystemConfig to Provider")
-                config = Provider(
-                    name=config.name,
-                    api_base=config.api_base,
-                    capabilities_detector=detector,
-                    rate_limits=config.rate_limits,
-                    features=set(),
-                )
-            self.llm_registry.provider_registry.register_provider(name, config)
+        # Initialize LLM registry with model library
+        self._init_llm_registry()
 
         # Initialize agent pool config if not provided
         if self.agent_pool_config is None:
             self.agent_pool_config = self._create_agent_pool_config()
+
+    def _init_security_manager(self) -> None:
+        """Initialize security manager with system config."""
+        logger = logging.getLogger(__name__)
+        
+        # Load security config from file
+        security_config_path = Path(__file__).parent / "default_configs" / "security_config.yml"
+        if security_config_path.exists():
+            with open(security_config_path) as f:
+                security_config = yaml.safe_load(f)
+                
+            # Update security manager with config
+            self.security_manager.allowed_api_domains = set(security_config.get("allowed_api_domains", []))
+            self.security_manager.require_api_key_encryption = security_config.get("require_api_key_encryption", True)
+            
+            # Load provider-specific policies
+            for provider, policy in security_config.get("provider_policies", {}).items():
+                self.security_manager.set_provider_policy(provider, SecurityPolicy(**policy))
+        else:
+            logger.warning(f"Security config not found at {security_config_path}, using defaults")
+
+    def _init_credential_manager(self) -> None:
+        """Initialize credential manager with user config."""
+        # Add credentials from user config
+        for provider_name, api_key in self.user_config.api_keys.items():
+            if self.security_manager.validate_provider(provider_name):
+                policy = self.security_manager.get_provider_security_policy(provider_name)
+                if self.security_manager.validate_api_key_format(provider_name, api_key):
+                    try:
+                        # Get provider enum first
+                        provider = Provider.from_name(provider_name)
+                        if provider == Provider.CUSTOM:
+                            continue
+
+                        # Create provider config
+                        provider_config = ProviderConfig(
+                            provider=provider,
+                            api_base=self.system_config.llm.provider_api_bases.get(str(provider), provider.default_api_base),
+                            rate_limits=RateLimitConfig(**self.system_config.llm.provider_rate_limits.get(str(provider), {}))
+                        )
+                        self.credential_manager.add_credential(
+                            provider=provider_config,
+                            api_key=api_key,
+                            encrypt=policy.require_encryption
+                        )
+                    except ValueError as e:
+                        logging.getLogger(__name__).warning(
+                            f"Failed to initialize provider {provider_name}: {str(e)}"
+                        )
+
+    def _init_llm_registry(self) -> None:
+        """Initialize the LLM registry with provider configurations."""
+        # First initialize credential manager
+        self.credential_manager = CredentialManager()
+        
+        # Create LLM registry with credential manager
+        self.llm_registry = LLMRegistry(credential_manager=self.credential_manager)
+        
+        # Load provider configurations from model library
+        library_path = Path(__file__).parent.parent / "llm" / "model_library"
+        if not library_path.exists():
+            return
+            
+        for config_file in library_path.glob("*.yaml"):
+            try:
+                with open(config_file) as f:
+                    data = yaml.safe_load(f)
+                
+                # Create provider config
+                provider_data = data["provider"]
+                provider = Provider.from_name(provider_data["provider"])
+                if provider == Provider.CUSTOM:
+                    continue
+
+                try:
+                    provider_config = ProviderConfig(
+                        provider=provider,
+                        **{k: v for k, v in provider_data.items() if k != "provider"}
+                    )
+                except ValueError as e:
+                    logging.getLogger(__name__).warning(
+                        f"Failed to create provider from {config_file}: {str(e)}"
+                    )
+                    continue
+                
+                # Validate provider
+                if not self.security_manager.validate_provider(str(provider)):
+                    continue
+                    
+                # Get security policy and validate domain
+                policy = self.security_manager.get_provider_security_policy(str(provider))
+                if not self.security_manager.validate_api_domain(provider_config.api_base):
+                    continue
+                    
+                # Register each model with its provider
+                for model_name, model_data in data["models"].items():
+                    capabilities = LLMCapabilities(**model_data["capabilities"])
+                    metadata = LLMMetadata(**model_data.get("metadata", {}))
+                    profile = LLMProfile(
+                        capabilities=capabilities,
+                        metadata=metadata
+                    )
+                    self.llm_registry.register_model(model_name, provider_config, profile)
+                
+                # Initialize if we have credentials
+                api_key = self.user_config.api_keys.get(str(provider))
+                if api_key:
+                    self.llm_registry.initialize_provider(str(provider), api_key)
+                    
+            except Exception as e:
+                logging.getLogger(__name__).warning(
+                    f"Failed to load provider config from {config_file}: {str(e)}"
+                )
+
+    def initialize_provider(self, provider: Provider, api_key: str) -> None:
+        """Initialize a provider with its API key.
+        
+        This method should be called when a provider's API key becomes available,
+        typically just-in-time when needed.
+        
+        Args:
+            provider: Provider to initialize
+            api_key: API key for the provider
+            
+        Raises:
+            ValueError: If provider not found or security validation fails
+        """
+        # Validate provider and API key
+        if not self.security_manager.validate_provider(provider):
+            raise ValueError(f"Provider {provider.display_name} not allowed by security policy")
+            
+        if not self.security_manager.validate_api_key_format(provider, api_key):
+            raise ValueError(f"Invalid API key format for provider {provider.display_name}")
+            
+        # Initialize provider in registry
+        self.llm_registry.initialize_provider(provider, api_key)
 
     @classmethod
     def from_yaml_files(

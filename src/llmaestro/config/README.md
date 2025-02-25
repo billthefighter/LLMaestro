@@ -6,22 +6,56 @@ The LLMaestro configuration system is organized into modular components that han
 
 ```
 llmaestro/config/
-├── __init__.py          # Exports main configuration interfaces
-├── base.py             # Core configuration models
-├── agent.py            # Agent-specific configuration
-├── model.py            # Model-specific configuration
-├── provider.py         # Provider-specific configuration
-├── system.py           # System-wide configuration
-└── user.py             # User-specific configuration
+├── __init__.py           # Exports main configuration interfaces
+├── base.py              # Core configuration models
+├── agent.py             # Agent-specific configuration
+├── system.py            # System-wide configuration
+├── user.py              # User-specific configuration
+├── security_manager.py  # Security policy management
+├── credential_manager.py # Secure credential handling
+└── default_configs/     # Default configuration templates
+    ├── security_config.yml
+    ├── system_config.yml
+    ├── provider_config.yml
+    └── user_config.yml.example
 ```
 
 ## Configuration Components
 
+### Security Management (`security_manager.py`)
+Centralized security policy management:
+```python
+class SecurityPolicy(BaseModel):
+    """Security policy configuration for a provider."""
+    require_encryption: bool
+    allowed_domains: Set[str]
+    allowed_endpoints: Set[str]
+    max_token_limit: Optional[int]
+    require_ssl: bool
+
+class SecurityManager(BaseModel):
+    """Centralizes security policies and validation."""
+    allowed_api_domains: Set[str]
+    require_api_key_encryption: bool
+    allowed_providers: Set[str]
+    provider_policies: Dict[str, SecurityPolicy]
+```
+
+### Credential Management (`credential_manager.py`)
+Secure handling of API keys and sensitive data:
+```python
+class CredentialManager(BaseModel):
+    """Manages API keys and credentials securely."""
+    def add_credential(self, provider: str, api_key: str, encrypt: bool = True) -> None:
+        """Add a credential with optional encryption."""
+        
+    def get_credential(self, provider: str) -> Optional[str]:
+        """Get a credential, decrypting if necessary."""
+```
+
 ### Base Configuration (`base.py`)
 Core configuration components used across the system:
 ```python
-from pydantic import BaseModel
-
 class StorageConfig(BaseModel):
     path: str
     format: str
@@ -37,84 +71,27 @@ class LoggingConfig(BaseModel):
     file: Optional[str]
 ```
 
-### Model Configuration (`model.py`)
-Model-specific configuration including capabilities and runtime settings:
-```python
-class LLMCapabilities(BaseModel):
-    supports_streaming: bool
-    supports_function_calling: bool
-    max_context_window: int
-    # ... other capabilities
-
-class ModelConfig(BaseModel):
-    provider: str
-    name: str
-    capabilities: LLMCapabilities
-    settings: Dict[str, Any]
-```
-
-### Provider Configuration (`provider.py`)
-Provider-specific settings and API configurations:
-```python
-class Provider(BaseModel):
-    api_base: str
-    capabilities_detector: str
-    models: Dict[str, ModelConfig]
-    rate_limits: Dict[str, int]
-```
-
-#### Capability Detector Configuration
-The `capabilities_detector` field supports two formats:
-
-1. **String Path** (in YAML or environment):
-   ```yaml
-   providers:
-     openai:
-       capabilities_detector: "llmaestro.providers.openai.OpenAICapabilitiesDetector"
-       api_base: "https://api.openai.com/v1"
-       # ... other settings
-   ```
-
-2. **Direct Class Reference** (in code):
-   ```python
-   from llmaestro.providers.openai import OpenAICapabilitiesDetector
-
-   provider = Provider(
-       capabilities_detector=OpenAICapabilitiesDetector,
-       api_base="https://api.openai.com/v1",
-       # ... other settings
-   )
-   ```
-
-The configuration system will automatically:
-- Resolve string paths to actual detector classes
-- Validate that detectors inherit from `BaseCapabilityDetector`
-- Provide clear error messages for invalid configurations
-- Handle both formats seamlessly in the ConfigurationManager
-
-### Agent Configuration (`agent.py`)
-Agent-specific configuration including runtime settings:
-```python
-class AgentTypeConfig(BaseModel):
-    provider: str
-    model: str
-    max_tokens: int
-    temperature: float
-    description: Optional[str]
-    settings: Dict[str, Any]
-    capabilities: Optional[LLMCapabilities]
-
-class AgentPoolConfig(BaseModel):
-    max_agents: int
-    default_agent_type: str
-    agent_types: Dict[str, AgentTypeConfig]
-```
-
 ### System Configuration (`system.py`)
 System-wide settings and provider configurations:
 ```python
+class LLMSystemConfig(BaseModel):
+    """Global system configuration for LLM functionality."""
+    global_rate_limits: Dict[str, int]
+    max_parallel_requests: int
+    max_retries: int
+    retry_delay: float
+    default_request_timeout: float
+    default_stream_timeout: float
+    enable_response_cache: bool
+    cache_ttl: int
+    log_level: str
+    enable_telemetry: bool
+    require_api_key_encryption: bool
+    allowed_api_domains: Set[str]
+
 class SystemConfig(BaseModel):
-    providers: Dict[str, Provider]
+    """Root system configuration."""
+    llm: LLMSystemConfig
 ```
 
 ### User Configuration (`user.py`)
@@ -122,107 +99,153 @@ User-specific settings including API keys and preferences:
 ```python
 class UserConfig(BaseModel):
     api_keys: Dict[str, str]
-    default_model: DefaultModelConfig
+    default_model: LLMProfileReference
     agents: AgentPoolConfig
     storage: StorageConfig
     visualization: VisualizationConfig
     logging: LoggingConfig
 ```
 
-## Usage Examples
+## Loading Configurations
 
-### 1. Loading Configuration from Files
+The system supports multiple ways to load configurations:
+
+### 1. From YAML Files
 ```python
-from llmaestro.config import ConfigurationManager
-
-# Load from default locations
-config = ConfigurationManager.from_yaml_files()
-
-# Load from specific paths
-config = ConfigurationManager.from_yaml_files(
+config_manager = ConfigurationManager.from_yaml_files(
     user_config_path="path/to/user_config.yml",
     system_config_path="path/to/system_config.yml"
 )
 ```
 
-### 2. Loading from Environment Variables
+### 2. From Environment Variables
 ```python
-from llmaestro.config import ConfigurationManager
-
-config = ConfigurationManager.from_env()
+config_manager = ConfigurationManager.from_env(
+    system_config_path="path/to/system_config.yml"  # optional
+)
 ```
 
-### 3. Direct Configuration
+### 3. Directly from Config Objects
 ```python
-from llmaestro.config import (
-    ConfigurationManager,
-    UserConfig,
-    SystemConfig,
-    AgentPoolConfig
+config_manager = ConfigurationManager.from_configs(
+    user_config=user_config,
+    system_config=system_config
 )
-
-user_config = UserConfig(
-    api_keys={"anthropic": "your-key"},
-    default_model=DefaultModelConfig(
-        provider="anthropic",
-        name="claude-3-sonnet-20240229"
-    ),
-    agents=AgentPoolConfig(...)
-)
-
-system_config = SystemConfig(...)
-config = ConfigurationManager.from_configs(user_config, system_config)
 ```
 
-## Best Practices
+## Configuration Examples
 
-1. **Configuration Validation**
-   - Use Pydantic validators for complex validation rules
-   - Add custom validators for domain-specific logic
-   - Validate configurations at startup
+### 1. Security Configuration (security_config.yml)
+```yaml
+require_api_key_encryption: true
+allowed_api_domains:
+  - api.openai.com
+  - api.anthropic.com
+  - api.cohere.ai
+  - api.mistral.ai
 
-2. **Security**
-   - Never commit API keys to version control
-   - Use environment variables for sensitive data
-   - Validate and sanitize all configuration inputs
+provider_policies:
+  openai:
+    require_encryption: true
+    allowed_domains:
+      - api.openai.com
+    allowed_endpoints:
+      - /v1/chat/completions
+      - /v1/completions
+    max_token_limit: 32768
+    require_ssl: true
+```
 
-3. **Extensibility**
-   - Keep configuration models modular
-   - Use inheritance for shared configuration patterns
-   - Add documentation for all configuration options
+### 2. System Configuration (system_config.yml)
+```yaml
+llm:
+  global_rate_limits:
+    requests_per_minute: 5000
+    tokens_per_minute: 500000
+  max_parallel_requests: 10
+  max_retries: 3
+  retry_delay: 1.0
+  enable_response_cache: true
+  cache_ttl: 3600
+  require_api_key_encryption: true
+  allowed_api_domains:
+    - api.openai.com
+    - api.anthropic.com
+```
 
-4. **Testing**
-   - Create test configurations for different scenarios
-   - Mock configuration for unit tests
-   - Test configuration validation rules
+### 3. User Configuration (user_config.yml)
+```yaml
+api_keys:
+  anthropic: ${ANTHROPIC_API_KEY}
+  openai: ${OPENAI_API_KEY}
+
+default_model:
+  provider: anthropic
+  name: claude-3-sonnet-20240229
+  settings:
+    temperature: 0.7
+    max_tokens: 4096
+```
 
 ## Environment Variables
 
-The following environment variables are supported:
-
-### Provider Configuration
+### Provider API Keys
 ```bash
 ANTHROPIC_API_KEY=your-api-key
 OPENAI_API_KEY=your-api-key
-ANTHROPIC_MODEL=claude-3-sonnet-20240229
-ANTHROPIC_MAX_TOKENS=8192
-ANTHROPIC_TEMPERATURE=0.7
+COHERE_API_KEY=your-api-key
+MISTRAL_API_KEY=your-api-key
 ```
 
 ### Global Settings
 ```bash
-LLM_MAX_AGENTS=10
-LLM_STORAGE_PATH=chain_storage
-LLM_STORAGE_FORMAT=json
+LLM_MAX_PARALLEL_REQUESTS=10
 LLM_LOG_LEVEL=INFO
-LLM_VISUALIZATION_ENABLED=true
-LLM_VISUALIZATION_HOST=localhost
-LLM_VISUALIZATION_PORT=8501
+LLM_ENABLE_CACHE=true
+LLM_CACHE_TTL=3600
 ```
 
 ### Agent Settings
 ```bash
 LLM_DEFAULT_AGENT_TYPE=general
-LLM_AGENT_MAX_TOKENS=8192
+LLM_AGENT_MAX_TOKENS=4096
 LLM_AGENT_TEMPERATURE=0.7
 ```
+
+## Best Practices
+
+1. **Security First**
+   - Use the SecurityManager for domain and endpoint validation
+   - Enable API key encryption for sensitive providers
+   - Validate API key formats before use
+   - Use SSL/TLS for all API communications
+
+2. **Credential Management**
+   - Never store API keys in plain text
+   - Use the CredentialManager for all API key operations
+   - Implement proper key rotation practices
+   - Monitor credential usage and access
+
+3. **Configuration Separation**
+   - Keep security policies in `security_config.yml`
+   - Store provider configurations in the model library
+   - Use environment variables for sensitive data
+   - Keep user preferences in `user_config.yml`
+
+4. **Provider Management**
+   - Configure providers through the model library
+   - Validate provider configurations against security policies
+   - Implement proper rate limiting
+   - Monitor API usage and costs
+
+5. **Testing**
+   - Create test configurations for different scenarios
+   - Mock provider responses for testing
+   - Validate security policies in tests
+   - Test credential encryption/decryption
+
+6. **Monitoring and Logging**
+   - Enable appropriate logging levels
+   - Monitor API usage and rate limits
+   - Track security policy violations
+   - Audit credential access and usage

@@ -10,14 +10,10 @@ from pydantic import BaseModel, ConfigDict, Field
 class ProviderSystemConfig(BaseModel):
     """System configuration specific to a provider."""
 
-    # Provider identification
-    name: str
+    # Provider identification and API settings
     api_base: str
     api_version: Optional[str] = None
-
-    # Core settings
-    capabilities_detector: Optional[str] = None
-
+    
     # Rate limiting and quotas
     rate_limits: Dict[str, int]
 

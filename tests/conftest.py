@@ -24,7 +24,6 @@ from llmaestro.llm.models import (
 )
 from llmaestro.llm.capabilities import RangeConfig
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.provider_registry import Provider, ProviderRegistry
 from llmaestro.llm.capability_detector import BaseCapabilityDetector
 from llmaestro.llm.token_utils import BaseTokenizer, TokenCounter, TokenizerRegistry
 from llmaestro.prompts.base import BasePrompt
@@ -107,15 +106,6 @@ def llm_registry(mock_LLMProfile: LLMProfile) -> LLMRegistry:
     registry = LLMRegistry.create_default()
     # Register the mock model
     registry._models[mock_LLMProfile.name] = mock_LLMProfile
-    # Create a test provider
-    test_provider = Provider(
-        name="test_provider",
-        api_base="https://api.test.com/v1",
-        capabilities_detector=MockCapabilityDetector,
-        rate_limits={"requests_per_minute": 60},
-        features=set()
-    )
-    registry.provider_registry.register_provider("test_provider", test_provider)
     return registry
 
 
@@ -140,12 +130,6 @@ def mock_LLMProfile(test_settings: TestConfig) -> LLMProfile:
 
 
 @pytest.fixture
-def provider_registry(system_config: SystemConfig, llm_registry: LLMRegistry) -> ProviderRegistry:
-    """Create a test ProviderRegistry with default configurations."""
-    return llm_registry.provider_registry
-
-
-@pytest.fixture
 def agent_pool_config(user_config: UserConfig) -> AgentPoolConfig:
     """Create a test agent pool configuration."""
     return user_config.agents
@@ -156,7 +140,6 @@ def config_manager(
     user_config: UserConfig,
     system_config: SystemConfig,
     llm_registry: LLMRegistry,
-    provider_registry: ProviderRegistry,
     mock_LLMProfile: LLMProfile,
     test_settings: TestConfig
 ) -> ConfigurationManager:

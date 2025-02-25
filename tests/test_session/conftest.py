@@ -79,5 +79,3 @@ async def basic_session(config_manager: ConfigurationManager, mock_storage_path:
         storage_path=mock_storage_path,
         api_key="test-api-key"
     )
-
-session = Session()

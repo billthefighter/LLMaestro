@@ -8,8 +8,8 @@ from llmaestro.llm.interfaces.provider_interfaces.anthropic import AnthropicLLM
 from llmaestro.llm.interfaces.provider_interfaces.gemini import GeminiLLM
 from llmaestro.llm.interfaces.provider_interfaces.openai import OpenAIInterface
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.models import LLMProfile, ModelFamily
-from llmaestro.llm.provider_registry import ProviderRegistry
+from llmaestro.llm.models import LLMProfile, ModelFamily, Provider
+
 
 
 async def create_llm_interface(
@@ -30,10 +30,10 @@ async def create_llm_interface(
     """
     # Get model profile and provider config from registry if available
     model_profile = None
-    provider_config = None
+    api_config = None
     if llm_registry:
         model_profile = llm_registry.get_model(config.model)
-        provider_config = llm_registry.get_provider_config(config.provider)
+        api_config = llm_registry.get_provider_api_config(config.model)
 
     # Validate model exists if registry is available
     if llm_registry and not model_profile:
@@ -41,27 +41,21 @@ async def create_llm_interface(
         if not valid:
             raise ValueError(f"Invalid model configuration: {msg}")
 
-    # Get API configuration
-    api_config = provider_config.get_api_config(config.model) if provider_config else {}
-    api_key = api_config.get("api_key")
-    if not api_key:
-        raise ValueError(f"API key not found for provider {config.provider}")
-
     # Common initialization parameters
     init_params = {
         "provider": config.provider,
         "model": config.model,
-        "api_key": api_key,
+        "api_key": api_config.get("api_key") if api_config else None,
         "max_tokens": config.max_tokens,
         "temperature": config.temperature,
         "stream": config.runtime.stream if hasattr(config.runtime, "stream") else True,
     }
 
     # Add rate limits and context window from provider config or runtime config
-    if provider_config:
+    if api_config:
         init_params.update(
             {
-                "rate_limit": provider_config.rate_limits.get("requests_per_minute"),
+                "rate_limit": api_config.get("rate_limits", {}).get("requests_per_minute", 60),
                 "max_context_tokens": (
                     model_profile.capabilities.max_context_window
                     if model_profile
@@ -121,7 +115,6 @@ def _create_interface_by_provider(provider: str, init_params: dict) -> BaseLLMIn
 async def create_interface_for_model(
     model: LLMProfile,
     config: AgentTypeConfig,
-    provider_registry: Optional[ProviderRegistry] = None,
     llm_registry: Optional[LLMRegistry] = None,
 ) -> BaseLLMInterface:
     """Create an LLM interface for a specific model.
@@ -129,8 +122,7 @@ async def create_interface_for_model(
     Args:
         model: Model descriptor
         config: Agent configuration
-        provider_registry: Optional provider registry for API configuration
-        llm_registry: Optional model registry for capabilities
+        llm_registry: Optional model registry for capabilities and API configuration
 
     Returns:
         BaseLLMInterface: The appropriate interface for the model
@@ -138,11 +130,11 @@ async def create_interface_for_model(
     Raises:
         ValueError: If the model family is not supported
     """
-    # Get API configuration from provider registry if available
+    # Get API configuration from registry if available
     api_config = None
-    if provider_registry:
+    if llm_registry:
         try:
-            api_config = provider_registry.get_provider_api_config(provider=config.provider, model_name=model.name)
+            api_config = llm_registry.get_provider_api_config(model_name=model.name)
         except ValueError:
             pass
 

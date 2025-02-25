@@ -12,7 +12,9 @@ from llmaestro.prompts.base import BasePrompt, FileAttachment
 from llmaestro.llm.models import LLMProfile, LLMCapabilities
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 from llmaestro.llm.rate_limiter import RateLimitConfig
-from llmaestro.config import ConfigurationManager
+from llmaestro.config import ConfigurationManager, SystemConfig, UserConfig
+from llmaestro.llm.llm_registry import LLMRegistry
+
 # Test cases for Session class
 class TestSession:
     """Test suite for Session class functionality."""
@@ -24,6 +26,89 @@ class TestSession:
         assert basic_session.storage_path == mock_storage_path
         assert basic_session.storage is not None
         assert basic_session.api_key == "test-api-key"
+
+    @pytest.mark.asyncio
+    async def test_default_config_manager_initialization(self, tmp_path: Path):
+        """Test initialization of default ConfigurationManager in Session."""
+        # Create a temporary config directory
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        
+        # Create minimal system_config.yml
+        system_config = config_dir / "system_config.yml"
+        system_config.write_text("""
+providers:
+  anthropic:
+    api_base: https://api.anthropic.com/v1
+    api_version: "2024-02-29"
+    rate_limits:
+      requests_per_minute: 50
+      tokens_per_minute: 100000
+    timeout_settings:
+      request: 30.0
+      stream: 60.0
+      connect: 10.0
+    retry_settings:
+      max_retries: 3
+      retry_delay: 1
+      max_delay: 30
+    allowed_api_domains:
+      - "api.anthropic.com"
+    require_api_key_encryption: true
+
+llm:
+  global_rate_limits:
+    total_requests_per_minute: 500
+    total_tokens_per_minute: 300000
+  max_parallel_requests: 10
+  max_retries: 3
+  retry_delay: 1.0
+  default_request_timeout: 30.0
+  default_stream_timeout: 60.0
+  enable_response_cache: false
+  cache_ttl: 3600
+  log_level: "INFO"
+  enable_telemetry: false
+  require_api_key_encryption: true
+  allowed_api_domains:
+    - "api.anthropic.com"
+""")
+
+        # Set environment variables for testing
+        import os
+        os.environ["ANTHROPIC_API_KEY"] = "test-api-key"
+        os.environ["LLM_MAX_PARALLEL_REQUESTS"] = "10"
+        os.environ["LLM_LOG_LEVEL"] = "INFO"
+
+        # Create configuration manager from system config and environment
+        config_manager = ConfigurationManager.from_yaml_files(
+            system_config_path=system_config
+        )
+
+        # Initialize session with default config
+        session = await Session.create_default(
+            storage_path=tmp_path / "storage",
+            config=config_manager,
+            api_key="test-api-key"
+        )
+
+        # Validate ConfigurationManager initialization
+        assert session.config is not None
+        assert isinstance(session.config, ConfigurationManager)
+        
+        # Validate system config
+        assert session.config.system_config is not None
+        assert "anthropic" in session.config.system_config.providers
+        assert session.config.system_config.llm.max_parallel_requests == 10
+        
+        # Validate user config
+        assert session.config.user_config is not None
+        assert "anthropic" in session.config.user_config.api_keys
+        
+        # Validate LLM registry initialization
+        assert isinstance(session.llm_registry, LLMRegistry)
+        assert session.llm_registry.provider_registry is not None
+        assert len(session.llm_registry.provider_registry.list_providers()) > 0
 
     def test_storage_path_creation(self, tmp_path: Path):
         """Test storage path is created if it doesn't exist."""

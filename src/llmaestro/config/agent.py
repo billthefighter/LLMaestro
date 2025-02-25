@@ -11,7 +11,6 @@ class RateLimitConfig(BaseModel):
     """Configuration for rate limiting."""
 
     requests_per_minute: int = Field(default=60, ge=1)
-    requests_per_hour: int = Field(default=3600, ge=1)
     max_daily_tokens: int = Field(default=1000000, ge=1)
     alert_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
 
