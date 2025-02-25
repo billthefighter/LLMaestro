@@ -1,6 +1,6 @@
 """Base configuration models for the application."""
 
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,20 +34,11 @@ class LoggingConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class LLMProfileReference(BaseModel):
-    """Reference to an LLMProfile with optional settings overrides."""
+class RateLimitConfig(BaseModel):
+    """Configuration for rate limiting."""
 
-    provider: str = Field(description="Provider name (e.g., 'openai', 'anthropic')")
-    name: str = Field(description="Model name (e.g., 'gpt-4-turbo-preview')")
-    settings: Dict[str, Any] = Field(
-        default_factory=dict, description="Optional settings that override the model's default settings"
-    )
+    requests_per_minute: int = Field(default=60, ge=1)
+    max_daily_tokens: int = Field(default=1000000, ge=1)
+    alert_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
 
-    model_config = ConfigDict(validate_assignment=True)
-
-    @classmethod
-    def default(cls) -> "LLMProfileReference":
-        """Get the default model reference."""
-        return cls(
-            provider="anthropic", name="claude-3-sonnet-latest", settings={"temperature": 0.7, "max_tokens": 4096}
-        )
+    model_config = ConfigDict(validate_assignment=True) 

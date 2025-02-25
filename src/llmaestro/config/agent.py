@@ -7,15 +7,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from llmaestro.llm.models import LLMCapabilities
 
 
-class RateLimitConfig(BaseModel):
-    """Configuration for rate limiting."""
-
-    requests_per_minute: int = Field(default=60, ge=1)
-    max_daily_tokens: int = Field(default=1000000, ge=1)
-    alert_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
-
-    model_config = ConfigDict(validate_assignment=True)
-
 
 class SummarizationConfig(BaseModel):
     """Configuration for context summarization."""

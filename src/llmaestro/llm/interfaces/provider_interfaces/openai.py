@@ -6,7 +6,7 @@ from litellm import acompletion
 from llmaestro.core.models import TokenUsage
 from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse
 from llmaestro.llm.models import ModelFamily
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
 
 logger = logging.getLogger(__name__)
 
@@ -14,10 +14,10 @@ logger = logging.getLogger(__name__)
 class OpenAIInterface(BaseLLMInterface):
     """OpenAI-specific implementation of the LLM interface."""
 
-    @property
-    def model_family(self) -> ModelFamily:
-        """Get the model family for this interface."""
-        return ModelFamily.GPT
+    async def initialize(self) -> None:
+        """Initialize async components of the interface."""
+        await super().initialize()
+        # Additional OpenAI-specific initialization can go here
 
     async def process_async(
         self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None
@@ -31,7 +31,9 @@ class OpenAIInterface(BaseLLMInterface):
                 system_prompt="",
                 user_prompt=prompt,
                 metadata=PromptMetadata(
-                    type="direct_input", expected_response=ResponseFormat(format="text", schema=None), tags=[]
+                    type="direct_input", 
+                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None), 
+                    tags=[]
                 ),
                 current_version=VersionInfo(
                     number="1.0.0",
@@ -70,7 +72,7 @@ class OpenAIInterface(BaseLLMInterface):
                 return LLMResponse(
                     content=f"Rate limit exceeded: {error_msg}",
                     success=False,
-                    model=self._model_descriptor,
+                    model=self.state.profile,
                     token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
                     metadata={"error": "rate_limit_exceeded"},
                 )
@@ -80,10 +82,10 @@ class OpenAIInterface(BaseLLMInterface):
 
             # Make API call with appropriate streaming setting
             response = await acompletion(
-                model=self.model,
+                model=self.state.profile.name,
                 messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
+                max_tokens=self.state.runtime_config.max_tokens,
+                temperature=self.state.runtime_config.temperature,
                 stream=supports_streaming,
             )
 
@@ -114,12 +116,10 @@ class OpenAIInterface(BaseLLMInterface):
         """Handle errors in LLM processing."""
         error_message = f"Error processing LLM request: {str(e)}"
         logger.error(error_message, exc_info=True)
-        # Model descriptor is guaranteed to be non-None by base class __init__
-        assert self._model_descriptor is not None, "Model descriptor not initialized"
         return LLMResponse(
             content="",
             success=False,
-            model=self._model_descriptor,
+            model=self.state.profile,
             error=str(e),
             metadata={"error_type": type(e).__name__},
             token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),

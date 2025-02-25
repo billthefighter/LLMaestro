@@ -17,7 +17,7 @@ from llmaestro.llm.rate_limiter import RateLimitConfig
 from llmaestro.llm.models import ModelFamily, LLMProfile, LLMCapabilities
 from llmaestro.llm.capabilities import RangeConfig
 from llmaestro.llm.token_utils import TokenCounter, TokenizerRegistry, BaseTokenizer
-from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
+from llmaestro.llm.rate_limiter import RateLimiter, SQLiteTokenBucket
 from llmaestro.llm.llm_registry import LLMRegistry
 
 # Test Data

@@ -2,7 +2,7 @@
 import re
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type, TYPE_CHECKING
 
 import tiktoken
 
@@ -18,9 +18,12 @@ except ImportError:
     anthropic = None
     AsyncAnthropic = None
 
-
-from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.models import ModelFamily
+if TYPE_CHECKING:
+    from .models import ModelFamily, LLMInstance
+    from .llm_registry import LLMRegistry
+else:
+    from .models import ModelFamily
+    from .llm_registry import LLMRegistry
 
 class BaseTokenizer(ABC):
     """Abstract base class for model-specific tokenizers."""
@@ -65,7 +68,7 @@ class TiktokenTokenizer(BaseTokenizer):
 
     @classmethod
     def supports_model(cls, model_family: ModelFamily) -> bool:
-        return model_family == ModelFamily.GPT
+        return model_family == ModelFamily.OPENAI
 
 
 class AnthropicTokenizer(BaseTokenizer):
@@ -112,7 +115,7 @@ class AnthropicTokenizer(BaseTokenizer):
 
     @classmethod
     def supports_model(cls, model_family: ModelFamily) -> bool:
-        return model_family == ModelFamily.CLAUDE
+        return model_family == ModelFamily.ANTHROPIC
 
 
 class HuggingFaceTokenizer(BaseTokenizer):
@@ -145,7 +148,7 @@ class SimpleWordTokenizer(BaseTokenizer):
     @classmethod
     def supports_model(cls, model_family: ModelFamily) -> bool:
         """Check if this tokenizer supports the given model family."""
-        return model_family == ModelFamily.GEMINI
+        return model_family == ModelFamily.GOOGLE
 
     def count_tokens(self, text: str) -> int:
         """Count tokens in text using simple word-based approach."""
@@ -165,60 +168,69 @@ class SimpleWordTokenizer(BaseTokenizer):
         raise NotImplementedError("SimpleWordTokenizer does not support decoding")
 
 
-class TokenizerRegistry:
-    """Registry of tokenizers for different model families."""
+def get_tokenizer_for_model(model_family: ModelFamily, model_name: str, api_key: Optional[str] = None) -> BaseTokenizer:
+    """Get the appropriate tokenizer for a model family.
 
-    _tokenizers: Dict[ModelFamily, Type[BaseTokenizer]] = {}
+    Args:
+        model_family: The model family
+        model_name: Name of the model
+        api_key: Optional API key for providers that require it
 
-    @classmethod
-    def register(cls, model_family: ModelFamily, tokenizer_class: Type[BaseTokenizer]) -> None:
-        """Register a tokenizer for a model family."""
-        cls._tokenizers[model_family] = tokenizer_class
+    Returns:
+        BaseTokenizer: The appropriate tokenizer instance
 
-    @classmethod
-    def get_tokenizer(cls, model_family: ModelFamily, model_name: str, api_key: Optional[str] = None) -> BaseTokenizer:
-        """Get a tokenizer for a model family."""
-        if model_family not in cls._tokenizers:
-            raise ValueError(f"No tokenizer registered for {model_family}")
+    Raises:
+        ValueError: If no tokenizer is available for the model family
+    """
+    tokenizer_map = {
+        ModelFamily.OPENAI: TiktokenTokenizer,
+        ModelFamily.ANTHROPIC: AnthropicTokenizer,
+        ModelFamily.HUGGINGFACE: HuggingFaceTokenizer,
+        ModelFamily.GOOGLE: SimpleWordTokenizer,
+    }
 
-        tokenizer_class = cls._tokenizers[model_family]
+    tokenizer_class = tokenizer_map.get(model_family)
+    if not tokenizer_class:
+        raise ValueError(f"No tokenizer available for model family {model_family}")
 
-        # Create tokenizer instance based on model family
-        if model_family == ModelFamily.CLAUDE:
-            if not api_key:
-                raise ValueError("API key is required for Anthropic tokenizer")
-            return AnthropicTokenizer(model_name, api_key=api_key)
-        else:
-            # Other tokenizers only need model_name
-            return tokenizer_class(model_name)
-
-
-# Register tokenizers
-TokenizerRegistry.register(ModelFamily.GPT, TiktokenTokenizer)
-TokenizerRegistry.register(ModelFamily.CLAUDE, AnthropicTokenizer)
-TokenizerRegistry.register(ModelFamily.HUGGINGFACE, HuggingFaceTokenizer)
-TokenizerRegistry.register(ModelFamily.GEMINI, SimpleWordTokenizer)
+    if model_family == ModelFamily.ANTHROPIC:
+        if not api_key:
+            raise ValueError("API key is required for Anthropic tokenizer")
+        return tokenizer_class(model_name, api_key=api_key)
+    
+    return tokenizer_class(model_name)
 
 
 class TokenCounter:
     """Unified token counting and estimation."""
 
-    def __init__(self, api_key: Optional[str] = None, llm_registry: Optional[LLMRegistry] = None):
+    def __init__(self, llm_registry: Optional[LLMRegistry] = None):
         """Initialize token counter.
 
         Args:
-            api_key: Optional API key for providers that require it (e.g. Anthropic)
             llm_registry: Optional LLMRegistry instance. If not provided, a new instance will be created.
         """
         self._tokenizers: Dict[str, BaseTokenizer] = {}
-        self._api_key = api_key
         self._llm_registry = llm_registry or LLMRegistry()
 
     def get_tokenizer(self, model_family: ModelFamily, model_name: str) -> BaseTokenizer:
         """Get or create a tokenizer for the specified model."""
         cache_key = f"{model_family.name}:{model_name}"
         if cache_key not in self._tokenizers:
-            self._tokenizers[cache_key] = TokenizerRegistry.get_tokenizer(model_family, model_name, self._api_key)
+            # Get the LLM instance to access credentials
+            instance = self._llm_registry.models.get(model_name)
+            if not instance:
+                raise ValueError(f"Unknown model {model_name} in family {model_family.name}")
+            
+            # Get credentials if needed for this model family
+            api_key = None
+            if model_family == ModelFamily.ANTHROPIC:
+                if instance.credentials:
+                    api_key = str(instance.credentials.key)
+                if not api_key:
+                    raise ValueError(f"API key required for {model_family.name} models")
+
+            self._tokenizers[cache_key] = get_tokenizer_for_model(model_family, model_name, api_key)
         return self._tokenizers[cache_key]
 
     def count_tokens(self, text: str, model_family: ModelFamily, model_name: str) -> int:
@@ -229,9 +241,9 @@ class TokenCounter:
         self, messages: List[Dict[str, str]], model_family: ModelFamily, model_name: str
     ) -> Dict[str, int]:
         """Estimate tokens for a list of messages."""
-        # Validate model exists
-        descriptor = self._llm_registry.get_model(model_name)
-        if not descriptor:
+        # Get LLM instance to validate model exists
+        instance = self._llm_registry.models.get(model_name)
+        if not instance:
             raise ValueError(f"Unknown model {model_name} in family {model_family.name}")
 
         tokenizer = self.get_tokenizer(model_family, model_name)
@@ -249,7 +261,7 @@ class TokenCounter:
             total_tokens += content_tokens
 
             # Add role overhead for certain models
-            if model_family == ModelFamily.GPT:
+            if model_family == ModelFamily.OPENAI:
                 total_tokens += 4  # OpenAI's token overhead per message
 
             if role != "assistant":
@@ -265,12 +277,12 @@ class TokenCounter:
         self, total_tokens: int, max_completion_tokens: int, model_family: ModelFamily, model_name: str
     ) -> Tuple[bool, Optional[str]]:
         """Check if total tokens fit within model's context window."""
-        # Get model descriptor for context limit
-        descriptor = self._llm_registry.get_model(model_name)
-        if not descriptor:
+        # Get LLM instance for context limit
+        instance = self._llm_registry.models.get(model_name)
+        if not instance:
             return False, f"Unknown model {model_name} in family {model_family.name}"
 
-        limit = descriptor.capabilities.max_context_window
+        limit = instance.state.profile.capabilities.max_context_window
         total_needed = total_tokens + max_completion_tokens
 
         if total_needed > limit:
@@ -288,23 +300,13 @@ class TokenCounter:
         model_family: ModelFamily,
         model_name: str,
     ) -> int:
-        """Estimate token usage for images based on model-specific formulas.
-
-        Args:
-            image_sizes: List of image sizes in total pixels (width * height)
-            model_family: The model family (e.g., CLAUDE, GPT)
-            model_name: Specific model name
-
-        Returns:
-            Estimated token count for the images
-        """
-        descriptor = self._llm_registry.get_model(model_name)
-        if not descriptor or not descriptor.capabilities.supports_vision:
+        """Estimate token usage for images based on model-specific formulas."""
+        instance = self._llm_registry.models.get(model_name)
+        if not instance or not instance.state.profile.vision_capabilities:
             return 0
 
-        if model_family == ModelFamily.CLAUDE:
+        if model_family == ModelFamily.ANTHROPIC:
             # Claude's image token calculation (approximate)
-            # Based on Anthropic's documentation and testing
             total_tokens = 0
             for size in image_sizes:
                 # Base cost for image header
@@ -318,9 +320,8 @@ class TokenCounter:
                 total_tokens += tokens
             return total_tokens
 
-        elif model_family == ModelFamily.GPT:
+        elif model_family == ModelFamily.OPENAI:
             # GPT-4V token calculation (approximate)
-            # Based on OpenAI's documentation
             total_tokens = 0
             for size in image_sizes:
                 tokens = 85  # Base cost
@@ -360,11 +361,11 @@ class TokenCounter:
         self, token_counts: Dict[str, int], image_count: int, model_family: ModelFamily, model_name: str
     ) -> float:
         """Calculate total cost including both tokens and images."""
-        descriptor = self._llm_registry.get_model(model_name)
-        if not descriptor:
+        instance = self._llm_registry.models.get(model_name)
+        if not instance:
             return 0.0
 
-        capabilities = descriptor.capabilities
+        capabilities = instance.state.profile.capabilities
 
         # Calculate token costs
         token_cost = 0.0
@@ -379,8 +380,8 @@ class TokenCounter:
 
         # Calculate image costs
         image_cost = 0.0
-        if capabilities.supports_vision and capabilities.vision_config:
-            cost_per_image = capabilities.vision_config.get("cost_per_image", 0.0)
+        if instance.state.profile.vision_capabilities:
+            cost_per_image = instance.state.profile.vision_capabilities.cost_per_image or 0.0
             image_cost = image_count * cost_per_image
 
         return token_cost + image_cost

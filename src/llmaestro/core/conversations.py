@@ -4,10 +4,12 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.base import BasePrompt
+
+
 
 
 class ConversationNode(BaseModel):
@@ -142,3 +144,85 @@ class ConversationGraph(BaseModel):
             self.nodes.pop(node_id, None)
 
         self.updated_at = datetime.now()
+
+class ConversationContext(BaseModel):
+    """Represents the current conversation context with graph-based history tracking."""
+    
+    graph: ConversationGraph = Field(
+        default_factory=lambda: ConversationGraph(id=str(uuid4())),
+        description="The underlying conversation graph"
+    )
+    current_message: Optional[str] = Field(
+        default=None, 
+        description="ID of the current node being processed"
+    )
+    max_nodes: Optional[int] = Field(
+        default=None,
+        description="Maximum number of nodes before auto-pruning. None means no auto-pruning."
+    )
+    
+    model_config = ConfigDict(validate_assignment=True)
+    
+    @computed_field
+    @property
+    def messages(self) -> List[ConversationNode]:
+        """Get the history of nodes leading to the current node."""
+        if not self.current_message:
+            return []
+        return self.graph.get_node_history(self.current_message)
+    
+    @computed_field
+    @property
+    def message_count(self) -> int:
+        """Get the total number of messages in the history."""
+        return len(self.messages)
+    
+    @computed_field
+    @property
+    def initial_task(self) -> Optional[BasePrompt]:
+        """Get the root prompt that started this conversation."""
+        if not self.messages:
+            return None
+            
+        # Find the first prompt node
+        for node in reversed(self.messages):
+            if (
+                node.node_type == "prompt" 
+                and isinstance(node.content, BasePrompt)
+            ):
+                return node.content
+        return None
+    
+    def add_node(
+        self, 
+        content: Union[BasePrompt, LLMResponse], 
+        node_type: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Add a new node to the conversation graph and optionally set it as current."""
+        # Add the node
+        node_id = self.graph.add_node(content, node_type, metadata)
+        
+        # If this is the first node, set it as current
+        if not self.current_message:
+            self.current_message = node_id
+            
+        # Add edge from current message if it exists
+        if self.current_message and self.current_message != node_id:
+            self.graph.add_edge(
+                source_id=self.current_message,
+                target_id=node_id,
+                edge_type="next"
+            )
+            
+        # Auto-prune if max_nodes is set
+        if self.max_nodes and len(self.graph.nodes) > self.max_nodes:
+            self.graph.prune_nodes(max_nodes=self.max_nodes)
+            
+        return node_id
+    
+    def set_node(self, node_id: str) -> None:
+        """Set the current message to a specific node ID."""
+        if node_id not in self.graph.nodes:
+            raise ValueError(f"Node {node_id} not found in conversation graph")
+        self.current_message = node_id

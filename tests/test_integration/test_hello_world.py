@@ -14,7 +14,7 @@ from llmaestro.config import AgentTypeConfig
 from llmaestro.prompts.types import VersionInfo
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.llm.token_utils import TokenCounter
-from llmaestro.llm.rate_limiter import RateLimiter, RateLimitConfig, SQLiteQuotaStorage
+from llmaestro.llm.rate_limiter import RateLimiter, RateLimitConfig, SQLiteTokenBucket
 
 
 def pytest_addoption(parser):
@@ -116,7 +116,7 @@ async def anthropic_llm(llm_config, llm_registry):
     # Initialize storage and rate limiter
     db_path = os.path.join("data", f"rate_limiter_{llm.config.provider}.db")
     os.makedirs("data", exist_ok=True)
-    llm.storage = SQLiteQuotaStorage(db_path)
+    llm.storage = SQLiteTokenBucket(db_path)
 
     # Initialize rate limiter if enabled
     if llm.config.rate_limit.enabled:

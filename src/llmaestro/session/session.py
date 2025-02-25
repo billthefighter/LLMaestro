@@ -19,6 +19,7 @@ from llmaestro.llm.provider_registry import Provider
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from llmaestro.llm.factory import LLMFactory
 
 # Configure module logger
 logger = logging_config.configure_logging(module_name=__name__)
@@ -556,3 +557,12 @@ class Session(BaseModel):
     ) -> str:
         """Asynchronous conversation node addition."""
         return await asyncio.to_thread(self.add_node_to_conversation, content, node_type, metadata, parent_id)
+
+    async def _initialize_llm(self, agent_config: AgentTypeConfig) -> None:
+        """Initialize the LLM interface."""
+        factory = LLMFactory(
+            registry=self.llm_registry,
+            provider_manager=self.provider_manager,
+            credential_manager=self.credential_manager
+        )
+        self.llm = factory.create_llm(model_name=agent_config.model, runtime_config=agent_config.runtime)

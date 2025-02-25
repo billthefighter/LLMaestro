@@ -4,8 +4,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, get_type_hints
 
 from llmaestro.config.agent import AgentTypeConfig
-from llmaestro.llm.interfaces.factory import create_interface_for_model
+from llmaestro.llm.factory import LLMFactory
 from llmaestro.llm.llm_registry import LLMRegistry
+from llmaestro.llm.provider_state import ProviderStateManager
+from llmaestro.llm.credential_manager import CredentialManager
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
 from pydantic import BaseModel
@@ -86,11 +88,27 @@ class FunctionRunner:
 
     def _init_llm(self):
         """Initialize LLM interface using factory pattern."""
-        self.llm_registry = LLMRegistry.from_yaml(Path("src/llm/models/claude.yaml"))
-        model = self.llm_registry.get_model(self.config.model_name)
-        if not model:
-            raise ValueError(f"Model {self.config.model_name} not found in registry")
-        self.llm = create_interface_for_model(model, self.config, self.llm_registry)
+        # Initialize managers
+        self.llm_registry = LLMRegistry()
+        self.provider_manager = ProviderStateManager()
+        self.credential_manager = CredentialManager()
+        
+        # Initialize provider
+        self.provider_manager.initialize_provider(
+            family=self.config.provider,
+            api_key=self.config.api_key
+        )
+        
+        # Create LLM instance
+        factory = LLMFactory(
+            registry=self.llm_registry,
+            provider_manager=self.provider_manager,
+            credential_manager=self.credential_manager
+        )
+        self.llm = factory.create_llm(
+            model_name=self.config.model,
+            runtime_config=self.config.runtime
+        )
 
     def _init_prompts(self):
         """Load prompt templates for function calling."""

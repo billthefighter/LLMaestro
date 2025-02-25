@@ -14,6 +14,7 @@ from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.prompts.loader import PromptLoader
 from pydantic import BaseModel
+from llmaestro.llm.interfaces.factory import LLMFactory
 
 
 class ChangelistEntry(BaseModel):
@@ -68,7 +69,16 @@ class ChangelistManager:
                 max_tokens=self.config.llm.max_tokens,
                 temperature=self.config.llm.temperature,
             )
-            self.llm = create_llm_interface(agent_config)
+            self._initialize_llm(agent_config)
+
+    def _initialize_llm(self, agent_config: AgentTypeConfig) -> None:
+        """Initialize the LLM interface."""
+        factory = LLMFactory(
+            registry=self.llm_registry,
+            provider_manager=self.provider_manager,
+            credential_manager=self.credential_manager
+        )
+        self.llm = factory.create_llm(model_name=agent_config.model, runtime_config=agent_config.runtime)
 
     def _create_output_transform(self) -> OutputTransform:
         """Create an output transform for JSON responses."""

@@ -1,36 +1,31 @@
 """Base interfaces for LLM providers."""
 
 import base64
-import os
-from abc import ABC, abstractmethod
+from abc import ABC, abstractmethod, abstractproperty
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from litellm import acompletion
+from pydantic import BaseModel, Field, ConfigDict
 
-from llmaestro.config.agent import RateLimitConfig
 from llmaestro.core.models import (
     ContextMetrics,
     LLMResponse,  # Updated to import from core.models
     TokenUsage,
 )
 from llmaestro.llm.enums import MediaType
-from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.models import LLMProfile, ModelFamily
-from llmaestro.llm.rate_limiter import RateLimiter, SQLiteQuotaStorage
+from llmaestro.llm.rate_limiter import RateLimiter
 from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.base import BasePrompt
 
+from llmaestro.core.conversations import ConversationContext
+from llmaestro.llm.enums import ModelFamily
 
-@dataclass
-class ConversationContext:
-    """Represents the current conversation context."""
+import logging
+logger = logging.getLogger(__name__)
 
-    messages: List[Dict[str, str]]
-    summary: Optional[Dict[str, Any]] = None
-    initial_task: Optional[str] = None
-    message_count: int = 0
+
 
 
 @dataclass
@@ -57,7 +52,7 @@ class ImageInput:
         path = Path(file_path)
         with open(path, "rb") as f:
             content = base64.b64encode(f.read()).decode()
-        media_type = MediaType.from_file_extension(path)
+        media_type = MediaType.from_file_extension(str(path))  # Convert Path to str
         return cls(content=content, media_type=media_type, file_name=path.name)
 
     @classmethod
@@ -68,94 +63,39 @@ class ImageInput:
         return cls(content=content, media_type=media_type, file_name=file_name)
 
 
-class BaseLLMInterface(ABC):
+class BaseLLMInterface(BaseModel, ABC):
     """Base interface for LLM interactions."""
 
     # Default supported media types (can be overridden by specific implementations)
     SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG, MediaType.PDF}
 
-    def __init__(
-        self,
-        provider: str,
-        model: str,
-        api_key: str,
-        max_tokens: int = 1024,
-        temperature: float = 0.7,
-        rate_limit: Optional[RateLimitConfig] = None,
-        max_context_tokens: int = 32000,
-        stream: bool = True,
-    ):
-        """Initialize the LLM interface.
+    # Pydantic fields
+    context: ConversationContext = Field(default_factory=lambda: ConversationContext(), description="Current conversation context")
+    _total_tokens: int = Field(default=0, description="Total tokens used by this interface")
+    token_counter: Optional[TokenCounter] = Field(default=None, description="Token counter instance")
+    rate_limiter: Optional[RateLimiter] = Field(default=None, description="Rate limiter instance")
+    ignore_missing_credentials: bool = Field(default=False, description="Ignore missing credentials")
 
-        Args:
-            provider: Provider name (e.g. openai, anthropic)
-            model: Model name
-            api_key: API key for the provider
-            max_tokens: Maximum tokens to generate
-            temperature: Temperature for sampling
-            rate_limit: Optional rate limit configuration
-            max_context_tokens: Maximum context window size
-            stream: Whether to stream responses
-        """
-        self.provider = provider
-        self.model = model
-        self.api_key = api_key
-        self.max_tokens = max_tokens
-        self.temperature = temperature
-        self.max_context_tokens = max_context_tokens
-        self.stream = stream
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-        # Initialize context
-        self.context = ConversationContext([])
-        self._total_tokens = 0
+    def model_post_init(self, __context: Any) -> None:
+        """Initialize the interface after Pydantic model validation."""
 
-        # Initialize token counter
-        self.token_counter = TokenCounter(api_key=api_key, llm_registry=LLMRegistry())
+        # Initialize token counter with registry
+        self.token_counter = TokenCounter(
+            api_key=self.state.credentials,
+            llm_registry=self.llm_registry
+        )
 
         # Set up rate limiter if configured
-        self.rate_limiter = None
-        if rate_limit:
-            self.rate_limiter = RateLimiter(provider=provider, model=model, **rate_limit.model_dump())
-
-        # Validate API key
-        if not self.api_key:
-            raise ValueError(f"API key is required for provider {self.provider}")
-
-        # Use provided registry or create a new one
-        self._registry = LLMRegistry()
-
-        # Try to get model from registry
-        self._model_descriptor = self._registry.get_model(self.model)
-        if not self._model_descriptor:
-            raise ValueError(f"Could not find model {self.model} in registry")
-
-        # Update supported media types from model capabilities if available
-        if self._model_descriptor and self._model_descriptor.capabilities:
-            if hasattr(self._model_descriptor.capabilities, "supported_media_types"):
-                self.SUPPORTED_MEDIA_TYPES = set(
-                    MediaType.from_mime_type(mt) for mt in self._model_descriptor.capabilities.supported_media_types
-                )
-
-        # Initialize storage and rate limiter
-        db_path = os.path.join("data", f"rate_limiter_{self.provider}.db")
-        os.makedirs("data", exist_ok=True)
-        self.storage = SQLiteQuotaStorage(db_path)
-
-    @property
-    @abstractmethod
+        if self.state.runtime_config.rate_limit:
+            self.rate_limiter = RateLimiter(
+                config=self.state.runtime_config.rate_limit
+            )
+    @abstractproperty
     def model_family(self) -> ModelFamily:
-        """Get the model family for this interface."""
+        """Get the model family for the LLM provider."""
         pass
-
-    @property
-    def model_descriptor(self) -> Optional[LLMProfile]:
-        """Get the descriptor for the current model."""
-        return self._model_descriptor
-
-    @property
-    def capabilities(self):
-        """Get capabilities of the current model."""
-        return self.model_descriptor.capabilities if self.model_descriptor else None
 
     @property
     def total_tokens_used(self) -> int:
@@ -168,16 +108,44 @@ class BaseLLMInterface(ABC):
 
     def estimate_tokens(self, messages: List[Dict[str, str]]) -> Dict[str, int]:
         """Estimate token usage for a list of messages."""
-        return self.token_counter.estimate_messages(messages, self.model_family, self.model)
+        return self.token_counter.estimate_messages(
+            messages,
+            self.state.model_family,
+            str(self.state.profile)
+        )
+
+    def validate_credentials(self) -> None:
+        """Validate the credentials for the LLM provider."""
+        if not self.apikey and not self.ignore_missing_credentials:
+            raise ValueError(f"API key is required for provider {self.apikey.provider}")
+        elif not self.apikey and self.ignore_missing_credentials:
+            logger.warning("WARNING: No API key provided for provider {self.apikey.provider}. Some functionality may be limited.")
 
     def estimate_cost(self, token_usage: TokenUsage) -> float:
-        """Estimate cost for token usage."""
+        """Estimate cost for token usage.
+        
+        Args:
+            token_usage: Token usage information
+            
+        Returns:
+            Estimated cost in USD
+        """
         if not self.capabilities:
-            return 0.0
+            raise ValueError(f"Capabilities not found for model {self.state.profile}, cannot return estimated cost.")
 
-        input_cost = token_usage.prompt_tokens * (self.capabilities.input_cost_per_1k_tokens or 0.0) / 1000
-        output_cost = token_usage.completion_tokens * (self.capabilities.output_cost_per_1k_tokens or 0.0) / 1000
-        return input_cost + output_cost
+        token_counts = {
+            "prompt_tokens": token_usage.prompt_tokens,
+            "completion_tokens": token_usage.completion_tokens,
+            "total_tokens": token_usage.total_tokens
+        }
+        
+        # Use token counter's implementation
+        return self.token_counter.estimate_cost(
+            token_counts=token_counts,
+            image_count=0,  # No images in token usage
+            model_family=self.state.model_family,
+            model_name=str(self.state.profile)
+        )
 
     async def _check_rate_limits(
         self, messages: List[Dict[str, Any]], estimated_tokens: Optional[int] = None
@@ -186,26 +154,18 @@ class BaseLLMInterface(ABC):
         if not self.rate_limiter:
             return True, None
 
-        can_proceed = await self.rate_limiter.check_limits(estimated_tokens)
-        if not can_proceed:
-            return False, "Rate limit exceeded"
-
-        return True, None
+        return await self.rate_limiter.check_and_update(estimated_tokens or 0)
 
     async def _maybe_add_reminder(self) -> bool:
         """Add a reminder of the initial task if needed."""
         if not self.context.initial_task:
             return False
 
-        # Add reminder every N messages
-        if (
-            self.context.message_count > 0
-            and self.rate_limiter.reminder_frequency > 0
-            and self.context.message_count % self.rate_limiter.reminder_frequency == 0
-        ):
+        # Add reminder every N messages based on config
+        if self.context.message_count > 0:
             reminder_message = {
                 "role": "system",
-                "content": self.rate_limiter.reminder_template.format(task=self.context.initial_task),
+                "content": f"Remember, your initial task was: {self.context.initial_task}",
             }
             self.context.messages.append(reminder_message)
             return True
@@ -213,18 +173,12 @@ class BaseLLMInterface(ABC):
 
     async def _maybe_summarize_context(self) -> bool:
         """Summarize the conversation context if needed."""
-        if not self.rate_limiter.enabled:
-            return False
-
         # Get current token count
         estimates = self.estimate_tokens(self.context.messages)
         current_context_tokens = estimates["total_tokens"]
 
-        # Check if we need to summarize based on token count or message count
-        if (
-            current_context_tokens < self.max_context_tokens
-            and len(self.context.messages) < self.rate_limiter.preserve_last_n_messages
-        ):
+        # Check if we need to summarize based on token count
+        if current_context_tokens < self.state.runtime_config.max_context_tokens:
             return False
 
         # Prepare summarization prompt
@@ -243,19 +197,19 @@ class BaseLLMInterface(ABC):
             if msg.get("role") != "system" or "Remember, your initial task was" not in msg.get("content", "")
         ]
 
-        summary_messages = [summary_prompt] + messages_for_summary[-self.rate_limiter.preserve_last_n_messages :]
+        summary_messages = [summary_prompt] + messages_for_summary[-10:]  # Keep last 10 messages
 
         try:
             stream = await acompletion(
-                model=self.model,
+                model=self.state.profile.name,
                 messages=summary_messages,
-                max_tokens=self.max_tokens,
+                max_tokens=self.state.runtime_config.max_tokens,
                 stream=True,
             )
 
             # Collect all chunks from the stream
             content = ""
-            async for chunk in stream:
+            async for chunk in stream:  # type: ignore
                 if hasattr(chunk, "choices") and chunk.choices and hasattr(chunk.choices[0], "delta"):
                     delta = chunk.choices[0].delta
                     if hasattr(delta, "content") and delta.content:
@@ -266,7 +220,7 @@ class BaseLLMInterface(ABC):
 
             # Clear old messages except system prompts and recent ones
             system_messages = [msg for msg in self.context.messages if msg["role"] == "system"]
-            recent_messages = self.context.messages[-self.rate_limiter.preserve_last_n_messages :]
+            recent_messages = self.context.messages[-10:]  # Keep last 10 messages
 
             summary_message = {
                 "role": "system",
@@ -286,9 +240,9 @@ class BaseLLMInterface(ABC):
             if hasattr(response, "usage"):
                 usage = response.usage
                 token_usage = TokenUsage(
-                    completion_tokens=usage.completion_tokens,
-                    prompt_tokens=usage.prompt_tokens,
-                    total_tokens=usage.total_tokens,
+                    completion_tokens=getattr(usage, "completion_tokens", 0),
+                    prompt_tokens=getattr(usage, "prompt_tokens", 0),
+                    total_tokens=getattr(usage, "total_tokens", 0),
                 )
                 self._total_tokens += token_usage.total_tokens
 
@@ -297,10 +251,10 @@ class BaseLLMInterface(ABC):
                 total_context_tokens = estimates["total_tokens"]
 
                 context_metrics = ContextMetrics(
-                    max_context_tokens=self.max_context_tokens,
+                    max_context_tokens=self.state.runtime_config.max_context_tokens,
                     current_context_tokens=total_context_tokens,
-                    available_tokens=self.max_context_tokens - total_context_tokens,
-                    context_utilization=total_context_tokens / self.max_context_tokens,
+                    available_tokens=self.state.runtime_config.max_context_tokens - total_context_tokens,
+                    context_utilization=total_context_tokens / self.state.runtime_config.max_context_tokens,
                 )
 
                 return token_usage, context_metrics
@@ -340,7 +294,7 @@ class BaseLLMInterface(ABC):
 
     async def _handle_response(
         self,
-        stream: Any,  # Using Any to handle all litellm response types
+        stream: Any,
         messages: List[Dict[str, str]],
     ) -> LLMResponse:
         """Process the LLM response and update context."""
@@ -377,10 +331,10 @@ class BaseLLMInterface(ABC):
             estimates = self.estimate_tokens(self.context.messages)
             total_context_tokens = estimates["total_tokens"]
             context_metrics = ContextMetrics(
-                max_context_tokens=self.max_context_tokens,
+                max_context_tokens=self.state.runtime_config.max_context_tokens,
                 current_context_tokens=total_context_tokens,
-                available_tokens=self.max_context_tokens - total_context_tokens,
-                context_utilization=total_context_tokens / self.max_context_tokens,
+                available_tokens=self.state.runtime_config.max_context_tokens - total_context_tokens,
+                context_utilization=total_context_tokens / self.state.runtime_config.max_context_tokens,
             )
 
             # Update conversation context
@@ -392,7 +346,17 @@ class BaseLLMInterface(ABC):
             await self._maybe_summarize_context()
             await self._maybe_add_reminder()
 
-            return LLMResponse(content=content, token_usage=token_usage, context_metrics=context_metrics)
+            return LLMResponse(
+                content=content,
+                success=True,
+                model=self.state.profile,
+                token_usage=token_usage or TokenUsage(
+                    completion_tokens=0,
+                    prompt_tokens=0,
+                    total_tokens=0
+                ),
+                context_metrics=context_metrics
+            )
 
         except Exception as e:
             return self._handle_error(e)
@@ -403,131 +367,65 @@ class BaseLLMInterface(ABC):
         return LLMResponse(
             content="",
             success=False,
-            provider=self.provider,
-            error=error_msg,
-            provider_metadata={"error_type": type(e).__name__},
+            model=self.state.profile,
+            token_usage=TokenUsage(
+                completion_tokens=0,
+                prompt_tokens=0,
+                total_tokens=0
+            ),
+            error=error_msg
         )
 
     @abstractmethod
     async def process(
         self,
-        prompt: Union[BasePrompt, "BasePrompt"],  # Allow for subclasses and forward references
+        prompt: Union[BasePrompt, "BasePrompt"],
         variables: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
         """Process a prompt through the LLM and return a standardized response."""
-        try:
-            # Default implementation using litellm
-            system_prompt, user_prompt, _ = prompt.render(**(variables or {}))
-
-            messages = []
-            if system_prompt:
-                messages.append({"role": "system", "content": system_prompt})
-            messages.append({"role": "user", "content": user_prompt})
-
-            # Check rate limits
-            can_proceed, error_msg = await self._check_rate_limits(messages)
-            if not can_proceed:
-                return LLMResponse(
-                    content="",
-                    success=False,
-                    provider=self.provider,
-                    error=error_msg,
-                    provider_metadata={"error": "rate_limit_exceeded"},
-                )
-
-            response = await acompletion(
-                model=self.model,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                temperature=self.temperature,
-                api_key=self.api_key,
-            )
-
-            return LLMResponse(
-                content=response.choices[0].message.content,
-                success=True,
-                provider=self.provider,
-                provider_metadata={"model": response.model},
-                token_usage=TokenUsage(
-                    prompt_tokens=response.usage.prompt_tokens,
-                    completion_tokens=response.usage.completion_tokens,
-                    total_tokens=response.usage.total_tokens,
-                ),
-            )
-
-        except Exception as e:
-            return self._handle_error(e)
+        pass
 
     @abstractmethod
     async def batch_process(
         self,
-        prompts: List[Union[BasePrompt, "BasePrompt"]],  # Allow for subclasses and forward references
+        prompts: List[Union[BasePrompt, "BasePrompt"]],
         variables: Optional[List[Optional[Dict[str, Any]]]] = None,
     ) -> List[LLMResponse]:
-        """
-        Process multiple BasePrompts in a batch.
-
-        Args:
-            prompts: A list of BasePrompt objects to process
-            variables: Optional list of variable dictionaries corresponding to each prompt.
-                       If None, no variables will be used for that prompt.
-                       If not provided, no variables will be used for any prompt.
-
-        Returns:
-            A list of LLMResponses corresponding to the input prompts
-        """
+        """Process multiple BasePrompts in a batch."""
         pass
 
+    @abstractmethod
+    async def process_async(
+        self,
+        prompt: Union[BasePrompt, str],
+        variables: Optional[Dict[str, Any]] = None
+    ) -> LLMResponse:
+        """Asynchronous prompt processing."""
+        pass
+
+    @abstractmethod
     async def initialize(self) -> None:
-        """Initialize async components of the interface."""
-        # If model not in registry, detect capabilities and register
-        if not self._model_descriptor:
-            self._model_descriptor = await self._registry.detect_and_register_model(
-                provider=self.provider,
-                model_name=self.model,
-                api_key=str(self.api_key),  # Ensure string type
-            )
-            if not self._model_descriptor:
-                raise ValueError(f"Could not detect capabilities for model {self.model}")
-
-    def validate_media_type(self, media_type: Union[str, MediaType]) -> MediaType:
-        """Validate and convert media type to a supported format.
-
-        Args:
-            media_type: The media type to validate, either as a string or MediaType enum
-
-        Returns:
-            A supported MediaType enum value, falling back to JPEG if unsupported
+        """Initialize async components of the interface.
+        
+        This method should be called after construction to set up any async resources
+        like rate limiters, token counters, or provider-specific clients.
+        
+        All implementations must call super().initialize() to ensure proper initialization
+        of base components.
         """
-        if isinstance(media_type, str):
-            media_type = MediaType.from_mime_type(media_type)
-
-        if media_type not in self.SUPPORTED_MEDIA_TYPES:
-            # Default to JPEG if unsupported type
-            return MediaType.JPEG
-        return media_type
-
-    def supports_media_type(self, media_type: Union[str, MediaType]) -> bool:
-        """Check if a media type is supported by this LLM."""
-        if isinstance(media_type, str):
-            media_type = MediaType.from_mime_type(media_type)
-        return media_type in self.SUPPORTED_MEDIA_TYPES
+        # Initialize rate limiter storage if needed
+        if self.rate_limiter and hasattr(self.rate_limiter, "initialize"):
+            await self.rate_limiter.initialize()
 
     async def process_prompt(self, prompt: BasePrompt, variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
-        """Process a BasePrompt object and return a response.
-
-        Args:
-            prompt: The BasePrompt object to process
-            variables: Optional variables to render the prompt with
-
-        Returns:
-            LLMResponse containing the model's response
-        """
+        """Process a BasePrompt object and return a response."""
         # Validate prompt against model capabilities
         if prompt.attachments:
             for attachment in prompt.attachments:
                 if not self.supports_media_type(attachment.media_type):
-                    raise ValueError(f"Media type {attachment.media_type} not supported by model {self.model}")
+                    raise ValueError(
+                        f"Media type {attachment.media_type} not supported by model {self.state.profile}"
+                    )
 
         # Render the prompt with variables
         system_prompt, user_prompt, attachments = prompt.render(**(variables or {}))
@@ -540,21 +438,33 @@ class BaseLLMInterface(ABC):
 
         # Format messages
         messages = self._format_messages(
-            input_data=user_prompt, system_prompt=system_prompt, images=image_inputs if image_inputs else None
+            input_data=user_prompt,
+            system_prompt=system_prompt,
+            images=image_inputs if image_inputs else None
         )
 
         # Check rate limits
-        estimates = prompt.estimate_tokens(self.model_family, self.model, variables)
-        can_proceed, error = await self._check_rate_limits(messages, estimates["total_tokens"])
+        token_estimate = self.estimate_tokens(messages)
+        can_proceed, error = await self._check_rate_limits(messages, token_estimate["total_tokens"])
         if not can_proceed:
-            return LLMResponse(content=error or "Rate limit exceeded", metadata={"error": error})
+            return LLMResponse(
+                content=error or "Rate limit exceeded",
+                success=False,
+                model=self.state.profile,
+                token_usage=TokenUsage(
+                    completion_tokens=0,
+                    prompt_tokens=0,
+                    total_tokens=0
+                ),
+                metadata={"error": error}
+            )
 
         try:
             # Process with model
             stream = await acompletion(
-                model=self.model,
+                model=self.state.profile.name,
                 messages=messages,
-                max_tokens=self.max_tokens,
+                max_tokens=self.state.runtime_config.max_tokens,
                 stream=True,
             )
 
@@ -563,9 +473,18 @@ class BaseLLMInterface(ABC):
         except Exception as e:
             return self._handle_error(e)
 
-    @abstractmethod
-    async def process_async(
-        self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None
-    ) -> LLMResponse:
-        """Asynchronous prompt processing."""
-        pass
+    def validate_media_type(self, media_type: Union[str, MediaType]) -> MediaType:
+        """Validate and convert media type to a supported format."""
+        if isinstance(media_type, str):
+            media_type = MediaType.from_mime_type(media_type)
+
+        if not self.state.validate_media_type(media_type):
+            # Default to JPEG if unsupported type
+            return MediaType.JPEG
+        return media_type
+
+    def supports_media_type(self, media_type: Union[str, MediaType]) -> bool:
+        """Check if a media type is supported by this LLM."""
+        if isinstance(media_type, str):
+            media_type = MediaType.from_mime_type(media_type)
+        return self.state.validate_media_type(media_type)

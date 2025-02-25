@@ -12,7 +12,7 @@ from llmaestro.core.models import LLMResponse, TokenUsage
 from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, MediaType
 from llmaestro.llm.models import LLMProfile, ModelFamily
 from llmaestro.llm.token_utils import TokenCounter
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
 from PIL import Image
 
 # Configure logging
@@ -28,17 +28,14 @@ class AnthropicLLM(BaseLLMInterface):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.client = AsyncAnthropic(api_key=self.api_key)
-        self.stream = self.stream if hasattr(self, "stream") else False  # Default to False if not specified
-        self._token_counter = TokenCounter(api_key=self.api_key)  # Initialize with API key
-        logger.info(f"Initialized AnthropicLLM with model: {self.model}")
-        # _model_descriptor is guaranteed to be non-None by base class __init__
-        self._model_descriptor: LLMProfile
+        self.client = AsyncAnthropic(api_key=self.state.credentials)
+        self.stream = self.state.runtime_config.stream
+        logger.info(f"Initialized AnthropicLLM with model: {self.state.profile.name}")
 
-    @property
-    def model_family(self) -> ModelFamily:
-        """Get the model family for this interface."""
-        return ModelFamily.CLAUDE
+    async def initialize(self) -> None:
+        """Initialize async components of the interface."""
+        await super().initialize()
+        # Additional Anthropic-specific initialization can go here
 
     def _validate_media_type(self, media_type: Union[str, MediaType]) -> MediaType:
         """Validate and convert media type to supported Anthropic media type."""
@@ -93,8 +90,7 @@ class AnthropicLLM(BaseLLMInterface):
         return content_blocks
 
     def _format_messages(
-        self, input_data: str, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
-    ) -> List[Dict[str, Any]]:
+        self, input_data: str) -> List[Dict[str, Any]]:
         """Format messages for Anthropic API."""
         messages = []
 
@@ -109,8 +105,6 @@ class AnthropicLLM(BaseLLMInterface):
         """Process input data through Claude and return a standardized response."""
         try:
             # Ensure model descriptor is available (it should be from base class __init__)
-            assert self._model_descriptor is not None, "Model descriptor not initialized"
-
             logger.debug(f"Processing prompt: {prompt}")
             logger.debug(f"Variables: {variables}")
 
@@ -130,7 +124,7 @@ class AnthropicLLM(BaseLLMInterface):
             )
 
             # Format messages - only include user message, system prompt is handled separately
-            messages = self._format_messages(input_data=user_prompt, images=images)
+            messages = self._format_messages(input_data=user_prompt)
             logger.debug(f"Formatted messages: {messages}")
 
             # Get image dimensions for token counting
@@ -139,11 +133,11 @@ class AnthropicLLM(BaseLLMInterface):
                 image_dimensions = [self._get_image_dimensions(img) for img in images]
 
             # Estimate tokens including images
-            token_estimates = self._token_counter.estimate_messages_with_images(
+            token_estimates = self.token_counter.estimate_messages_with_images(
                 messages=messages,
                 image_data=image_dimensions,
                 model_family=self.model_family,
-                model_name=self.model,
+                model_name=str(self.state.profile.name)
             )
 
             # Check rate limits with image tokens included
@@ -154,7 +148,7 @@ class AnthropicLLM(BaseLLMInterface):
                 return LLMResponse(
                     content=f"Rate limit exceeded: {error_msg}",
                     success=False,
-                    model=self._model_descriptor,
+                    model=self.state.profile,
                     metadata={"error": "rate_limit_exceeded", "estimated_tokens": token_estimates["total_tokens"]},
                     token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
                 )
@@ -201,7 +195,7 @@ class AnthropicLLM(BaseLLMInterface):
                     return LLMResponse(
                         content=content,
                         success=True,
-                        model=self._model_descriptor,
+                        model=self.state.profile,
                         metadata={
                             "id": getattr(final_message, "id", "stream"),
                             "cost": 0.0,
@@ -234,7 +228,7 @@ class AnthropicLLM(BaseLLMInterface):
                     return LLMResponse(
                         content=content,
                         success=True,
-                        model=self._model_descriptor,
+                        model=self.state.profile,
                         metadata={
                             "id": getattr(response, "id", "unknown"),
                             "cost": 0.0,
@@ -293,7 +287,9 @@ class AnthropicLLM(BaseLLMInterface):
                 system_prompt="",
                 user_prompt=prompt,
                 metadata=PromptMetadata(
-                    type="direct_input", expected_response=ResponseFormat(format="text", schema=None), tags=[]
+                    type="direct_input", 
+                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None), 
+                    tags=[]
                 ),
                 current_version=VersionInfo(
                     number="1.0.0",
@@ -309,12 +305,10 @@ class AnthropicLLM(BaseLLMInterface):
         """Handle errors in LLM processing."""
         error_message = f"Error processing LLM request: {str(e)}"
         logger.error(error_message, exc_info=True)
-        # Model descriptor is guaranteed to be non-None by base class __init__
-        assert self._model_descriptor is not None, "Model descriptor not initialized"
         return LLMResponse(
             content="",
             success=False,
-            model=self._model_descriptor,
+            model=self.state.profile,
             error=str(e),
             metadata={"error_type": type(e).__name__},
             token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
@@ -323,8 +317,8 @@ class AnthropicLLM(BaseLLMInterface):
     def _create_message_params(self) -> Dict[str, Any]:
         """Create message parameters for Anthropic."""
         return {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
+            "model": self.state.profile.name,
+            "max_tokens": self.state.runtime_config.max_tokens,
+            "temperature": self.state.runtime_config.temperature,
             "stream": self.stream,
         }

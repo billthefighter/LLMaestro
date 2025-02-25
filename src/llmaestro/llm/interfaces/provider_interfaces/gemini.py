@@ -10,7 +10,7 @@ from llmaestro.llm.enums import MediaType
 from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse
 from llmaestro.llm.models import ModelFamily
 from llmaestro.llm.token_utils import TokenCounter
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
 from PIL import Image
 
 # Configure logging
@@ -27,16 +27,15 @@ class GeminiLLM(BaseLLMInterface):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # Configure Gemini
-        genai.configure(api_key=self.api_key)
-        self._model = genai.GenerativeModel(str(self.model))  # Convert model name to string
-        self.stream = self.stream if hasattr(self, "stream") else False  # Default to False if not specified
-        self._token_counter = TokenCounter(api_key=self.api_key)  # Initialize with API key
-        logger.info(f"Initialized GeminiLLM with model: {self.model}")
+        genai.configure(api_key=self.state.credentials)
+        self._model = genai.GenerativeModel(str(self.state.profile.name))
+        self.stream = self.state.runtime_config.stream
+        logger.info(f"Initialized GeminiLLM with model: {self.state.profile.name}")
 
-    @property
-    def model_family(self) -> ModelFamily:
-        """Get the model family for this interface."""
-        return ModelFamily.GEMINI
+    async def initialize(self) -> None:
+        """Initialize async components of the interface."""
+        await super().initialize()
+        # Additional Gemini-specific initialization can go here
 
     def _validate_media_type(self, media_type: Union[str, MediaType]) -> MediaType:
         """Validate and convert media type to supported Gemini media type."""
@@ -77,9 +76,6 @@ class GeminiLLM(BaseLLMInterface):
     ) -> LLMResponse:
         """Process input data through Gemini and return a standardized response."""
         try:
-            # Ensure model descriptor is available (it should be from base class __init__)
-            assert self._model_descriptor is not None, "Model descriptor not initialized"
-
             logger.debug(f"Processing prompt: {prompt}")
             logger.debug(f"Variables: {variables}")
 
@@ -110,11 +106,11 @@ class GeminiLLM(BaseLLMInterface):
             full_prompt = f"{system_prompt}\n\n{user_prompt}" if system_prompt else user_prompt
 
             # Estimate tokens including images
-            token_estimates = self._token_counter.estimate_messages_with_images(
+            token_estimates = self.token_counter.estimate_messages_with_images(
                 messages=[{"role": "user", "content": full_prompt}],
                 image_data=image_dimensions,
                 model_family=self.model_family,
-                model_name=str(self.model),  # Convert model name to string
+                model_name=str(self.state.profile.name)
             )
 
             # Check rate limits with image tokens included
@@ -125,7 +121,7 @@ class GeminiLLM(BaseLLMInterface):
                 return LLMResponse(
                     content=f"Rate limit exceeded: {error_msg}",
                     success=False,
-                    model=self._model_descriptor,
+                    model=self.state.profile,
                     metadata={"error": "rate_limit_exceeded", "estimated_tokens": token_estimates["total_tokens"]},
                     token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
                 )
@@ -158,7 +154,7 @@ class GeminiLLM(BaseLLMInterface):
                     return LLMResponse(
                         content=content,
                         success=True,
-                        model=self._model_descriptor,
+                        model=self.state.profile,
                         metadata={
                             "id": "stream",
                             "cost": 0.0,
@@ -178,7 +174,7 @@ class GeminiLLM(BaseLLMInterface):
                     return LLMResponse(
                         content=content,
                         success=True,
-                        model=self._model_descriptor,
+                        model=self.state.profile,
                         metadata={
                             "id": getattr(response, "id", "unknown"),
                             "cost": 0.0,
@@ -228,7 +224,9 @@ class GeminiLLM(BaseLLMInterface):
                 system_prompt="",
                 user_prompt=prompt,
                 metadata=PromptMetadata(
-                    type="direct_input", expected_response=ResponseFormat(format="text", schema=None), tags=[]
+                    type="direct_input", 
+                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None), 
+                    tags=[]
                 ),
                 current_version=VersionInfo(
                     number="1.0.0",
@@ -244,12 +242,10 @@ class GeminiLLM(BaseLLMInterface):
         """Handle errors in LLM processing."""
         error_message = f"Error processing LLM request: {str(e)}"
         logger.error(error_message, exc_info=True)
-        # Model descriptor is guaranteed to be non-None by base class __init__
-        assert self._model_descriptor is not None, "Model descriptor not initialized"
         return LLMResponse(
             content="",
             success=False,
-            model=self._model_descriptor,
+            model=self.state.profile,
             error=str(e),
             metadata={"error_type": type(e).__name__},
             token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
@@ -257,4 +253,7 @@ class GeminiLLM(BaseLLMInterface):
 
     def _create_generation_config(self) -> genai.types.GenerationConfig:
         """Create a generation config for Gemini."""
-        return genai.types.GenerationConfig(temperature=self.temperature, max_output_tokens=self.max_tokens)
+        return genai.types.GenerationConfig(
+            temperature=self.state.runtime_config.temperature,
+            max_output_tokens=self.state.runtime_config.max_tokens
+        )

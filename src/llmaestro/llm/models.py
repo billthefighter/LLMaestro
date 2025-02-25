@@ -7,11 +7,11 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationInfo
 
-from ..config.agent import RateLimitConfig
-from .capabilities import LLMCapabilities
-from .capability_detector import BaseCapabilityDetector
-from .enums import ModelFamily
-
+from llmaestro.config.base import RateLimitConfig
+from llmaestro.llm.capabilities import LLMCapabilities, ProviderCapabilities, VisionCapabilities
+from llmaestro.llm.enums import ModelFamily
+from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.credentials import APIKey
 
 class LLMMetadata(BaseModel):
     """Metadata about a model's lifecycle and status."""
@@ -25,48 +25,60 @@ class LLMMetadata(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
+class Provider(BaseModel):
+    """Configuration for an LLM provider."""
+    family: ModelFamily
+    description: Optional[str] = None
 
-class VisionCapabilities(BaseModel):
-    """Vision-specific capabilities and limitations."""
-
-    max_images_per_request: int = 1
-    supported_formats: List[str] = ["png", "jpeg"]
-    max_image_size_mb: int = 20
-    max_image_resolution: int = 2048
-    supports_image_annotations: bool = False
-    supports_image_analysis: bool = False
-    supports_image_generation: bool = False
-    cost_per_image: float = 0.0
+    capabilities: ProviderCapabilities = Field(
+        description="Provider-level capabilities"
+    )
+    api_base: str = Field(
+        description="Base URL for the provider's API",
+        pattern=r"^https?://[^\s/$.?#].[^\s]*$",  # Basic URL validation
+    )
+    rate_limits: RateLimitConfig = Field(
+        default_factory=RateLimitConfig,
+        description="Rate limits for the provider"
+    )
 
     model_config = ConfigDict(validate_assignment=True)
 
+    def __str__(self) -> str:
+        return f"Provider ({self.family})"
+
+    def get_api_config(self) -> Dict[str, Any]:
+        """Get API configuration
+
+        Returns:
+            Dictionary containing API configuration
+        """
+        return {
+            "api_base": self.api_base,
+            "rate_limits": self.rate_limits.model_dump(),
+            "features": [f for f in dir(self.capabilities) if f.startswith("supports_") and getattr(self.capabilities, f)]
+        }
+
+    def validate_api_base(self) -> None:
+        """Validate the api_base URL."""
+        try:
+            result = urlparse(self.api_base)
+            if not all([result.scheme, result.netloc]):
+                raise ValueError("Invalid API base URL format")
+        except Exception as e:
+            raise ValueError(f"Invalid API base URL: {str(e)}")
 
 class LLMProfile(BaseModel):
     """Complete profile of an LLM's capabilities and metadata."""
 
+    name: str
+    version: Optional[str] = None
+    description: Optional[str] = None
     capabilities: LLMCapabilities
     metadata: LLMMetadata
     vision_capabilities: Optional[VisionCapabilities] = None
 
     model_config = ConfigDict(validate_assignment=True)
-
-    @property
-    def name(self) -> str:
-        """LLM name from capabilities."""
-        return self.capabilities.name
-
-    @property
-    def family(self) -> ModelFamily:
-        """LLM family from capabilities."""
-        return self.capabilities.family
-
-    def supports_feature(self, feature: str) -> bool:
-        """Check if a specific feature is supported."""
-        return self.capabilities.supports_feature(feature)
-
-    def get_limit(self, limit_type: str) -> Optional[int]:
-        """Get a specific resource limit."""
-        return self.capabilities.get_limit(limit_type)
 
     def supports_media_type(self, media_type: str) -> bool:
         """Check if a specific media type is supported."""
@@ -96,88 +108,119 @@ class LLMProfile(BaseModel):
         return True, None
 
 
+class LLMRuntimeConfig(BaseModel):
+    """Runtime configuration for LLM instances."""
+    max_tokens: int = Field(default=2048, description="Maximum number of tokens to generate")
+    temperature: float = Field(default=0.7, description="Sampling temperature")
+    max_context_tokens: int = Field(default=4096, description="Maximum context window size")
+    stream: bool = Field(default=False, description="Whether to stream the response")
+    rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limiting configuration")
 
 
+class LLMState(BaseModel):
+    """Complete state container for LLM instances."""
+    profile: LLMProfile = Field(description="Model profile containing capabilities and metadata")
+    provider: Provider = Field(description="Provider configuration")
+    runtime_config: LLMRuntimeConfig = Field(description="Runtime configuration")
 
-class Provider(BaseModel):
-    """Configuration for an LLM provider."""
 
-    ModelFamily: ModelFamily = Field(
-        description="The canonical provider identifier"
+    @property
+    def model_family(self) -> ModelFamily:
+        """Get the model family."""
+        return self.provider.family
+    
+    @property
+    def model_name(self):
+        """Get the model name."""
+        return self.profile.name
+
+class LLMInstance(BaseModel):
+    """Runtime container that combines interface, state and credentials for an LLM.
+    
+    This class serves as the primary runtime representation of an LLM, combining:
+    1. Configuration state (LLMState)
+    2. Runtime interface (BaseLLMInterface instance)
+    3. Credentials (APIKey)
+    4. Runtime metadata (status, health, etc.)
+    """
+    
+    # Core components
+    state: LLMState = Field(
+        description="Configuration and metadata for the LLM"
     )
-    api_base: str = Field(
-        description="Base URL for the provider's API",
-        pattern=r"^https?://[^\s/$.?#].[^\s]*$",  # Basic URL validation
+    interface: Optional[Type["BaseLLMInterface"]] = Field(
+        default=None,
+        description="Active interface instance for LLM interactions"
     )
-    capabilities_detector: Optional[Type[BaseCapabilityDetector]] = Field(
-        default=None, description="Optional capability detector class for this provider"
+    credentials: Optional[APIKey] = Field(
+        default=None,
+        description="API credentials for this instance"
     )
-    rate_limits: RateLimitConfig = Field(
-        default_factory=RateLimitConfig,
-        description="Rate limits for the provider"
+    
+    # Runtime metadata
+    is_initialized: bool = Field(
+        default=False,
+        description="Whether this instance has been fully initialized"
     )
-    features: Set[str] = Field(
-        default_factory=set,
-        description="Set of supported features"
+    is_healthy: bool = Field(
+        default=True,
+        description="Whether this instance is currently healthy and operational"
+    )
+    last_error: Optional[str] = Field(
+        default=None,
+        description="Last error encountered by this instance"
     )
 
-    def get_api_config(self) -> Dict[str, Any]:
-        """Get API configuration
+    # Allow arbitrary types for interface instances
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-        Returns:
-            Dictionary containing API configuration
-        """
-        return {
-            "api_base": self.api_base,
-            "rate_limits": self.rate_limits.model_dump(),
-            "features": list(self.features)
-        }
+    @property
+    def model_name(self) -> str:
+        """Get the model name."""
+        return self.state.profile.name
+    
+    @property
+    def model_family(self) -> ModelFamily:
+        """Get the model family."""
+        return self.state.model_family
 
-    def validate_api_base(self) -> None:
-        """Validate the api_base URL."""
-        try:
-            result = urlparse(self.api_base)
-            if not all([result.scheme, result.netloc]):
-                raise ValueError("Invalid API base URL format")
-        except Exception as e:
-            raise ValueError(f"Invalid API base URL: {str(e)}")
-
-    @field_validator("capabilities_detector")
-    def validate_capabilities_detector(
-        cls, v: Optional[Type[BaseCapabilityDetector]]
-    ) -> Optional[Type[BaseCapabilityDetector]]:
-        """Validate the capabilities detector is a proper subclass."""
-        if v is None:
-            return None
-        if not isinstance(v, type) or not issubclass(v, BaseCapabilityDetector):
-            raise ValueError("Capabilities detector must be a subclass of BaseCapabilityDetector")
-        return v
-
-    @classmethod
-    def from_name(cls, provider_name: str, **kwargs) -> "Provider":
-        """Create a ProviderConfig instance from a provider name.
-        
-        Args:
-            provider_name: Name of the provider
-            **kwargs: Additional provider configuration
-            
-        Returns:
-            ProviderConfig instance with correct provider and defaults
-            
-        Raises:
-            ValueError: If provider name is not recognized
-        """
-        provider = ModelFamily.from_name(provider_name)
-        if provider == ModelFamily.CUSTOM:
-            raise ValueError(f"Unrecognized provider name: {provider_name}")
-            
-        # Use default API base if not specified
-        if "api_base" not in kwargs:
-            kwargs["api_base"] = provider.default_api_base
-            
-        return cls(
-            ModelFamily=ModelFamily,
-            **kwargs
+    @property
+    def is_ready(self) -> bool:
+        """Check if instance is ready for use."""
+        return (
+            self.is_initialized and 
+            self.is_healthy and 
+            self.interface is not None and 
+            (self.credentials is not None or self.interface.ignore_missing_credentials)
         )
 
-    model_config = ConfigDict(validate_assignment=True)
+    async def initialize(
+        self,
+        interface_class: Optional[Type["BaseLLMInterface"]] = None
+    ) -> None:
+        """Initialize this instance with an optional custom interface."""
+        try:
+            # Get interface class from factory if not provided
+            if interface_class:
+                self.interface = interface_class
+            elif self.interface:
+                pass
+            else:
+                raise ValueError(f"No interface class provided for model {self.model_name}")
+            # Create interface instance with credentials
+
+            await self.interface.initialize()
+            self.is_initialized = True
+            self.is_healthy = True
+            self.last_error = None
+
+        except Exception as e:
+            self.is_healthy = False
+            self.last_error = str(e)
+            raise
+
+    async def shutdown(self) -> None:
+        """Gracefully shutdown this instance."""
+        if self.interface and hasattr(self.interface, 'shutdown'):
+            await self.interface.shutdown()
+        self.is_initialized = False

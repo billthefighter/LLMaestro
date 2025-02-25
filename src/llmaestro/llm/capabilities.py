@@ -1,9 +1,7 @@
 """Core capabilities and limitations of LLM models."""
-from typing import Any, Optional, Set
+from typing import Any, Optional, Set, List
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from .enums import ModelFamily
 
 
 class RangeConfig(BaseModel):
@@ -30,15 +28,43 @@ class RangeConfig(BaseModel):
         return v
 
 
+class ProviderCapabilities(BaseModel):
+    """Provider-level capabilities and features."""
+
+    # API Features
+    supports_batch_requests: bool = False
+    supports_async_requests: bool = True
+    supports_streaming: bool = True
+    supports_model_selection: bool = True
+    supports_custom_models: bool = False
+    
+    # Authentication & Security
+    supports_api_key_auth: bool = True
+    supports_oauth: bool = False
+    supports_organization_ids: bool = False
+    supports_custom_endpoints: bool = False
+    
+    # Rate Limiting
+    supports_concurrent_requests: bool = True
+    max_concurrent_requests: Optional[int] = None
+    requests_per_minute: Optional[int] = None
+    tokens_per_minute: Optional[int] = None
+    
+    # Billing & Usage
+    supports_usage_tracking: bool = True
+    supports_cost_tracking: bool = True
+    supports_quotas: bool = True
+    
+    # Advanced Features
+    supports_fine_tuning: bool = False
+    supports_model_deployment: bool = False
+    supports_custom_domains: bool = False
+    supports_audit_logs: bool = False
+
+    model_config = ConfigDict(validate_assignment=True)
+
 class LLMCapabilities(BaseModel):
     """Core capabilities and limitations of a model."""
-
-    # Identity (required)
-    name: str
-    family: ModelFamily
-    version: Optional[str] = None
-    description: Optional[str] = None
-
     # Resource Limits
     max_context_window: int = Field(default=4096, gt=0)
     max_output_tokens: Optional[int] = Field(default=None, gt=0)
@@ -65,23 +91,18 @@ class LLMCapabilities(BaseModel):
     input_cost_per_1k_tokens: float = Field(default=0.0, ge=0)
     output_cost_per_1k_tokens: float = Field(default=0.0, ge=0)
 
-    # Quality Settings
-    temperature: RangeConfig = Field(
-        default_factory=lambda: RangeConfig(min_value=0.0, max_value=2.0, default_value=1.0)
-    )
-    top_p: RangeConfig = Field(default_factory=lambda: RangeConfig(min_value=0.0, max_value=1.0, default_value=1.0))
-
     model_config = ConfigDict(validate_assignment=True)
 
-    def supports_feature(self, feature_name: str) -> bool:
-        """Check if a specific feature is supported."""
-        attr_name = f"supports_{feature_name}"
-        return getattr(self, attr_name, False) if hasattr(self, attr_name) else False
+class VisionCapabilities(BaseModel):
+    """Vision-specific capabilities and limitations."""
 
-    def get_limit(self, limit_name: str) -> Optional[int]:
-        """Get a specific resource limit."""
-        if limit_name == "context_window":
-            return self.max_context_window
-        elif limit_name == "output_tokens":
-            return self.max_output_tokens
-        return None
+    max_images_per_request: int = 1
+    supported_formats: List[str] = ["png", "jpeg"]
+    max_image_size_mb: int = 20
+    max_image_resolution: int = 2048
+    supports_image_annotations: bool = False
+    supports_image_analysis: bool = False
+    supports_image_generation: bool = False
+    cost_per_image: float = 0.0
+
+    model_config = ConfigDict(validate_assignment=True)

@@ -11,6 +11,9 @@ from llmaestro.llm.interfaces import LLMResponse
 from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.prompts.base import BasePrompt
+from llmaestro.llm.factory import LLMFactory
+from llmaestro.llm.provider_state_manager import ProviderStateManager
+from llmaestro.llm.credential_manager import CredentialManager
 
 T = TypeVar("T")
 
@@ -95,13 +98,16 @@ class AgentPool:
     prompt execution, and resource management.
     """
 
-    def __init__(self, config: Optional[AgentPoolConfig] = None):
-        """Initialize the agent pool.
-
-        Args:
-            config: Optional agent pool configuration. If None, uses config from global config.
-        """
-        self._config = config or get_config().agents
+    def __init__(self, runtime: AgentTypeConfig, llm_registry: LLMRegistry, provider_manager: ProviderStateManager, credential_manager: CredentialManager):
+        """Initialize the agent pool."""
+        self.runtime = runtime
+        factory = LLMFactory(
+            registry=llm_registry,
+            provider_manager=provider_manager,
+            credential_manager=credential_manager
+        )
+        self.llm = factory.create_llm(model_name=runtime.model, runtime_config=runtime.runtime)
+        self._config = get_config().agents
         self._llm_registry = LLMRegistry()
         self._active_agents: Dict[str, RuntimeAgent] = {}
         self.executor = ThreadPoolExecutor(max_workers=self._config.max_agents)
