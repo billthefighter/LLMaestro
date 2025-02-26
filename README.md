@@ -2,6 +2,8 @@
 
 A system for orchestrating large-scale LLM tasks that exceed token limits through task decomposition and parallel processing. Also includes a collection of applications that demonstrate common use cases and best practices.
 
+It's like LiteLLM and LangChain, but worse!
+
 ## Model Status
 
 ### Anthropic Models

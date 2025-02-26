@@ -30,7 +30,6 @@ keywords = [
 [tool.poetry.dependencies]
 python = "^3.11"
 pydantic = "^2.0.0"
-litellm = "^1.0.0"
 google-generativeai = "^0.3.2"
 py4cytoscape = "^1.5.0"
 pandas = "^2.0.0"

@@ -34,5 +34,5 @@ OPENAI_PROVIDER = Provider(
         supports_custom_domains=False,
         supports_audit_logs=True,
     ),
-    rate_limits=RateLimitConfig(requests_per_minute=3500, tokens_per_minute=180000),
+    rate_limits=RateLimitConfig(requests_per_minute=3500, max_daily_tokens=1000000, alert_threshold=0.8),
 )

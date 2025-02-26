@@ -58,19 +58,24 @@ def pytest_configure(config):
 @pytest.fixture(scope="session")
 def test_settings(request) -> TestConfig:
     """Get test settings."""
-    return TestConfig(
-        use_real_tokens=request.config.getoption("--use-llm-tokens")
-    )
+    use_tokens = request.config.getoption("--use-llm-tokens")
+    logger = logging.getLogger(__name__)
+    logger.info(f"Using real tokens: {use_tokens}")
+    return TestConfig(use_real_tokens=use_tokens)
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def config_api_key(test_settings) -> Optional[APIKey]:
     """Load OpenAI API key from config.yaml if use_llm_tokens is enabled."""
+    logger = logging.getLogger(__name__)
+
     if not test_settings.use_real_tokens:
+        logger.info("Not using real tokens, returning None for API key")
         return None
 
     config_path = Path(__file__).parent.parent / "config" / "config.yaml"
     if not config_path.exists():
+        logger.warning("config.yaml not found")
         pytest.skip("config.yaml not found")
 
     with open(config_path) as f:
@@ -78,21 +83,30 @@ def config_api_key(test_settings) -> Optional[APIKey]:
 
     openai_key = config.get("llm", {}).get("providers", {}).get("openai", {}).get("api_key")
     if not openai_key:
+        logger.warning("OpenAI API key not found in config.yaml")
         pytest.skip("OpenAI API key not found in config.yaml")
 
+    logger.info("Successfully loaded API key from config")
     return APIKey(
         key=openai_key,
         description="OpenAI API key loaded from config.yaml"
     )
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def llm_registry(test_settings, config_api_key) -> LLMRegistry:
     """Create a test LLMRegistry with configurations from config.yaml if available."""
-    if test_settings.use_real_tokens and config_api_key:
+    logger = logging.getLogger(__name__)
+
+    if test_settings.use_real_tokens:
+        if not config_api_key:
+            logger.warning("Real tokens requested but no API key available")
+            pytest.skip("Real tokens requested but no API key available")
         credential = {"openai": config_api_key}
+        logger.info("Using real API key for registry")
     else:
-        credential = {"openai": APIKey(key="sk-proj-1234567890")}
+        credential = {"openai": APIKey(key="TEST_KEY_NOT_REAL!")}
+        logger.info("Using test API key for registry")
 
     factory = LLMDefaultFactory(credentials=credential)
     registry = asyncio.run(factory.DefaultLLMRegistryFactory())

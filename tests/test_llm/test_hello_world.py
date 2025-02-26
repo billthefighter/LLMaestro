@@ -26,8 +26,12 @@ async def hello_world_prompt() -> MemoryPrompt:
 
 
 @pytest.mark.asyncio
-async def test_basic_llm_response(llm_registry: LLMRegistry, hello_world_prompt: MemoryPrompt):
+@pytest.mark.integration
+async def test_basic_llm_response(test_settings, llm_registry: LLMRegistry, hello_world_prompt: MemoryPrompt):
     """Test that we can get a basic response from the LLM."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
     # Arrange
     model_name = llm_registry.get_registered_models()[0]
     llm_instance = await llm_registry.create_instance(model_name)
@@ -43,8 +47,12 @@ async def test_basic_llm_response(llm_registry: LLMRegistry, hello_world_prompt:
 
 
 @pytest.mark.asyncio
-async def test_llm_streaming_response(llm_registry: LLMRegistry, hello_world_prompt: MemoryPrompt):
+@pytest.mark.integration
+async def test_llm_streaming_response(test_settings, llm_registry: LLMRegistry, hello_world_prompt: MemoryPrompt):
     """Test that we can stream responses from the LLM."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
     # Arrange
     model_name = llm_registry.get_registered_models()[0]
     llm_instance = await llm_registry.create_instance(model_name)
@@ -64,8 +72,12 @@ async def test_llm_streaming_response(llm_registry: LLMRegistry, hello_world_pro
 
 
 @pytest.mark.asyncio
-async def test_llm_direct_string_prompt(llm_registry: LLMRegistry):
+@pytest.mark.integration
+async def test_llm_direct_string_prompt(test_settings, llm_registry: LLMRegistry):
     """Test that we can send a direct string prompt to the LLM."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
     # Arrange
     model_name = llm_registry.get_registered_models()[0]
     llm_instance = await llm_registry.create_instance(model_name)
@@ -83,8 +95,12 @@ async def test_llm_direct_string_prompt(llm_registry: LLMRegistry):
 
 
 @pytest.mark.asyncio
-async def test_llm_with_variables(llm_registry: LLMRegistry):
+@pytest.mark.integration
+async def test_llm_with_variables(test_settings, llm_registry: LLMRegistry):
     """Test that we can use variables in prompts."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
     # Arrange
     model_name = llm_registry.get_registered_models()[0]
     llm_instance = await llm_registry.create_instance(model_name)

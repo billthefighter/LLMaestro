@@ -1,20 +1,34 @@
 """OpenAI interface implementation."""
 
 import logging
-from datetime import datetime
-from typing import Any, Dict, List, Optional, Union, AsyncIterator, TYPE_CHECKING, cast, overload, Tuple
+from typing import Any, Dict, List, Optional, Union, AsyncIterator, TYPE_CHECKING, cast, overload
 
-from litellm import acompletion, completion
+from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletion
+from openai.types.chat.chat_completion_system_message_param import ChatCompletionSystemMessageParam
+from openai.types.chat.chat_completion_user_message_param import ChatCompletionUserMessageParam
 
 from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.llm.interfaces.base import BaseLLMInterface, ImageInput
 from llmaestro.prompts.base import BasePrompt
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
+from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType
 
 if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+class SimplePrompt(BasePrompt):
+    """A simple prompt implementation for handling string prompts."""
+
+    async def load(self) -> None:
+        """Implement abstract load method."""
+        pass
+
+    async def save(self) -> None:
+        """Implement abstract save method."""
+        pass
 
 
 class OpenAIInterface(BaseLLMInterface):
@@ -25,6 +39,7 @@ class OpenAIInterface(BaseLLMInterface):
         logger.debug(f"Init data: {data}")
         try:
             super().__init__(**data)
+            self.client = AsyncOpenAI(api_key=self.credentials.key if self.credentials else None)
             logger.debug("OpenAIInterface initialized successfully")
         except Exception as e:
             logger.error(f"Failed to initialize OpenAIInterface: {str(e)}", exc_info=True)
@@ -62,11 +77,11 @@ class OpenAIInterface(BaseLLMInterface):
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
-        """Process input using OpenAI's API via LiteLLM."""
+        """Process input using OpenAI's API."""
         try:
-            # Convert string prompt to BasePrompt if needed
+            # Convert string prompt to SimplePrompt if needed
             if isinstance(prompt, str):
-                prompt = BasePrompt(
+                prompt = SimplePrompt(
                     name="direct_prompt",
                     description="Direct string prompt",
                     system_prompt="",
@@ -76,14 +91,12 @@ class OpenAIInterface(BaseLLMInterface):
                         expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
                         tags=[],
                     ),
-                    current_version=VersionInfo(
-                        number="1.0.0",
-                        author="system",
-                        description="Direct string prompt",
-                        timestamp=datetime.now(),
-                        change_type="initial",
-                    ),
                 )
+
+            # Validate credentials
+            self.validate_credentials()
+            if not self.credentials:
+                raise ValueError("No credentials provided")
 
             # Render the prompt with optional variables
             system_prompt, user_prompt, attachments = prompt.render(**(variables or {}))
@@ -108,8 +121,8 @@ class OpenAIInterface(BaseLLMInterface):
             else:
                 raise ValueError("No state provided, a LLMState must be provided to the LLMInterface")
 
-            # Make API call
-            response = await acompletion(
+            # Make API call with credentials
+            response = await self.client.chat.completions.create(
                 messages=messages,
                 model=model_name,
                 max_tokens=max_tokens,
@@ -128,7 +141,7 @@ class OpenAIInterface(BaseLLMInterface):
         variables: Optional[List[Optional[Dict[str, Any]]]] = None,
         batch_size: Optional[int] = None,
     ) -> List[LLMResponse]:
-        """Batch process prompts using OpenAI's API."""
+        """Process multiple prompts in a batch."""
         # Ensure variables list matches prompts length if provided
         if variables is not None and len(variables) != len(prompts):
             raise ValueError("Number of variable sets must match number of prompts")
@@ -148,19 +161,11 @@ class OpenAIInterface(BaseLLMInterface):
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMResponse]:
-        """Stream responses from OpenAI's API one token at a time.
-
-        Args:
-            prompt: The prompt to process
-            variables: Optional variables for prompt templating
-
-        Returns:
-            An async iterator yielding partial LLMResponses as they are generated
-        """
+        """Stream responses from OpenAI's API one token at a time."""
         try:
-            # Convert string prompt to BasePrompt if needed
+            # Convert string prompt to SimplePrompt if needed
             if isinstance(prompt, str):
-                prompt = BasePrompt(
+                prompt = SimplePrompt(
                     name="direct_prompt",
                     description="Direct string prompt",
                     system_prompt="",
@@ -170,14 +175,12 @@ class OpenAIInterface(BaseLLMInterface):
                         expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
                         tags=[],
                     ),
-                    current_version=VersionInfo(
-                        number="1.0.0",
-                        author="system",
-                        description="Direct string prompt",
-                        timestamp=datetime.now(),
-                        change_type="initial",
-                    ),
                 )
+
+            # Validate credentials
+            self.validate_credentials()
+            if not self.credentials:
+                raise ValueError("No credentials provided")
 
             # Render the prompt with optional variables
             system_prompt, user_prompt, attachments = prompt.render(**(variables or {}))
@@ -203,8 +206,8 @@ class OpenAIInterface(BaseLLMInterface):
             max_tokens = self.state.runtime_config.max_tokens
             temperature = self.state.runtime_config.temperature
 
-            # Make streaming API call
-            response = completion(
+            # Make streaming API call with credentials
+            stream = await self.client.chat.completions.create(
                 messages=messages,
                 model=model_name,
                 max_tokens=max_tokens,
@@ -213,25 +216,27 @@ class OpenAIInterface(BaseLLMInterface):
             )
 
             # Process the streaming response
-            for chunk in response:
-                # litellm returns a tuple of (content, metadata) for streaming
-                content, _ = cast(Tuple[str, Any], chunk)
-                if content:
-                    yield LLMResponse(
-                        content=content,
-                        success=True,
-                        token_usage=TokenUsage(
-                            completion_tokens=1,  # Each chunk is roughly one token
-                            prompt_tokens=0,  # We don't know prompt tokens in streaming
-                            total_tokens=1,
-                        ),
-                        context_metrics=self._calculate_context_metrics(),
-                        metadata={
-                            "model": self.state.profile.name,
-                            "is_streaming": True,
-                            "is_partial": True,
-                        },
-                    )
+            try:
+                async for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        content = chunk.choices[0].delta.content
+                        yield LLMResponse(
+                            content=content,
+                            success=True,
+                            token_usage=TokenUsage(
+                                completion_tokens=1,  # Each chunk is roughly one token
+                                prompt_tokens=0,  # We don't know prompt tokens in streaming
+                                total_tokens=1,
+                            ),
+                            context_metrics=self._calculate_context_metrics(),
+                            metadata={
+                                "model": self.state.profile.name,
+                                "is_streaming": True,
+                                "is_partial": True,
+                            },
+                        )
+            except Exception as e:
+                yield self._handle_error(e)
 
         except Exception as e:
             yield self._handle_error(e)
@@ -248,18 +253,75 @@ class OpenAIInterface(BaseLLMInterface):
             token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
         )
 
-    async def _handle_response(self, response: Any) -> LLMResponse:
+    def _format_messages(
+        self, input_data: Any, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
+    ) -> List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]]:
+        """Format input data and optional system prompt into messages."""
+        messages: List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]] = []
+
+        if system_prompt:
+            system_message: ChatCompletionSystemMessageParam = {"role": "system", "content": system_prompt}
+            messages.append(system_message)
+
+        if isinstance(input_data, str):
+            user_message: ChatCompletionUserMessageParam = {"role": "user", "content": input_data}
+            messages.append(user_message)
+        elif isinstance(input_data, dict):
+            messages.append(cast(Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam], input_data))
+        elif isinstance(input_data, list):
+            messages.extend(
+                cast(List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]], input_data)
+            )
+
+        # Add images if provided
+        if images:
+            # Convert the last user message to include images
+            for i in range(len(messages) - 1, -1, -1):
+                msg = messages[i]
+                if msg["role"] == "user":
+                    # Create a new message with images
+                    content = msg["content"]
+                    if not isinstance(content, str):
+                        content = str(content)
+
+                    messages[i] = cast(
+                        ChatCompletionUserMessageParam,
+                        {
+                            "role": "user",
+                            "content": content,
+                            "images": [
+                                {
+                                    "content": str(img.content),
+                                    "mime_type": str(img.media_type),
+                                    "file_name": img.file_name or "",
+                                }
+                                for img in images
+                            ],
+                        },
+                    )
+                    break
+
+        return messages
+
+    async def _handle_response(self, response: ChatCompletion) -> LLMResponse:
         """Handle the response from OpenAI's API."""
         try:
             # Extract content and metadata from response
             content = response.choices[0].message.content if response.choices else ""
+            if content is None:
+                content = ""  # Ensure content is never None
 
             # Create token usage info
-            token_usage = TokenUsage(
-                prompt_tokens=response.usage.prompt_tokens,
-                completion_tokens=response.usage.completion_tokens,
-                total_tokens=response.usage.total_tokens,
-            )
+            usage = response.usage
+            if usage is None:
+                # Fallback if usage is not available
+                token_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+            else:
+                token_usage = TokenUsage(
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                    total_tokens=usage.total_tokens,
+                )
 
             return LLMResponse(
                 content=content,
