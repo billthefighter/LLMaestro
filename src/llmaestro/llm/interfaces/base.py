@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import logging
 from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,9 +18,9 @@ from llmaestro.llm.credentials import APIKey
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.llm.enums import MediaType
 from .tokenizers import BaseTokenizer
+from llmaestro.llm.models import LLMState  # Direct import instead of TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from llmaestro.llm.models import LLMState
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -68,19 +69,37 @@ class BaseLLMInterface(BaseModel):
         default_factory=ConversationContext, description="Current conversation context"
     )
     tokenizer: Optional[BaseTokenizer] = Field(default=None, description="Tokenizer instance")
-    state: "LLMState" = Field(description="Complete state container for LLM instances")
+    state: LLMState = Field(description="Complete state container for LLM instances")
     ignore_missing_credentials: bool = Field(default=False, description="Whether to ignore missing credentials")
     credentials: Optional[APIKey] = Field(default=None, description="API credentials")
 
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True,
+        from_attributes=True,
+        extra="allow",
+        validate_default=False,
+        frozen=False,
+        populate_by_name=True,
     )
+
+    def __init__(self, **data):
+        logger.debug("Initializing BaseLLMInterface")
+        logger.debug(f"Base init data: {data}")
+        try:
+            super().__init__(**data)
+            logger.debug("BaseLLMInterface initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize BaseLLMInterface: {str(e)}", exc_info=True)
+            raise
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize the interface after Pydantic model validation."""
+        logger.debug("Running BaseLLMInterface post-init")
         if not self.state:
+            logger.warning("No state provided in base post-init")
             return
+        logger.debug("BaseLLMInterface post-init completed")
 
     def count_tokens(self, messages: List[Dict[str, Any]]) -> int:
         """Basic token counting."""

@@ -1,5 +1,6 @@
 """Root test configuration and common fixtures."""
 import os
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
@@ -21,6 +22,13 @@ from llmaestro.prompts.base import PromptVariable, SerializableType
 from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.llm.credentials import APIKey
 import asyncio
+
+
+# Configure logging for tests
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 class TestConfig(BaseModel):
     """Test configuration for fixtures."""

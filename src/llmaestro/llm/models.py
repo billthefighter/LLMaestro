@@ -138,12 +138,20 @@ class LLMState(BaseModel):
         return self.profile.name
 
 
+if TYPE_CHECKING:
+    from llmaestro.llm.interfaces.base import BaseLLMInterface
+
+    InterfaceType = BaseLLMInterface
+else:
+    InterfaceType = Any
+
+
 class LLMInstance(BaseModel):
     """Runtime container that combines interface, state and credentials for an LLM."""
 
     # Core components
-    state: "LLMState" = Field(description="Configuration and metadata for the LLM")
-    interface: "BaseLLMInterface" = Field(description="Active interface instance for LLM interactions")
+    state: LLMState = Field(description="Configuration and metadata for the LLM")
+    interface: InterfaceType = Field(description="Active interface instance for LLM interactions")
     credentials: Optional[APIKey] = Field(default=None, description="API credentials for this instance")
 
     # Runtime metadata
@@ -154,6 +162,9 @@ class LLMInstance(BaseModel):
     model_config = ConfigDict(
         arbitrary_types_allowed=True,
         validate_assignment=True,
+        from_attributes=True,
+        extra="allow",
+        revalidate_instances="always",
     )
 
     @property
@@ -181,8 +192,3 @@ class LLMInstance(BaseModel):
         if self.interface and hasattr(self.interface, "shutdown"):
             await self.interface.shutdown()
         self.is_initialized = False
-
-
-if TYPE_CHECKING:
-    from llmaestro.llm.interfaces.base import BaseLLMInterface
-    from llmaestro.llm.models import LLMState

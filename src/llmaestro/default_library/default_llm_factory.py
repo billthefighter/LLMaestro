@@ -238,23 +238,29 @@ class LLMDefaultFactory(BaseModel):
                 # Case 2: Direct LLMState instance
                 elif isinstance(obj, LLMState):
                     models[obj.profile.name] = obj
-                # Case 3: Class with MODELS dictionary of factory methods
-                elif isinstance(obj, type) and hasattr(obj, "MODELS"):
-                    class_models = obj.MODELS
-                    if isinstance(class_models, dict):
-                        # Call each factory method to get LLMState instances
-                        for model_name, factory_method in class_models.items():
-                            try:
-                                if callable(factory_method):
-                                    # For static/class methods, we need the class
-                                    if hasattr(factory_method, "__self__"):
-                                        state = factory_method()
-                                    else:
-                                        state = factory_method.__get__(obj)()
-                                    models[model_name] = state
-                            except Exception as e:
-                                logger.warning(f"Failed to create model {model_name}: {str(e)}")
-                                continue
+                # Case 3: Class with MODELS dictionary or factory methods
+                elif isinstance(obj, type):
+                    # Try to instantiate the class and get models
+                    try:
+                        instance = obj()
+                        # If class has a MODELS dictionary of factory methods
+                        if hasattr(instance, "MODELS"):
+                            class_models = instance.MODELS
+                            if isinstance(class_models, dict):
+                                # Call each factory method to get LLMState instances
+                                for model_name, factory_method in class_models.items():
+                                    try:
+                                        if callable(factory_method):
+                                            state = factory_method()
+                                            if isinstance(state, LLMState):
+                                                models[model_name] = state
+                                    except Exception as e:
+                                        logger.warning(f"Failed to create model {model_name}: {str(e)}")
+                                        continue
+
+                    except Exception as e:
+                        logger.warning(f"Failed to process class {name}: {str(e)}")
+                        continue
 
             if not models:
                 logger.warning(f"No model definitions found in {models_file}")

@@ -9,6 +9,8 @@ from .models import LLMInstance, LLMState
 from .credentials import APIKey
 from .interfaces.base import BaseLLMInterface
 
+logger = logging.getLogger(__name__)
+
 
 class LLMRegistry(BaseModel):
     """Registry for managing LLM models and their interfaces.
@@ -63,28 +65,36 @@ class LLMRegistry(BaseModel):
         """
         with self.lock:
             if model_name not in self.model_states:
+                logger.error(f"Model {model_name} not found in registry")
                 raise ValueError(f"Model {model_name} is not registered")
 
             state = self.model_states[model_name]
             interface_class = self.interface_classes[model_name]
             credentials = self.credentials[model_name]
 
+            logger.debug(f"Creating instance for model {model_name}")
+            logger.debug(f"Using interface class: {interface_class.__name__}")
+            logger.debug(f"State type: {type(state)}")
+            logger.debug(f"Credentials type: {type(credentials)}")
+
         try:
             # Create a fresh interface instance
+            logger.debug("Creating interface instance...")
             interface = interface_class(state=state, credentials=credentials)
+            logger.debug(f"Interface created successfully: {type(interface)}")
 
             # Create a fresh LLM instance
-            return LLMInstance(state=state, credentials=credentials, interface=interface)
+            logger.debug("Creating LLM instance...")
+            instance = LLMInstance(state=state, credentials=credentials, interface=interface)
+            logger.debug("LLM instance created successfully")
+
+            return instance
 
         except Exception as e:
-            logging.error(f"Failed to create instance for model {model_name}: {str(e)}")
+            logger.error(f"Failed to create instance for model {model_name}: {str(e)}", exc_info=True)
             raise
 
     def get_registered_models(self) -> List[str]:
         """Get list of registered model names."""
         with self.lock:
             return list(self.model_states.keys())
-
-
-# Rebuild the model to resolve circular dependencies
-LLMRegistry.model_rebuild()

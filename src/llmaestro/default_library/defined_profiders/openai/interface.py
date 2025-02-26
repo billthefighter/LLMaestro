@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional, Union, AsyncIterator, TYPE_CHECKIN
 
 from litellm import acompletion, completion
 
-from llmaestro.core.models import LLMResponse, TokenUsage
+from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.llm.interfaces.base import BaseLLMInterface, ImageInput
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
@@ -19,6 +19,25 @@ logger = logging.getLogger(__name__)
 
 class OpenAIInterface(BaseLLMInterface):
     """OpenAI-specific implementation of the LLM interface."""
+
+    def __init__(self, **data):
+        logger.debug("Initializing OpenAIInterface")
+        logger.debug(f"Init data: {data}")
+        try:
+            super().__init__(**data)
+            logger.debug("OpenAIInterface initialized successfully")
+        except Exception as e:
+            logger.error(f"Failed to initialize OpenAIInterface: {str(e)}", exc_info=True)
+            raise
+
+    def model_post_init(self, __context: Any) -> None:
+        """Initialize the interface after Pydantic model validation."""
+        logger.debug("Running OpenAIInterface post-init")
+        super().model_post_init(__context)
+        if not self.state:
+            logger.warning("No state provided in post-init")
+            return
+        logger.debug("OpenAIInterface post-init completed")
 
     @property
     def model_family(self) -> str:
@@ -227,4 +246,53 @@ class OpenAIInterface(BaseLLMInterface):
             error=str(e),
             metadata={"error_type": type(e).__name__},
             token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        )
+
+    async def _handle_response(self, response: Any) -> LLMResponse:
+        """Handle the response from OpenAI's API."""
+        try:
+            # Extract content and metadata from response
+            content = response.choices[0].message.content if response.choices else ""
+
+            # Create token usage info
+            token_usage = TokenUsage(
+                prompt_tokens=response.usage.prompt_tokens,
+                completion_tokens=response.usage.completion_tokens,
+                total_tokens=response.usage.total_tokens,
+            )
+
+            return LLMResponse(
+                content=content,
+                success=True,
+                token_usage=token_usage,
+                context_metrics=self._calculate_context_metrics(),
+                metadata={
+                    "model": self.state.profile.name if self.state else "unknown",
+                    "is_streaming": False,
+                    "is_partial": False,
+                },
+            )
+        except Exception as e:
+            return self._handle_error(e)
+
+    def _calculate_context_metrics(self) -> ContextMetrics:
+        """Calculate context window metrics."""
+        if not self.state:
+            return ContextMetrics(
+                max_context_tokens=0,
+                current_context_tokens=0,
+                available_tokens=0,
+                context_utilization=0.0,
+            )
+
+        max_tokens = self.state.runtime_config.max_context_tokens
+        current_tokens = self.context.total_tokens.total_tokens if self.context and self.context.total_tokens else 0
+        available = max(0, max_tokens - current_tokens)
+        utilization = float(current_tokens) / float(max_tokens) if max_tokens > 0 else 0.0
+
+        return ContextMetrics(
+            max_context_tokens=max_tokens,
+            current_context_tokens=current_tokens,
+            available_tokens=available,
+            context_utilization=utilization,
         )
