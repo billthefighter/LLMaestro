@@ -10,8 +10,6 @@ from anthropic.types import (
 )
 from llmaestro.core.models import LLMResponse, TokenUsage
 from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, MediaType
-from llmaestro.llm.models import LLMProfile, ModelFamily
-from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
 from PIL import Image
 
@@ -89,8 +87,7 @@ class AnthropicLLM(BaseLLMInterface):
 
         return content_blocks
 
-    def _format_messages(
-        self, input_data: str) -> List[Dict[str, Any]]:
+    def _format_messages(self, input_data: str) -> List[Dict[str, Any]]:
         """Format messages for Anthropic API."""
         messages = []
 
@@ -137,7 +134,7 @@ class AnthropicLLM(BaseLLMInterface):
                 messages=messages,
                 image_data=image_dimensions,
                 model_family=self.model_family,
-                model_name=str(self.state.profile.name)
+                model_name=str(self.state.profile.name),
             )
 
             # Check rate limits with image tokens included
@@ -287,9 +284,9 @@ class AnthropicLLM(BaseLLMInterface):
                 system_prompt="",
                 user_prompt=prompt,
                 metadata=PromptMetadata(
-                    type="direct_input", 
-                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None), 
-                    tags=[]
+                    type="direct_input",
+                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
+                    tags=[],
                 ),
                 current_version=VersionInfo(
                     number="1.0.0",

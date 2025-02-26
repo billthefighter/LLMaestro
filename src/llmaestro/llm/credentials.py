@@ -1,11 +1,9 @@
 """Secure credential management for API keys and other sensitive data."""
 
-from typing import Dict, Optional
+from typing import Optional
 from datetime import datetime
 
-from pydantic import BaseModel, Field, field_validator, ValidationInfo
-
-from llmaestro.llm.models import ModelFamily
+from pydantic import BaseModel, Field
 
 
 class APIKeyFormat(BaseModel):
@@ -32,7 +30,6 @@ class APIKeyFormat(BaseModel):
 class APIKey(BaseModel):
     """Represents a single API key with metadata."""
 
-    family: ModelFamily = Field(..., description="Model family this key belongs to")
     key: str = Field(..., description="The actual API key value")
     is_encrypted: bool = Field(default=False, description="Whether the key is encrypted")
     created_at: datetime = Field(default_factory=datetime.now, description="When this key was first added")
@@ -40,31 +37,6 @@ class APIKey(BaseModel):
     last_rotated: Optional[datetime] = Field(default=None, description="When this key was last rotated")
     expiration: Optional[datetime] = Field(default=None, description="When this key expires")
     description: Optional[str] = Field(default=None, description="Optional description or notes")
-
-    # Define key formats for known providers
-    KEY_FORMATS: Dict[ModelFamily, APIKeyFormat] = {
-        ModelFamily.ANTHROPIC: APIKeyFormat(pattern=r"^sk-ant-[A-Za-z0-9]{32,}$", prefix="sk-ant-", min_length=40),
-        ModelFamily.OPENAI: APIKeyFormat(pattern=r"^sk-[A-Za-z0-9]{32,}$", prefix="sk-", min_length=40),
-        ModelFamily.GOOGLE: APIKeyFormat(pattern=r"^[A-Za-z0-9\-_]{32,}$", min_length=32),
-    }
-
-    @field_validator("key", mode="before")
-    def validate_key_format(cls, v: str, info: ValidationInfo) -> str:
-        """Validate the key format based on model family."""
-        if not v.strip():
-            raise ValueError("API key cannot be empty")
-
-        # Get family from values
-        family = info.data.get("family")
-        if not family:
-            return v  # Skip validation if no family specified
-
-        # Get format rules for this family
-        key_format = cls.KEY_FORMATS.get(family)
-        if key_format and not key_format.validate(v):
-            raise ValueError(f"Invalid API key format for model family {family.value}")
-
-        return v
 
     def mark_used(self) -> None:
         """Mark this key as being used now."""

@@ -3,45 +3,6 @@ import mimetypes
 from enum import Enum
 
 
-class ModelFamily(str, Enum):
-    """Canonical provider definitions."""
-    ANTHROPIC = "anthropic"
-    OPENAI = "openai"
-    GOOGLE = "google"
-    HUGGINGFACE = "huggingface"
-    CUSTOM = "custom"
-
-    @property
-    def display_name(self) -> str:
-        """Get a human-readable display name."""
-        return {
-            self.ANTHROPIC: "Anthropic",
-            self.OPENAI: "OpenAI",
-            self.GOOGLE: "Google",
-            self.HUGGINGFACE: "Hugging Face",
-            self.CUSTOM: "Custom",
-        }[self]
-
-    @property
-    def default_api_base(self) -> str:
-        """Get the default API base URL for this provider."""
-        return {
-            self.ANTHROPIC: "https://api.anthropic.com/v1",
-            self.OPENAI: "https://api.openai.com/v1",
-            self.GOOGLE: "https://generativelanguage.googleapis.com/v1",
-            self.HUGGINGFACE: "https://api.huggingface.co",
-            self.CUSTOM: "",
-        }[self]
-
-    @classmethod
-    def from_name(cls, name: str) -> "ModelFamily":
-        """Get a provider from a name (case-insensitive)."""
-        try:
-            return cls(name.lower())
-        except ValueError:
-            return cls.CUSTOM
-
-
 class MediaType(str, Enum):
     """Standard media types for LLM inputs."""
 

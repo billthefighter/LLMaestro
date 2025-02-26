@@ -5,15 +5,10 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, Optional, Protocol, Set, TypeVar, cast
 
 from llmaestro.agents.models import Agent, AgentCapability, AgentMetrics, AgentState
-from llmaestro.config.agent import AgentPoolConfig, AgentTypeConfig
-from llmaestro.config.manager import ConfigurationManager
-from llmaestro.llm.interfaces import LLMResponse
-from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.prompts.base import BasePrompt
-from llmaestro.llm.factory import LLMFactory
-from llmaestro.llm.provider_state_manager import ProviderStateManager
-from llmaestro.llm.credential_manager import CredentialManager
+from llmaestro.core.models import LLMResponse
+
 
 T = TypeVar("T")
 
@@ -98,13 +93,17 @@ class AgentPool:
     prompt execution, and resource management.
     """
 
-    def __init__(self, runtime: AgentTypeConfig, llm_registry: LLMRegistry, provider_manager: ProviderStateManager, credential_manager: CredentialManager):
+    def __init__(
+        self,
+        runtime: AgentTypeConfig,
+        llm_registry: LLMRegistry,
+        provider_manager: ProviderStateManager,
+        credential_manager: CredentialManager,
+    ):
         """Initialize the agent pool."""
         self.runtime = runtime
         factory = LLMFactory(
-            registry=llm_registry,
-            provider_manager=provider_manager,
-            credential_manager=credential_manager
+            registry=llm_registry, provider_manager=provider_manager, credential_manager=credential_manager
         )
         self.llm = factory.create_llm(model_name=runtime.model, runtime_config=runtime.runtime)
         self._config = get_config().agents

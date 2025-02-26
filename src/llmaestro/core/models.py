@@ -32,7 +32,7 @@ class BaseResponse(BaseModel):
     """Base class for all response types."""
 
     timestamp: datetime = Field(default_factory=datetime.now)
-    success: bool = Field(..., description="Whether the operation was successful")
+    success: bool = Field(description="Whether the operation was successful")
     error: Optional[str] = Field(default=None, description="Error message if operation failed")
     execution_time: Optional[float] = Field(default=None, description="Time taken to generate response in seconds")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata about the response")
@@ -46,4 +46,3 @@ class LLMResponse(BaseResponse):
     content: str = Field(..., description="The content of the response")
     token_usage: TokenUsage = Field(..., description="Token usage statistics")
     context_metrics: Optional[ContextMetrics] = Field(default=None, description="Context window metrics")
-

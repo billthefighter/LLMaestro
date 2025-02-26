@@ -1,9 +1,7 @@
 """Tokenizer implementations for different LLM providers."""
 import re
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
-
-import tiktoken
+from typing import Any, Dict, List
 
 try:
     from transformers import AutoTokenizer
@@ -16,8 +14,6 @@ try:
 except ImportError:
     anthropic = None
     AsyncAnthropic = None
-
-from ..enums import ModelFamily
 
 
 class BaseTokenizer(ABC):
@@ -49,31 +45,6 @@ class BaseTokenizer(ABC):
                         total_tokens += self.count_tokens(block["text"])
             else:
                 total_tokens += self.count_tokens(str(content))
-        return total_tokens
-
-
-class TiktokenTokenizer(BaseTokenizer):
-    """Tokenizer for OpenAI models using tiktoken."""
-
-    def __init__(self, model_name: str):
-        super().__init__(model_name)
-        encoding_name = {
-            "gpt-3.5-turbo": "cl100k_base",
-            "gpt-4": "cl100k_base",
-        }.get(model_name, "cl100k_base")
-        self.encoding = tiktoken.get_encoding(encoding_name)
-
-    def count_tokens(self, text: str) -> int:
-        return len(self.encode(text))
-
-    def encode(self, text: str) -> List[int]:
-        return self.encoding.encode(text)
-
-    def count_messages(self, messages: List[Dict[str, Any]]) -> int:
-        """OpenAI-specific message token counting."""
-        total_tokens = super().count_messages(messages)
-        # Add OpenAI's message overhead
-        total_tokens += 4 * len(messages)  # 4 tokens per message for metadata
         return total_tokens
 
 
@@ -139,36 +110,3 @@ class SimpleWordTokenizer(BaseTokenizer):
     def encode(self, text: str) -> List[int]:
         """Encode text into token IDs."""
         raise NotImplementedError("SimpleWordTokenizer does not support encoding")
-
-
-def get_tokenizer(model_family: ModelFamily, model_name: str, api_key: Optional[str] = None) -> BaseTokenizer:
-    """Get the appropriate tokenizer for a model family.
-
-    Args:
-        model_family: The model family
-        model_name: Name of the model
-        api_key: Optional API key for providers that require it
-
-    Returns:
-        BaseTokenizer: The appropriate tokenizer instance
-
-    Raises:
-        ValueError: If no tokenizer is available for the model family
-    """
-    tokenizer_map = {
-        ModelFamily.OPENAI: TiktokenTokenizer,
-        ModelFamily.ANTHROPIC: AnthropicTokenizer,
-        ModelFamily.HUGGINGFACE: HuggingFaceTokenizer,
-        ModelFamily.GOOGLE: SimpleWordTokenizer,
-    }
-
-    tokenizer_class = tokenizer_map.get(model_family)
-    if not tokenizer_class:
-        raise ValueError(f"No tokenizer available for model family {model_family}")
-
-    if model_family == ModelFamily.ANTHROPIC:
-        if not api_key:
-            raise ValueError("API key is required for Anthropic tokenizer")
-        return tokenizer_class(model_name, api_key=api_key)
-
-    return tokenizer_class(model_name)

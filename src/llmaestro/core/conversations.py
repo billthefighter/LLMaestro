@@ -6,10 +6,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
-from llmaestro.core.models import LLMResponse
+from llmaestro.core.models import LLMResponse, TokenUsage
 from llmaestro.prompts.base import BasePrompt
-
-
 
 
 class ConversationNode(BaseModel):
@@ -22,6 +20,13 @@ class ConversationNode(BaseModel):
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata for this node")
 
     model_config = ConfigDict(validate_assignment=True)
+
+    @property
+    def token_usage(self) -> Optional[TokenUsage]:
+        """Get token usage for this node if available."""
+        if isinstance(self.content, LLMResponse) and self.content.token_usage:
+            return self.content.token_usage
+        return None
 
 
 class ConversationEdge(BaseModel):
@@ -50,6 +55,35 @@ class ConversationGraph(BaseModel):
     )
 
     model_config = ConfigDict(validate_assignment=True)
+
+    @property
+    def total_tokens(self) -> TokenUsage:
+        """Get total token usage across all nodes."""
+        total_completion = 0
+        total_prompt = 0
+        total = 0
+
+        for node in self.nodes.values():
+            if token_usage := node.token_usage:
+                total_completion += token_usage.completion_tokens
+                total_prompt += token_usage.prompt_tokens
+                total += token_usage.total_tokens
+
+        return TokenUsage(completion_tokens=total_completion, prompt_tokens=total_prompt, total_tokens=total)
+
+    def get_token_usage_by_type(self, node_type: str) -> TokenUsage:
+        """Get token usage for all nodes of a specific type."""
+        completion = 0
+        prompt = 0
+        total = 0
+
+        for node in self.nodes.values():
+            if node.node_type == node_type and (token_usage := node.token_usage):
+                completion += token_usage.completion_tokens
+                prompt += token_usage.prompt_tokens
+                total += token_usage.total_tokens
+
+        return TokenUsage(completion_tokens=completion, prompt_tokens=prompt, total_tokens=total)
 
     def add_node(
         self, content: Union[BasePrompt, LLMResponse], node_type: str, metadata: Optional[Dict[str, Any]] = None
@@ -98,18 +132,18 @@ class ConversationGraph(BaseModel):
         prompt_nodes = [node for node in self.nodes.values() if node.node_type == "prompt"]
         response_nodes = [node for node in self.nodes.values() if node.node_type == "response"]
 
-        # Calculate token usage if available
-        total_tokens = 0
-        for node in response_nodes:
-            if isinstance(node.content, LLMResponse) and node.content.token_usage:
-                total_tokens += node.content.token_usage.total_tokens
+        token_usage = self.total_tokens
 
         return {
             "total_nodes": len(self.nodes),
             "total_edges": len(self.edges),
             "prompt_count": len(prompt_nodes),
             "response_count": len(response_nodes),
-            "total_tokens": total_tokens,
+            "token_usage": {
+                "total": token_usage.total_tokens,
+                "prompt": token_usage.prompt_tokens,
+                "completion": token_usage.completion_tokens,
+            },
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "metadata": self.metadata,
@@ -145,24 +179,20 @@ class ConversationGraph(BaseModel):
 
         self.updated_at = datetime.now()
 
+
 class ConversationContext(BaseModel):
     """Represents the current conversation context with graph-based history tracking."""
-    
+
     graph: ConversationGraph = Field(
-        default_factory=lambda: ConversationGraph(id=str(uuid4())),
-        description="The underlying conversation graph"
+        default_factory=lambda: ConversationGraph(id=str(uuid4())), description="The underlying conversation graph"
     )
-    current_message: Optional[str] = Field(
-        default=None, 
-        description="ID of the current node being processed"
-    )
+    current_message: Optional[str] = Field(default=None, description="ID of the current node being processed")
     max_nodes: Optional[int] = Field(
-        default=None,
-        description="Maximum number of nodes before auto-pruning. None means no auto-pruning."
+        default=None, description="Maximum number of nodes before auto-pruning. None means no auto-pruning."
     )
-    
+
     model_config = ConfigDict(validate_assignment=True)
-    
+
     @computed_field
     @property
     def messages(self) -> List[ConversationNode]:
@@ -170,57 +200,76 @@ class ConversationContext(BaseModel):
         if not self.current_message:
             return []
         return self.graph.get_node_history(self.current_message)
-    
+
     @computed_field
     @property
     def message_count(self) -> int:
         """Get the total number of messages in the history."""
         return len(self.messages)
-    
+
     @computed_field
     @property
     def initial_task(self) -> Optional[BasePrompt]:
         """Get the root prompt that started this conversation."""
         if not self.messages:
             return None
-            
+
         # Find the first prompt node
         for node in reversed(self.messages):
-            if (
-                node.node_type == "prompt" 
-                and isinstance(node.content, BasePrompt)
-            ):
+            if node.node_type == "prompt" and isinstance(node.content, BasePrompt):
                 return node.content
         return None
-    
+
+    @property
+    def total_tokens(self) -> TokenUsage:
+        """Get total token usage for the conversation."""
+        return self.graph.total_tokens
+
+    @property
+    def prompt_tokens(self) -> TokenUsage:
+        """Get token usage for prompt messages."""
+        return self.graph.get_token_usage_by_type("prompt")
+
+    @property
+    def response_tokens(self) -> TokenUsage:
+        """Get token usage for response messages."""
+        return self.graph.get_token_usage_by_type("response")
+
+    def get_token_usage_since(self, timestamp: datetime) -> TokenUsage:
+        """Get token usage since a specific timestamp."""
+        completion = 0
+        prompt = 0
+        total = 0
+
+        for node in self.graph.nodes.values():
+            if node.created_at >= timestamp and (token_usage := node.token_usage):
+                completion += token_usage.completion_tokens
+                prompt += token_usage.prompt_tokens
+                total += token_usage.total_tokens
+
+        return TokenUsage(completion_tokens=completion, prompt_tokens=prompt, total_tokens=total)
+
     def add_node(
-        self, 
-        content: Union[BasePrompt, LLMResponse], 
-        node_type: str,
-        metadata: Optional[Dict[str, Any]] = None
+        self, content: Union[BasePrompt, LLMResponse], node_type: str, metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """Add a new node to the conversation graph and optionally set it as current."""
         # Add the node
         node_id = self.graph.add_node(content, node_type, metadata)
-        
+
         # If this is the first node, set it as current
         if not self.current_message:
             self.current_message = node_id
-            
+
         # Add edge from current message if it exists
         if self.current_message and self.current_message != node_id:
-            self.graph.add_edge(
-                source_id=self.current_message,
-                target_id=node_id,
-                edge_type="next"
-            )
-            
+            self.graph.add_edge(source_id=self.current_message, target_id=node_id, edge_type="next")
+
         # Auto-prune if max_nodes is set
         if self.max_nodes and len(self.graph.nodes) > self.max_nodes:
             self.graph.prune_nodes(max_nodes=self.max_nodes)
-            
+
         return node_id
-    
+
     def set_node(self, node_id: str) -> None:
         """Set the current message to a specific node ID."""
         if node_id not in self.graph.nodes:

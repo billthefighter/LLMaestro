@@ -8,8 +8,6 @@ import google.generativeai as genai
 from llmaestro.core.models import TokenUsage
 from llmaestro.llm.enums import MediaType
 from llmaestro.llm.interfaces.base import BaseLLMInterface, BasePrompt, ImageInput, LLMResponse
-from llmaestro.llm.models import ModelFamily
-from llmaestro.llm.token_utils import TokenCounter
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
 from PIL import Image
 
@@ -110,7 +108,7 @@ class GeminiLLM(BaseLLMInterface):
                 messages=[{"role": "user", "content": full_prompt}],
                 image_data=image_dimensions,
                 model_family=self.model_family,
-                model_name=str(self.state.profile.name)
+                model_name=str(self.state.profile.name),
             )
 
             # Check rate limits with image tokens included
@@ -224,9 +222,9 @@ class GeminiLLM(BaseLLMInterface):
                 system_prompt="",
                 user_prompt=prompt,
                 metadata=PromptMetadata(
-                    type="direct_input", 
-                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None), 
-                    tags=[]
+                    type="direct_input",
+                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
+                    tags=[],
                 ),
                 current_version=VersionInfo(
                     number="1.0.0",
@@ -254,6 +252,5 @@ class GeminiLLM(BaseLLMInterface):
     def _create_generation_config(self) -> genai.types.GenerationConfig:
         """Create a generation config for Gemini."""
         return genai.types.GenerationConfig(
-            temperature=self.state.runtime_config.temperature,
-            max_output_tokens=self.state.runtime_config.max_tokens
+            temperature=self.state.runtime_config.temperature, max_output_tokens=self.state.runtime_config.max_tokens
         )

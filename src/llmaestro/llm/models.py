@@ -1,17 +1,16 @@
 """Model definitions and capabilities for LLM interfaces."""
 import mimetypes
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Type
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, ValidationInfo
+from pydantic import BaseModel, ConfigDict, Field
 
 from llmaestro.config.base import RateLimitConfig
 from llmaestro.llm.capabilities import LLMCapabilities, ProviderCapabilities, VisionCapabilities
-from llmaestro.llm.enums import ModelFamily
 from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.credentials import APIKey
+
 
 class LLMMetadata(BaseModel):
     """Metadata about a model's lifecycle and status."""
@@ -25,22 +24,19 @@ class LLMMetadata(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
+
 class Provider(BaseModel):
     """Configuration for an LLM provider."""
-    family: ModelFamily
+
+    family: str
     description: Optional[str] = None
 
-    capabilities: ProviderCapabilities = Field(
-        description="Provider-level capabilities"
-    )
+    capabilities: ProviderCapabilities = Field(description="Provider-level capabilities")
     api_base: str = Field(
         description="Base URL for the provider's API",
         pattern=r"^https?://[^\s/$.?#].[^\s]*$",  # Basic URL validation
     )
-    rate_limits: RateLimitConfig = Field(
-        default_factory=RateLimitConfig,
-        description="Rate limits for the provider"
-    )
+    rate_limits: RateLimitConfig = Field(default_factory=RateLimitConfig, description="Rate limits for the provider")
 
     model_config = ConfigDict(validate_assignment=True)
 
@@ -56,7 +52,9 @@ class Provider(BaseModel):
         return {
             "api_base": self.api_base,
             "rate_limits": self.rate_limits.model_dump(),
-            "features": [f for f in dir(self.capabilities) if f.startswith("supports_") and getattr(self.capabilities, f)]
+            "features": [
+                f for f in dir(self.capabilities) if f.startswith("supports_") and getattr(self.capabilities, f)
+            ],
         }
 
     def validate_api_base(self) -> None:
@@ -67,6 +65,7 @@ class Provider(BaseModel):
                 raise ValueError("Invalid API base URL format")
         except Exception as e:
             raise ValueError(f"Invalid API base URL: {str(e)}")
+
 
 class LLMProfile(BaseModel):
     """Complete profile of an LLM's capabilities and metadata."""
@@ -110,6 +109,7 @@ class LLMProfile(BaseModel):
 
 class LLMRuntimeConfig(BaseModel):
     """Runtime configuration for LLM instances."""
+
     max_tokens: int = Field(default=2048, description="Maximum number of tokens to generate")
     temperature: float = Field(default=0.7, description="Sampling temperature")
     max_context_tokens: int = Field(default=4096, description="Maximum context window size")
@@ -119,57 +119,41 @@ class LLMRuntimeConfig(BaseModel):
 
 class LLMState(BaseModel):
     """Complete state container for LLM instances."""
+
     profile: LLMProfile = Field(description="Model profile containing capabilities and metadata")
     provider: Provider = Field(description="Provider configuration")
     runtime_config: LLMRuntimeConfig = Field(description="Runtime configuration")
 
-
     @property
-    def model_family(self) -> ModelFamily:
+    def model_family(self) -> str:
         """Get the model family."""
         return self.provider.family
-    
+
     @property
     def model_name(self):
         """Get the model name."""
         return self.profile.name
 
+
 class LLMInstance(BaseModel):
     """Runtime container that combines interface, state and credentials for an LLM.
-    
+
     This class serves as the primary runtime representation of an LLM, combining:
     1. Configuration state (LLMState)
     2. Runtime interface (BaseLLMInterface instance)
     3. Credentials (APIKey)
     4. Runtime metadata (status, health, etc.)
     """
-    
+
     # Core components
-    state: LLMState = Field(
-        description="Configuration and metadata for the LLM"
-    )
-    interface: Optional[Type["BaseLLMInterface"]] = Field(
-        default=None,
-        description="Active interface instance for LLM interactions"
-    )
-    credentials: Optional[APIKey] = Field(
-        default=None,
-        description="API credentials for this instance"
-    )
-    
+    state: LLMState = Field(description="Configuration and metadata for the LLM")
+    interface: BaseLLMInterface = Field(description="Active interface instance for LLM interactions")
+    credentials: Optional[APIKey] = Field(default=None, description="API credentials for this instance")
+
     # Runtime metadata
-    is_initialized: bool = Field(
-        default=False,
-        description="Whether this instance has been fully initialized"
-    )
-    is_healthy: bool = Field(
-        default=True,
-        description="Whether this instance is currently healthy and operational"
-    )
-    last_error: Optional[str] = Field(
-        default=None,
-        description="Last error encountered by this instance"
-    )
+    is_initialized: bool = Field(default=False, description="Whether this instance has been fully initialized")
+    is_healthy: bool = Field(default=True, description="Whether this instance is currently healthy and operational")
+    last_error: Optional[str] = Field(default=None, description="Last error encountered by this instance")
 
     # Allow arbitrary types for interface instances
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -178,9 +162,9 @@ class LLMInstance(BaseModel):
     def model_name(self) -> str:
         """Get the model name."""
         return self.state.profile.name
-    
+
     @property
-    def model_family(self) -> ModelFamily:
+    def model_family(self) -> str:
         """Get the model family."""
         return self.state.model_family
 
@@ -188,39 +172,14 @@ class LLMInstance(BaseModel):
     def is_ready(self) -> bool:
         """Check if instance is ready for use."""
         return (
-            self.is_initialized and 
-            self.is_healthy and 
-            self.interface is not None and 
-            (self.credentials is not None or self.interface.ignore_missing_credentials)
+            self.is_initialized
+            and self.is_healthy
+            and self.interface is not None
+            and (self.credentials is not None or self.interface.ignore_missing_credentials)
         )
-
-    async def initialize(
-        self,
-        interface_class: Optional[Type["BaseLLMInterface"]] = None
-    ) -> None:
-        """Initialize this instance with an optional custom interface."""
-        try:
-            # Get interface class from factory if not provided
-            if interface_class:
-                self.interface = interface_class
-            elif self.interface:
-                pass
-            else:
-                raise ValueError(f"No interface class provided for model {self.model_name}")
-            # Create interface instance with credentials
-
-            await self.interface.initialize()
-            self.is_initialized = True
-            self.is_healthy = True
-            self.last_error = None
-
-        except Exception as e:
-            self.is_healthy = False
-            self.last_error = str(e)
-            raise
 
     async def shutdown(self) -> None:
         """Gracefully shutdown this instance."""
-        if self.interface and hasattr(self.interface, 'shutdown'):
+        if self.interface and hasattr(self.interface, "shutdown"):
             await self.interface.shutdown()
         self.is_initialized = False

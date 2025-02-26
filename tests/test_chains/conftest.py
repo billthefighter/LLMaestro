@@ -6,7 +6,6 @@ from typing import Dict, Any, Callable, List, Optional, Union
 from uuid import uuid4
 from enum import Enum
 
-from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.chains.chains import (
     NodeType,
     AgentType,
@@ -20,8 +19,6 @@ from llmaestro.chains.chains import (
     ChainGraph,
 )
 from llmaestro.core.models import TokenUsage
-from llmaestro.llm.interfaces import BaseLLMInterface, LLMResponse
-from llmaestro.llm.models import ModelFamily, LLMProfile, LLMCapabilities
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
 from llmaestro.prompts.types import (
@@ -30,7 +27,6 @@ from llmaestro.prompts.types import (
     ResponseFormat,
 )
 from llmaestro.llm.interfaces.base import ConversationContext
-from llmaestro.llm.token_utils import TokenCounter
 
 
 class ChangeType(str, Enum):
@@ -40,49 +36,6 @@ class ChangeType(str, Enum):
     FIX = "fix"
     REFACTOR = "refactor"
 
-
-@pytest.fixture
-def test_response(mock_LLMProfile) -> LLMResponse:
-    """Test LLM response using the mock model descriptor from root conftest."""
-    return LLMResponse(
-        content="Test response",
-        model=mock_LLMProfile,
-        token_usage=TokenUsage(prompt_tokens=10, completion_tokens=10, total_tokens=20),
-        context_metrics=None,
-        success=True,
-        metadata={}
-    )
-
-
-@pytest.fixture
-def mock_llm(test_response, config_manager):
-    """Mock LLM interface using configuration from root conftest."""
-    class MockLLM(BaseLLMInterface):
-        def __init__(self, config, llm_registry=None):
-            self.config = config
-            self.context = ConversationContext([])
-            self._total_tokens = 0
-            self._token_counter = TokenCounter()
-            self._model_descriptor = test_response.model
-
-        @property
-        def model_family(self) -> ModelFamily:
-            return ModelFamily.CLAUDE
-
-        async def process(self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
-            return test_response
-
-        async def process_async(self, prompt: Union[BasePrompt, str], variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
-            return test_response
-
-        async def batch_process(
-            self,
-            prompts: List[Union[BasePrompt, str]],
-            variables: Optional[List[Optional[Dict[str, Any]]]] = None
-        ) -> List[LLMResponse]:
-            return [test_response for _ in prompts]
-
-    return MockLLM
 
 
 @pytest.fixture
@@ -225,16 +178,6 @@ def chain_edge(chain_node) -> ChainEdge:
         edge_type="next",
     )
 
-
-@pytest.fixture
-def agent_pool(config_manager, mock_llm, monkeypatch):
-    """Fixture for AgentPool using base configuration from root conftest."""
-    monkeypatch.setattr("llmaestro.core.config.get_config", lambda: config_manager)
-    monkeypatch.setattr("llmaestro.agents.agent_pool.get_config", lambda: config_manager)
-    monkeypatch.setattr("llmaestro.llm.interfaces.factory.create_llm_interface", lambda config: mock_llm(config))
-    monkeypatch.setattr("llmaestro.llm.interfaces.factory.AnthropicLLM", mock_llm)
-
-    return AgentPool(config=config_manager.user_config.agents)
 
 
 @pytest.fixture
