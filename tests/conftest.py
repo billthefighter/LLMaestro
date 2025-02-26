@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, List
+import yaml
 
 import pytest
 from pydantic import BaseModel
@@ -15,9 +16,11 @@ from llmaestro.llm.models import (
 )
 from llmaestro.llm.capabilities import RangeConfig
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.prompts.base import BasePrompt
-from tests.test_prompts.conftest import sample_variables
-
+from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.base import PromptVariable, SerializableType
+from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
+from llmaestro.llm.credentials import APIKey
+import asyncio
 
 class TestConfig(BaseModel):
     """Test configuration for fixtures."""
@@ -53,22 +56,77 @@ def test_settings(request) -> TestConfig:
 
 
 @pytest.fixture
-def llm_registry(mock_LLMProfile: LLMProfile) -> LLMRegistry:
-    """Create a test LLMRegistry with default configurations."""
-    registry = LLMRegistry.create_default()
-    # Register the mock model
-    registry._models[mock_LLMProfile.name] = mock_LLMProfile
+def config_api_key(test_settings) -> Optional[APIKey]:
+    """Load OpenAI API key from config.yaml if use_llm_tokens is enabled."""
+    if not test_settings.use_real_tokens:
+        return None
+
+    config_path = Path(__file__).parent.parent / "config" / "config.yaml"
+    if not config_path.exists():
+        pytest.skip("config.yaml not found")
+
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    openai_key = config.get("llm", {}).get("providers", {}).get("openai", {}).get("api_key")
+    if not openai_key:
+        pytest.skip("OpenAI API key not found in config.yaml")
+
+    return APIKey(
+        key=openai_key,
+        description="OpenAI API key loaded from config.yaml"
+    )
+
+
+@pytest.fixture
+def llm_registry(test_settings, config_api_key) -> LLMRegistry:
+    """Create a test LLMRegistry with configurations from config.yaml if available."""
+    if test_settings.use_real_tokens and config_api_key:
+        credential = {"openai": config_api_key}
+    else:
+        credential = {"openai": APIKey(key="sk-proj-1234567890")}
+
+    factory = LLMDefaultFactory(credentials=credential)
+    registry = asyncio.run(factory.DefaultLLMRegistryFactory())
     return registry
 
 
 @pytest.fixture
-def base_prompt() -> BasePrompt:
+def sample_variables() -> List[PromptVariable]:
+    """Create sample prompt variables for testing."""
+    print("Creating sample variables")  # Debug print
+    vars = [
+        PromptVariable(
+            name="context",
+            description="Additional context for the assistant",
+            expected_input_type=SerializableType.STRING
+        ),
+        PromptVariable(
+            name="name",
+            description="Name to use in prompt",
+            expected_input_type=SerializableType.STRING
+        ),
+        PromptVariable(
+            name="query",
+            description="User query",
+            expected_input_type=SerializableType.STRING
+        )
+    ]
+    print(f"Sample variables type: {type(vars)}")  # Debug print
+    print(f"Sample variables content: {vars}")  # Debug print
+    return vars
+
+
+@pytest.fixture
+def base_prompt(sample_variables) -> MemoryPrompt:
     """Create a base prompt for testing."""
-    prompt = BasePrompt(
+    print(f"In base_prompt, sample_variables type: {type(sample_variables)}")  # Debug print
+    print(f"In base_prompt, sample_variables content: {sample_variables}")  # Debug print
+    prompt = MemoryPrompt(
         name="test_prompt",
         description="Test prompt",
         system_prompt="You are a test assistant. Context: {context}",
         user_prompt="Hello {name}, {query}",
-        variables=sample_variables(),
+        variables=sample_variables,
     )
     return prompt

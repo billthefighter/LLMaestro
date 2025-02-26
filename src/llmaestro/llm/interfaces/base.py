@@ -1,8 +1,8 @@
 """Base interfaces for LLM providers."""
+from __future__ import annotations
 
 import base64
-import logging
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union, TYPE_CHECKING, AsyncIterator
@@ -10,22 +10,16 @@ from typing import Any, Dict, List, Optional, Set, Union, TYPE_CHECKING, AsyncIt
 from pydantic import BaseModel, Field, ConfigDict
 
 from llmaestro.core.conversations import ConversationContext
-
 from llmaestro.core.models import (
-    ContextMetrics,
     LLMResponse,
-    TokenUsage,
 )
 from llmaestro.llm.credentials import APIKey
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.llm.enums import MediaType
-
 from .tokenizers import BaseTokenizer
 
-logger = logging.getLogger(__name__)
-
 if TYPE_CHECKING:
-    from ..models import LLMState
+    from llmaestro.llm.models import LLMState
 
 
 @dataclass
@@ -39,7 +33,6 @@ class ImageInput:
     def __init__(
         self,
         content: Union[str, bytes],
-        # TODO: this should not be a string, and should be iniitalized as none
         media_type: Union[str, MediaType] = MediaType.JPEG,
         file_name: Optional[str] = None,
     ):
@@ -64,7 +57,7 @@ class ImageInput:
         return cls(content=content, media_type=media_type, file_name=file_name)
 
 
-class BaseLLMInterface(BaseModel, ABC):
+class BaseLLMInterface(BaseModel):
     """Base interface for LLM interactions."""
 
     # Default supported media types (can be overridden by specific implementations)
@@ -75,11 +68,14 @@ class BaseLLMInterface(BaseModel, ABC):
         default_factory=ConversationContext, description="Current conversation context"
     )
     tokenizer: Optional[BaseTokenizer] = Field(default=None, description="Tokenizer instance")
-    ignore_missing_credentials: bool = Field(default=False, description="Ignore missing credentials")
-    state: Optional["LLMState"] = Field(default=None, description="LLM state")
+    state: "LLMState" = Field(description="Complete state container for LLM instances")
+    ignore_missing_credentials: bool = Field(default=False, description="Whether to ignore missing credentials")
     credentials: Optional[APIKey] = Field(default=None, description="API credentials")
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+    )
 
     def model_post_init(self, __context: Any) -> None:
         """Initialize the interface after Pydantic model validation."""
@@ -132,15 +128,7 @@ class BaseLLMInterface(BaseModel, ABC):
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
-        """Process a prompt through the LLM and return a standardized response.
-
-        This is the main entry point for processing prompts. It should:
-        1. Convert string prompts to BasePrompt if needed
-        2. Add the prompt to the conversation context
-        3. Process the prompt and get a response
-        4. Add the response to the conversation context
-        5. Return a standardized LLMResponse
-        """
+        """Process a prompt through the LLM and return a standardized response."""
         pass
 
     @abstractmethod
@@ -150,19 +138,7 @@ class BaseLLMInterface(BaseModel, ABC):
         variables: Optional[List[Optional[Dict[str, Any]]]] = None,
         batch_size: Optional[int] = None,
     ) -> List[LLMResponse]:
-        """Process multiple prompts in a batch.
-
-        This method should:
-        1. Handle batching efficiently using provider-specific optimizations
-        2. Maintain conversation context for each prompt
-        3. Respect rate limits across the batch
-        4. Optionally process in parallel if supported by provider
-
-        Args:
-            prompts: List of prompts to process
-            variables: Optional list of variable dictionaries, one per prompt
-            batch_size: Optional batch size for processing chunks of prompts
-        """
+        """Process multiple prompts in a batch."""
         pass
 
     @abstractmethod
@@ -171,126 +147,13 @@ class BaseLLMInterface(BaseModel, ABC):
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMResponse]:
-        """Stream responses from the LLM one token at a time.
-
-        This method provides a streaming interface to get responses as they are generated.
-        Each yielded LLMResponse will contain a partial completion that should be concatenated
-        with previous responses to form the complete response.
-
-        Args:
-            prompt: The prompt to process
-            variables: Optional variables for prompt templating
-
-        Returns:
-            An async iterator yielding partial LLMResponses as they are generated
-        """
+        """Stream responses from the LLM one token at a time."""
         pass
 
-    @abstractmethod
     async def initialize(self) -> None:
-        """Initialize async components of the interface.
-
-        This method should be called after construction to set up any async resources
-        like rate limiters, token counters, or provider-specific clients.
-
-        All implementations must call super().initialize() to ensure proper initialization
-        of base components.
-        """
+        """Initialize the interface."""
         pass
 
-    async def _handle_response(
-        self,
-        stream: Any,
-    ) -> LLMResponse:
-        """Process the LLM response and update context."""
-        try:
-            # Collect all chunks from the stream
-            content = ""
-            last_chunk = None
-
-            # Handle both streaming and non-streaming responses
-            if hasattr(stream, "__aiter__"):  # Check for async iterator protocol
-                async for chunk in stream:  # type: ignore
-                    last_chunk = chunk
-                    if hasattr(chunk, "choices") and chunk.choices:
-                        delta = getattr(chunk.choices[0], "delta", None)
-                        if delta and hasattr(delta, "content"):
-                            content += delta.content
-            else:  # If it's a single response
-                last_chunk = stream
-                if hasattr(last_chunk, "choices") and last_chunk.choices:
-                    content = getattr(last_chunk.choices[0], "content", "")
-
-            # Get usage information if available
-            token_usage = None
-            if last_chunk and hasattr(last_chunk, "usage"):
-                usage = last_chunk.usage
-                token_usage = TokenUsage(
-                    completion_tokens=getattr(usage, "completion_tokens", 0),
-                    prompt_tokens=getattr(usage, "prompt_tokens", 0),
-                    total_tokens=getattr(usage, "total_tokens", 0),
-                )
-
-            # Create response node
-            response = LLMResponse(
-                content=content,
-                success=True,
-                token_usage=token_usage or TokenUsage(completion_tokens=0, prompt_tokens=0, total_tokens=0),
-                context_metrics=self._calculate_context_metrics(),
-                metadata={
-                    "model": self.state.profile.name if self.state and self.state.profile else None,
-                },
-            )
-
-            # Add response to conversation context
-            self.context.add_node(
-                content=response,
-                node_type="response",
-                metadata={
-                    "model": self.state.profile.name if self.state and self.state.profile else None,
-                },
-            )
-
-            return response
-
-        except Exception as e:
-            return self._handle_error(e)
-
-    def _calculate_context_metrics(self) -> Optional[ContextMetrics]:
-        """Calculate context metrics based on current state."""
-        if not self.state or not self.state.runtime_config:
-            return None
-
-        return ContextMetrics(
-            max_context_tokens=self.state.runtime_config.max_context_tokens,
-            current_context_tokens=self.context.message_count,
-            available_tokens=self.state.runtime_config.max_context_tokens - self.context.message_count,
-            context_utilization=self.context.message_count / self.state.runtime_config.max_context_tokens,
-        )
-
-    def _handle_error(self, e: Exception) -> LLMResponse:
-        """Handle errors and return a standardized error response."""
-        error_msg = str(e)
-        return LLMResponse(
-            content="",
-            success=False,
-            token_usage=TokenUsage(completion_tokens=0, prompt_tokens=0, total_tokens=0),
-            error=error_msg,
-            metadata={"error_type": type(e).__name__},
-        )
-
-    def validate_media_type(self, media_type: Union[str, MediaType]) -> MediaType:
-        """Validate and convert media type to a supported format."""
-        if isinstance(media_type, str):
-            media_type = MediaType.from_mime_type(media_type)
-
-        if not self.supports_media_type(media_type):
-            # Default to JPEG if unsupported type
-            return MediaType.JPEG
-        return media_type
-
-    def supports_media_type(self, media_type: Union[str, MediaType]) -> bool:
-        """Check if a media type is supported by this LLM."""
-        if isinstance(media_type, str):
-            media_type = MediaType.from_mime_type(media_type)
-        return media_type in self.SUPPORTED_MEDIA_TYPES
+    async def shutdown(self) -> None:
+        """Shutdown the interface."""
+        pass

@@ -1,14 +1,13 @@
 """Model definitions and capabilities for LLM interfaces."""
 import mimetypes
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmaestro.config.base import RateLimitConfig
 from llmaestro.llm.capabilities import LLMCapabilities, ProviderCapabilities, VisionCapabilities
-from llmaestro.llm.interfaces.base import BaseLLMInterface
 from llmaestro.llm.credentials import APIKey
 
 
@@ -74,7 +73,7 @@ class LLMProfile(BaseModel):
     version: Optional[str] = None
     description: Optional[str] = None
     capabilities: LLMCapabilities
-    metadata: LLMMetadata
+    metadata: LLMMetadata = Field(default_factory=LLMMetadata)
     vision_capabilities: Optional[VisionCapabilities] = None
 
     model_config = ConfigDict(validate_assignment=True)
@@ -116,6 +115,8 @@ class LLMRuntimeConfig(BaseModel):
     stream: bool = Field(default=False, description="Whether to stream the response")
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limiting configuration")
 
+    model_config = ConfigDict(validate_assignment=True)
+
 
 class LLMState(BaseModel):
     """Complete state container for LLM instances."""
@@ -123,6 +124,8 @@ class LLMState(BaseModel):
     profile: LLMProfile = Field(description="Model profile containing capabilities and metadata")
     provider: Provider = Field(description="Provider configuration")
     runtime_config: LLMRuntimeConfig = Field(description="Runtime configuration")
+
+    model_config = ConfigDict(validate_assignment=True)
 
     @property
     def model_family(self) -> str:
@@ -136,18 +139,11 @@ class LLMState(BaseModel):
 
 
 class LLMInstance(BaseModel):
-    """Runtime container that combines interface, state and credentials for an LLM.
-
-    This class serves as the primary runtime representation of an LLM, combining:
-    1. Configuration state (LLMState)
-    2. Runtime interface (BaseLLMInterface instance)
-    3. Credentials (APIKey)
-    4. Runtime metadata (status, health, etc.)
-    """
+    """Runtime container that combines interface, state and credentials for an LLM."""
 
     # Core components
-    state: LLMState = Field(description="Configuration and metadata for the LLM")
-    interface: BaseLLMInterface = Field(description="Active interface instance for LLM interactions")
+    state: "LLMState" = Field(description="Configuration and metadata for the LLM")
+    interface: "BaseLLMInterface" = Field(description="Active interface instance for LLM interactions")
     credentials: Optional[APIKey] = Field(default=None, description="API credentials for this instance")
 
     # Runtime metadata
@@ -155,8 +151,10 @@ class LLMInstance(BaseModel):
     is_healthy: bool = Field(default=True, description="Whether this instance is currently healthy and operational")
     last_error: Optional[str] = Field(default=None, description="Last error encountered by this instance")
 
-    # Allow arbitrary types for interface instances
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True,
+        validate_assignment=True,
+    )
 
     @property
     def model_name(self) -> str:
@@ -183,3 +181,8 @@ class LLMInstance(BaseModel):
         if self.interface and hasattr(self.interface, "shutdown"):
             await self.interface.shutdown()
         self.is_initialized = False
+
+
+if TYPE_CHECKING:
+    from llmaestro.llm.interfaces.base import BaseLLMInterface
+    from llmaestro.llm.models import LLMState
