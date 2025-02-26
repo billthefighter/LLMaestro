@@ -12,7 +12,6 @@ from llmaestro.chains.chains import (
     ChainContext,
     ChainNode,
 )
-from llmaestro.llm.interfaces import LLMResponse
 
 # Remove old fixtures import since we're using conftest.py
 # pytest_plugins = ["tests.test_chains.fixtures"]

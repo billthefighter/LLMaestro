@@ -12,7 +12,6 @@ from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.llm.models import LLMProfile, LLMCapabilities
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
 from llmaestro.llm.rate_limiter import RateLimitConfig
-from llmaestro.config import ConfigurationManager
 
 @pytest.fixture
 def mock_storage_path(tmp_path) -> Path:
@@ -68,14 +67,13 @@ def mock_llm_response(mock_LLMProfile: LLMProfile) -> LLMResponse:
     )
 
 @pytest.fixture
-async def basic_session(config_manager: ConfigurationManager, mock_storage_path: Path) -> Session:
+async def basic_session(mock_storage_path: Path) -> Session:
     """Create a basic session for testing using the recommended factory method.
 
     This fixture creates a fully initialized session using create_default,
     which handles both sync and async initialization automatically.
     """
     return await Session.create_default(
-        config=config_manager,
         storage_path=mock_storage_path,
         api_key="test-api-key"
     )

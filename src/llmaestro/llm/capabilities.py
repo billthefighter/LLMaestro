@@ -1,5 +1,5 @@
 """Core capabilities and limitations of LLM models."""
-from typing import Any, Optional, Set, List
+from typing import Any, Optional, Set, List, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -37,24 +37,24 @@ class ProviderCapabilities(BaseModel):
     supports_streaming: bool = True
     supports_model_selection: bool = True
     supports_custom_models: bool = False
-    
+
     # Authentication & Security
     supports_api_key_auth: bool = True
     supports_oauth: bool = False
     supports_organization_ids: bool = False
     supports_custom_endpoints: bool = False
-    
+
     # Rate Limiting
     supports_concurrent_requests: bool = True
     max_concurrent_requests: Optional[int] = None
     requests_per_minute: Optional[int] = None
     tokens_per_minute: Optional[int] = None
-    
+
     # Billing & Usage
     supports_usage_tracking: bool = True
     supports_cost_tracking: bool = True
     supports_quotas: bool = True
-    
+
     # Advanced Features
     supports_fine_tuning: bool = False
     supports_model_deployment: bool = False
@@ -63,8 +63,10 @@ class ProviderCapabilities(BaseModel):
 
     model_config = ConfigDict(validate_assignment=True)
 
+
 class LLMCapabilities(BaseModel):
     """Core capabilities and limitations of a model."""
+
     # Resource Limits
     max_context_window: int = Field(default=4096, gt=0)
     max_output_tokens: Optional[int] = Field(default=None, gt=0)
@@ -92,6 +94,39 @@ class LLMCapabilities(BaseModel):
     output_cost_per_1k_tokens: float = Field(default=0.0, ge=0)
 
     model_config = ConfigDict(validate_assignment=True)
+
+    # List of valid capability flags that can be used as requirements
+    VALID_CAPABILITY_FLAGS: ClassVar[Set[str]] = {
+        "supports_streaming",
+        "supports_function_calling",
+        "supports_vision",
+        "supports_embeddings",
+        "supports_json_mode",
+        "supports_system_prompt",
+        "supports_tools",
+        "supports_parallel_requests",
+        "supports_frequency_penalty",
+        "supports_presence_penalty",
+        "supports_stop_sequences",
+        "supports_message_role",
+    }
+
+    @classmethod
+    def validate_capability_flags(cls, flags: Set[str]) -> None:
+        """Validate that all flags are valid capability flags.
+
+        Args:
+            flags: Set of capability flags to validate
+
+        Raises:
+            ValueError: If any flag is not a valid capability flag
+        """
+        invalid_flags = flags - cls.VALID_CAPABILITY_FLAGS
+        if invalid_flags:
+            raise ValueError(
+                f"Invalid capability flags: {invalid_flags}. " f"Valid flags are: {sorted(cls.VALID_CAPABILITY_FLAGS)}"
+            )
+
 
 class VisionCapabilities(BaseModel):
     """Vision-specific capabilities and limitations."""

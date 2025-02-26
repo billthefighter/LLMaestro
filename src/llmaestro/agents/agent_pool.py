@@ -2,10 +2,12 @@
 import asyncio
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, Optional, Protocol, Set, TypeVar, cast
+from typing import Any, Dict, Optional, Protocol, Set, TypeVar
 
-from llmaestro.agents.models import Agent, AgentCapability, AgentMetrics, AgentState
+from llmaestro.agents.models import Agent, AgentMetrics, AgentState
+from llmaestro.llm.capabilities import LLMCapabilities
 from llmaestro.llm.llm_registry import LLMRegistry
+from llmaestro.llm.models import LLMInstance
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.core.models import LLMResponse
 
@@ -27,27 +29,24 @@ class RuntimeAgent:
     managing state and metrics for each execution.
     """
 
-    def __init__(self, config: AgentTypeConfig):
+    def __init__(self, model_name: str, llm_instance: LLMInstance, description: Optional[str] = None):
         """Initialize a runtime agent.
 
         Args:
-            config: Configuration for this agent type
+            model_name: Name of the model this agent uses
+            llm_instance: LLM instance to use for processing
+            description: Optional description of the agent's purpose
         """
         self.agent = Agent(
             id=str(uuid.uuid4()),
-            type=config.description or "unknown",
-            provider=config.provider,
-            model=config.model,
-            capabilities=set()
-            if config.capabilities is None
-            else {AgentCapability(cap) for cap in config.capabilities},
+            type=description or "unknown",
+            model=model_name,
+            capabilities=llm_instance.state.profile.capabilities,
+            metadata={"provider": llm_instance.state.provider.family},
         )
-        self.config = config
+        self.model_name = model_name
+        self.llm_instance = llm_instance
         self.active_prompts: Dict[str, asyncio.Task[Any]] = {}
-
-        # Create LLM interface with runtime config
-        runtime = config.runtime.model_dump()
-        self.llm = create_llm_interface(runtime)
 
     async def process_prompt(self, prompt: BasePrompt) -> LLMResponse:
         """Process a prompt using this agent's LLM.
@@ -62,7 +61,7 @@ class RuntimeAgent:
 
         try:
             start_time = asyncio.get_event_loop().time()
-            result = await self.llm.process(prompt)
+            result = await self.llm_instance.interface.process(prompt)
             execution_time = asyncio.get_event_loop().time() - start_time
 
             # Update agent metrics
@@ -95,29 +94,31 @@ class AgentPool:
 
     def __init__(
         self,
-        runtime: AgentTypeConfig,
         llm_registry: LLMRegistry,
-        provider_manager: ProviderStateManager,
-        credential_manager: CredentialManager,
+        max_agents: int = 10,
     ):
-        """Initialize the agent pool."""
-        self.runtime = runtime
-        factory = LLMFactory(
-            registry=llm_registry, provider_manager=provider_manager, credential_manager=credential_manager
-        )
-        self.llm = factory.create_llm(model_name=runtime.model, runtime_config=runtime.runtime)
-        self._config = get_config().agents
-        self._llm_registry = LLMRegistry()
+        """Initialize the agent pool.
+
+        Args:
+            llm_registry: LLM registry instance for managing models and credentials
+            max_agents: Maximum number of concurrent agents
+        """
+        self._llm_registry = llm_registry
+        self._max_agents = max_agents
         self._active_agents: Dict[str, RuntimeAgent] = {}
-        self.executor = ThreadPoolExecutor(max_workers=self._config.max_agents)
+        self.executor = ThreadPoolExecutor(max_workers=max_agents)
         self.prompts: Dict[str, asyncio.Task[Any]] = {}
         self.loop = asyncio.get_event_loop()
 
-    def get_agent(self, agent_type: Optional[str] = None) -> RuntimeAgent:
+    async def get_agent(
+        self, required_capabilities: Optional[Set[str]] = None, description: Optional[str] = None
+    ) -> RuntimeAgent:
         """Get an agent suitable for prompt processing.
 
         Args:
-            agent_type: Optional type of agent to get. If None, uses default type.
+            required_capabilities: Optional set of capability flags from LLMCapabilities.VALID_CAPABILITY_FLAGS
+                                that the agent must support.
+            description: Optional description of the agent's purpose.
 
         Returns:
             A RuntimeAgent instance capable of processing prompts
@@ -125,42 +126,63 @@ class AgentPool:
         Raises:
             ValueError: If no suitable agent is available or pool is full
         """
-        agent_config = cast(AgentTypeConfig, self._config.get_agent_config(agent_type))
+        # Get model state from registry
+        model_states = self._llm_registry.model_states
+        if not model_states:
+            raise ValueError("No models registered in LLM registry")
+
+        # Validate capability requirements if provided
+        if required_capabilities:
+            LLMCapabilities.validate_capability_flags(required_capabilities)
+
+        # Find a suitable model based on capabilities
+        model_name = None
+        if required_capabilities:
+            for name, state in model_states.items():
+                caps = state.profile.capabilities
+                if all(getattr(caps, cap, False) for cap in required_capabilities):
+                    model_name = name
+                    break
+
+            if not model_name:
+                raise ValueError(f"No models found supporting required capabilities: {required_capabilities}")
+        else:
+            # If no capabilities required, use first available model
+            model_name = next(iter(model_states.keys()))
 
         # Create a new agent if we haven't reached the limit
-        if len(self._active_agents) < self._config.max_agents:
-            agent = self._create_agent(agent_config)
+        if len(self._active_agents) < self._max_agents:
+            agent = await self._create_agent(model_name, description)
             self._active_agents[agent.agent.id] = agent
             return agent
 
-        # Otherwise, find the least busy agent of compatible type
-        compatible_agents = [
-            agent
-            for agent in self._active_agents.values()
-            if agent.config.provider == agent_config.provider and agent.config.model == agent_config.model
-        ]
+        # Otherwise, find the least busy agent with required capabilities
+        compatible_agents = [agent for agent in self._active_agents.values() if agent.model_name == model_name]
 
         if not compatible_agents:
-            raise ValueError(f"No compatible agents available for type: {agent_type}")
+            raise ValueError(f"No agents available supporting capabilities: {required_capabilities}")
 
         return min(compatible_agents, key=lambda a: len(a.active_prompts))
 
-    def _create_agent(self, agent_config: AgentTypeConfig) -> RuntimeAgent:
+    async def _create_agent(self, model_name: str, description: Optional[str] = None) -> RuntimeAgent:
         """Create a new agent for prompt processing.
 
         Args:
-            agent_config: Configuration for the new agent
+            model_name: Name of the model to use
+            description: Optional description of the agent's purpose
 
         Returns:
             A new RuntimeAgent instance
         """
-        return RuntimeAgent(config=agent_config)
+        # Create LLM instance using registry
+        llm_instance = await self._llm_registry.create_instance(model_name)
+        return RuntimeAgent(model_name=model_name, llm_instance=llm_instance, description=description)
 
     async def execute_prompt(
         self,
         prompt: BasePrompt,
         agent_type: Optional[str] = None,
-        required_capabilities: Optional[Set[AgentCapability]] = None,
+        required_capabilities: Optional[Set[str]] = None,
     ) -> LLMResponse:
         """Execute a prompt using an appropriate agent.
 
@@ -173,17 +195,28 @@ class AgentPool:
         Args:
             prompt: The prompt to execute
             agent_type: Optional type of agent to use
-            required_capabilities: Optional set of required capabilities
+            required_capabilities: Optional set of required capability flags from LLMCapabilities.
+                                 Must be valid flags from LLMCapabilities.VALID_CAPABILITY_FLAGS.
 
         Returns:
             The LLM response from processing the prompt
 
         Raises:
-            ValueError: If no suitable agent is available
+            ValueError: If no suitable agent is available or if invalid capability flags are provided
             RuntimeError: If prompt execution fails
         """
+        # Validate capability requirements if provided
+        if required_capabilities:
+            LLMCapabilities.validate_capability_flags(required_capabilities)
+
         # Get or create an agent
-        agent = self.get_agent(agent_type)
+        agent = await self.get_agent(agent_type)
+
+        # Verify agent has required capabilities
+        if required_capabilities:
+            missing_capabilities = {cap for cap in required_capabilities if not getattr(agent.agent.capabilities, cap)}
+            if missing_capabilities:
+                raise ValueError(f"Agent does not support required capabilities: {missing_capabilities}")
 
         # Create and store the async task
         prompt_id = str(uuid.uuid4())
@@ -211,7 +244,7 @@ class AgentPool:
         """
         return {
             "total_agents": len(self._active_agents),
-            "max_agents": self._config.max_agents,
+            "max_agents": self._max_agents,
             "active_prompts": sum(len(agent.active_prompts) for agent in self._active_agents.values()),
             "agents": [
                 {
@@ -224,8 +257,3 @@ class AgentPool:
                 for agent in self._active_agents.values()
             ],
         }
-
-
-def get_config() -> ConfigurationManager:
-    """Get the global configuration manager instance."""
-    return ConfigurationManager.get_instance()

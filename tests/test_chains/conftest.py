@@ -27,6 +27,7 @@ from llmaestro.prompts.types import (
     ResponseFormat,
 )
 from llmaestro.llm.interfaces.base import ConversationContext
+from llmaestro.core.models import LLMResponse
 
 
 class ChangeType(str, Enum):

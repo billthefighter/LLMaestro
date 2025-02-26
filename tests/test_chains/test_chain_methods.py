@@ -16,7 +16,7 @@ from llmaestro.chains.chains import (
     ChainGraph,
 )
 
-from llmaestro.llm.interfaces import LLMResponse
+from llmaestro.core.models import LLMResponse
 
 
 

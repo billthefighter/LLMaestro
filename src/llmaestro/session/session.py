@@ -1,32 +1,25 @@
 """Session management for LLM interactions."""
 import asyncio
+import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Set
 
-from llmaestro.config import ConfigurationManager
-from llmaestro.config.agent import AgentRuntimeConfig, AgentTypeConfig
-from llmaestro.core import logging_config
 from llmaestro.core.conversations import ConversationNode
 from llmaestro.core.models import LLMResponse
 from llmaestro.core.orchestrator import ExecutionMetadata, Orchestrator
 from llmaestro.core.storage import Artifact, FileSystemArtifactStorage
 from llmaestro.llm.interfaces.base import BaseLLMInterface
-from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.llm.models import LLMCapabilities, LLMProfile
-from llmaestro.llm.provider_registry import Provider
+from llmaestro.llm.models import LLMCapabilities, LLMState
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.loader import PromptLoader
+from llmaestro.agents.agent_pool import AgentPool
+from llmaestro.agents.pool_filler import PoolFiller
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Configure module logger
-logger = logging_config.configure_logging(module_name=__name__)
-
-
-def get_default_config() -> ConfigurationManager:
-    """Get default configuration manager."""
-    return ConfigurationManager.from_env()
+logger = logging.getLogger(__name__)
 
 
 class Session(BaseModel):
@@ -34,53 +27,18 @@ class Session(BaseModel):
     Centralized session management for LLM interactions.
 
     Provides a unified interface for:
-    - Configuration management
+    - LLM Registry management
     - Prompt loading and management
-    - LLM orchestration and execution
+    - Agent pool orchestration
     - Response tracking and storage
-    - Conversation management
-
-    Initialization:
-        There are two ways to initialize a Session:
-
-        1. Using the recommended factory method (preferred):
-        ```python
-        session = await Session.create_default(
-            api_key="your-api-key",
-            storage_path="./custom_storage"
-        )
-        # Session is ready to use immediately
-        ```
-
-        2. Manual initialization (advanced):
-        ```python
-        session = Session(api_key="your-api-key")
-        await session.initialize()  # Required before use
-        ```
-
-        The factory method is recommended as it:
-        - Ensures proper initialization of all components
-        - Handles both sync and async setup automatically
-        - Provides clear parameter validation
-        - Returns a fully initialized session ready for use
-
-    Attributes:
-        config (ConfigurationManager): Core configuration manager
-        llm_registry (Optional[LLMRegistry]): Registry for managing LLM models
-        prompt_loader (PromptLoader): Loader for managing prompts
-        session_id (str): Unique identifier for this session
-        created_at (datetime): Session creation timestamp
-        storage_path (Path): Path for artifact storage
-        storage (Optional[FileSystemArtifactStorage]): Storage manager
-        orchestrator (Optional[Orchestrator]): Conversation orchestrator
-        active_conversation_id (Optional[str]): Current conversation ID
-        api_key (Optional[str]): API key for LLM provider
+    - High-level conversation access
     """
 
-    # Core configuration
-    config: ConfigurationManager = Field(default_factory=get_default_config)
+    # Core components
     llm_registry: Optional[LLMRegistry] = None
     prompt_loader: PromptLoader = Field(default_factory=PromptLoader)
+    agent_pool: Optional[AgentPool] = None
+    pool_filler: Optional[PoolFiller] = None
 
     # Session metadata
     session_id: str = Field(default_factory=lambda: str(datetime.now().timestamp()).replace(".", "_"))
@@ -92,23 +50,95 @@ class Session(BaseModel):
 
     # Orchestration
     orchestrator: Optional[Orchestrator] = None
-    active_conversation_id: Optional[str] = None
 
-    # LLM interface configuration
+    # LLM configuration
     api_key: Optional[str] = None
+    default_model: Optional[str] = None
+    default_capabilities: Optional[Set[str]] = None
     _llm_interface: Optional[BaseLLMInterface] = None
     initialized: bool = Field(default=False, exclude=True)
 
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
+
+    def _ensure_initialized(self) -> None:
+        """Ensure session is initialized."""
+        if not self.initialized:
+            raise RuntimeError("Session not initialized")
+        if not self.orchestrator:
+            raise RuntimeError("Orchestrator not initialized")
+
+    @property
+    def active_conversation_id(self) -> Optional[str]:
+        """Get the active conversation ID."""
+        if not self.orchestrator:
+            return None
+        return self.orchestrator.active_conversation_id
+
+    async def start_conversation(self, name: str, initial_prompt: BasePrompt) -> str:
+        """Start a new conversation with an initial prompt."""
+        logger.info(f"Starting new conversation: {name}")
+        self._ensure_initialized()
+        assert self.orchestrator is not None  # for type checking
+
+        logger.debug("Creating conversation with initial prompt")
+        conversation = await self.orchestrator.create_conversation(
+            name=name, initial_prompt=initial_prompt, metadata={"session_id": self.session_id}
+        )
+        logger.info(f"Conversation started with ID: {conversation.id}")
+        return conversation.id
+
+    async def execute_prompt(self, prompt: BasePrompt, dependencies: Optional[List[str]] = None) -> str:
+        """Execute a prompt in the active conversation."""
+        logger.debug(f"Executing prompt with dependencies: {dependencies}")
+        self._ensure_initialized()
+        assert self.orchestrator is not None  # for type checking
+
+        node_id = await self.orchestrator.execute_prompt_in_active(prompt, dependencies)
+        logger.info(f"Prompt executed successfully, node ID: {node_id}")
+        return node_id
+
+    async def execute_parallel(self, prompts: List[BasePrompt], max_parallel: Optional[int] = None) -> List[str]:
+        """Execute multiple prompts in parallel in the active conversation."""
+        self._ensure_initialized()
+        assert self.orchestrator is not None  # for type checking
+        return await self.orchestrator.execute_parallel_in_active(prompts, max_parallel)
+
+    def get_execution_status(self, node_id: str) -> ExecutionMetadata:
+        """Get the execution status of a node in the active conversation."""
+        self._ensure_initialized()
+        assert self.orchestrator is not None  # for type checking
+        return self.orchestrator.get_execution_status(node_id)
+
+    def get_conversation_history(
+        self, node_id: Optional[str] = None, max_depth: Optional[int] = None
+    ) -> List[ConversationNode]:
+        """Get conversation history from the active conversation."""
+        self._ensure_initialized()
+        assert self.orchestrator is not None  # for type checking
+        return self.orchestrator.get_conversation_history(node_id, max_depth)
+
+    def add_node_to_conversation(
+        self,
+        content: Union[BasePrompt, LLMResponse],
+        node_type: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        parent_id: Optional[str] = None,
+    ) -> str:
+        """Add a node to the active conversation."""
+        self._ensure_initialized()
+        assert self.orchestrator is not None  # for type checking
+        return self.orchestrator.add_node_to_conversation(
+            content=content, node_type=node_type, metadata=metadata, parent_id=parent_id
+        )
 
     @classmethod
     async def create_default(
         cls,
         api_key: Optional[str] = None,
         storage_path: Optional[Union[str, Path]] = None,
-        config: Optional[ConfigurationManager] = None,
         llm_registry: Optional[LLMRegistry] = None,
-        prompt_loader: Optional[PromptLoader] = None,
+        default_model: Optional[str] = None,
+        default_capabilities: Optional[Set[str]] = None,
         session_id: Optional[str] = None,
     ) -> "Session":
         """Create and initialize a new session with default settings.
@@ -119,9 +149,9 @@ class Session(BaseModel):
         Args:
             api_key: Optional API key for the default provider
             storage_path: Optional custom storage path
-            config: Optional custom configuration manager
             llm_registry: Optional custom LLM registry
-            prompt_loader: Optional custom prompt loader
+            default_model: Optional default model for LLM interface
+            default_capabilities: Optional default capabilities for agent pool
             session_id: Optional custom session ID
 
         Returns:
@@ -144,12 +174,12 @@ class Session(BaseModel):
             kwargs["api_key"] = api_key
         if storage_path:
             kwargs["storage_path"] = Path(storage_path)
-        if config:
-            kwargs["config"] = config
         if llm_registry:
             kwargs["llm_registry"] = llm_registry
-        if prompt_loader:
-            kwargs["prompt_loader"] = prompt_loader
+        if default_model:
+            kwargs["default_model"] = default_model
+        if default_capabilities:
+            kwargs["default_capabilities"] = default_capabilities
         if session_id:
             kwargs["session_id"] = session_id
 
@@ -175,21 +205,16 @@ class Session(BaseModel):
         logger.debug("Setting up storage")
         self.storage = FileSystemArtifactStorage.create(self.storage_path)
 
-        logger.debug("Initializing LLM registry")
-        self.llm_registry = self.config.llm_registry
+        # Initialize LLM registry if not provided
+        if not self.llm_registry:
+            logger.debug("Creating new LLM registry")
+            self.llm_registry = LLMRegistry()
 
-        # Update provider configurations with API keys
-        if self.api_key and self.llm_registry:
-            logger.debug("Updating provider configurations with API key")
-            # Update the provider API configuration with the API key
-            provider = self.config.user_config.default_model.provider
-            provider_config = self.llm_registry.get_provider_config(provider)
-            if provider_config:
-                logger.debug(f"Configuring provider: {provider}")
-                # Create a new provider config with the API key
-                updated_config = provider_config.model_dump()
-                updated_config["api_key"] = self.api_key
-                self.llm_registry.provider_registry.register_provider(provider, Provider(**updated_config))
+        # Create agent pool and pool filler
+        if self.llm_registry:
+            logger.debug("Creating agent pool and pool filler")
+            self.agent_pool = AgentPool(llm_registry=self.llm_registry)
+            self.pool_filler = PoolFiller(llm_registry=self.llm_registry)
 
     async def initialize(self) -> None:
         """Complete async initialization of the session.
@@ -201,15 +226,22 @@ class Session(BaseModel):
             return
 
         logger.debug("Performing async initialization")
-        if self.config.user_config.agents:
-            logger.debug("Creating agent pool")
-            from llmaestro.agents.agent_pool import AgentPool
 
-            agent_pool = AgentPool(self.config.user_config.agents)
-            self.orchestrator = Orchestrator(agent_pool)
+        # Initialize orchestrator with agent pool
+        if self.agent_pool:
+            logger.debug("Initializing orchestrator with agent pool")
+            self.orchestrator = Orchestrator(self.agent_pool)
+
+            # Fill pool with default agents if capabilities specified
+            if self.default_capabilities:
+                logger.debug("Filling agent pool with default capabilities")
+                await self.agent_pool.get_agent(
+                    required_capabilities=self.default_capabilities, description="default_agent"
+                )
+
             logger.info("Orchestrator initialized successfully")
         else:
-            logger.warning("Could not initialize orchestrator - missing agents configuration")
+            logger.warning("Could not initialize orchestrator - missing agent pool")
 
         self.initialized = True
         logger.info("Session async initialization complete")
@@ -222,136 +254,19 @@ class Session(BaseModel):
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    async def start_conversation(self, name: str, initial_prompt: BasePrompt) -> str:
-        """Start a new conversation with an initial prompt.
-
-        Args:
-            name: Name of the conversation
-            initial_prompt: Initial prompt to start the conversation
-
-        Returns:
-            str: ID of the created conversation
-        """
-        logger.info(f"Starting new conversation: {name}")
-        if not self.orchestrator:
-            logger.error("Cannot start conversation - orchestrator not initialized")
-            raise RuntimeError("Orchestrator not initialized")
-
-        logger.debug("Creating conversation with initial prompt")
-        conversation = await self.orchestrator.create_conversation(
-            name=name, initial_prompt=initial_prompt, metadata={"session_id": self.session_id}
-        )
-        self.active_conversation_id = conversation.id
-        logger.info(f"Conversation started with ID: {conversation.id}")
-        return conversation.id
-
-    async def execute_prompt(
-        self, prompt: BasePrompt, dependencies: Optional[List[str]] = None, conversation_id: Optional[str] = None
-    ) -> str:
-        """Execute a prompt in the current or specified conversation.
-
-        Args:
-            prompt: The prompt to execute
-            dependencies: Optional list of node IDs this execution depends on
-            conversation_id: Optional conversation ID. Uses active conversation if not specified
-
-        Returns:
-            str: ID of the response node
-        """
-        logger.debug(f"Executing prompt with dependencies: {dependencies}")
-        if not self.orchestrator:
-            logger.error("Cannot execute prompt - orchestrator not initialized")
-            raise RuntimeError("Orchestrator not initialized")
-
-        conv_id = conversation_id or self.active_conversation_id
-        if not conv_id:
-            logger.error("No active conversation for prompt execution")
-            raise ValueError("No active conversation")
-
-        logger.debug(f"Executing prompt in conversation: {conv_id}")
-        node_id = await self.orchestrator.execute_prompt(
-            conversation_id=conv_id, prompt=prompt, dependencies=dependencies
-        )
-        logger.info(f"Prompt executed successfully, node ID: {node_id}")
-        return node_id
-
-    async def execute_parallel(
-        self, prompts: List[BasePrompt], max_parallel: Optional[int] = None, conversation_id: Optional[str] = None
-    ) -> List[str]:
-        """Execute multiple prompts in parallel.
-
-        Args:
-            prompts: List of prompts to execute
-            max_parallel: Maximum number of parallel executions
-            conversation_id: Optional conversation ID. Uses active conversation if not specified
-
-        Returns:
-            List[str]: List of response node IDs
-        """
-        if not self.orchestrator:
-            raise RuntimeError("Orchestrator not initialized")
-
-        conv_id = conversation_id or self.active_conversation_id
-        if not conv_id:
-            raise ValueError("No active conversation")
-
-        return await self.orchestrator.execute_parallel(
-            conversation_id=conv_id, prompts=prompts, max_parallel=max_parallel
-        )
-
-    def get_execution_status(self, node_id: str, conversation_id: Optional[str] = None) -> ExecutionMetadata:
-        """Get the execution status of a node.
-
-        Args:
-            node_id: ID of the node to check
-            conversation_id: Optional conversation ID. Uses active conversation if not specified
-
-        Returns:
-            ExecutionMetadata: Current execution status
-        """
-        if not self.orchestrator:
-            raise RuntimeError("Orchestrator not initialized")
-
-        conv_id = conversation_id or self.active_conversation_id
-        if not conv_id:
-            raise ValueError("No active conversation")
-
-        return self.orchestrator.get_execution_status(conv_id, node_id)
-
-    def get_conversation_history(
-        self, node_id: Optional[str] = None, max_depth: Optional[int] = None
-    ) -> List[ConversationNode]:
-        """Get conversation history leading to a specific node.
-
-        Args:
-            node_id: Optional ID of the node to get history for
-            max_depth: Optional maximum depth of history to retrieve
-
-        Returns:
-            List[ConversationNode]: List of conversation nodes
-        """
-        if not self.orchestrator or not self.active_conversation_id:
-            raise RuntimeError("No active conversation")
-
-        conversation = self.orchestrator.active_conversations[self.active_conversation_id]
-        if node_id:
-            return conversation.get_node_history(node_id, max_depth)
-        return list(conversation.nodes.values())
-
-    def get_model_capabilities(self, model_name: Optional[str] = None) -> Optional[LLMProfile]:
+    def get_model_capabilities(self, model_name: Optional[str] = None) -> Optional[LLMState]:
         """Get model capabilities from registry."""
         try:
             if not self.llm_registry:
                 return None
 
-            agent_config = self.config.get_agent_config()
-            model_name = model_name or agent_config.model
+            model_name = model_name or self.default_model
             if not model_name:
                 return None
 
-            return self.llm_registry.get_model(model_name)
+            return self.llm_registry.model_states.get(model_name)
         except Exception as e:
-            print(f"Error getting model capabilities: {e}")
+            logger.error(f"Error getting model capabilities: {e}")
             return None
 
     def summary(self) -> Dict[str, Any]:
@@ -369,52 +284,6 @@ class Session(BaseModel):
             "conversation": conversation_summary,
             "model_capabilities": model_descriptor.model_dump() if model_descriptor else None,
         }
-
-    async def get_llm_interface(self) -> Optional[BaseLLMInterface]:
-        """Get or create the LLM interface."""
-        logger.debug("Getting LLM interface")
-        if self._llm_interface:
-            logger.debug("Using existing LLM interface")
-            return self._llm_interface
-
-        try:
-            logger.debug("Creating new LLM interface")
-            # Get default model configuration from user config
-            default_model = self.config.user_config.default_model
-            if not default_model:
-                logger.warning("No default model configuration found")
-                return None
-
-            provider = default_model.provider
-            model = default_model.name
-            api_key = self.api_key or self.config.user_config.api_keys.get(provider, "")
-
-            if not all([provider, model, api_key]):
-                logger.warning("Missing required configuration for LLM interface")
-                return None
-
-            logger.debug(f"Configuring agent for provider: {provider}, model: {model}")
-            # Create agent configuration
-            agent_config = AgentTypeConfig(
-                provider=provider,
-                model=model,
-                max_tokens=default_model.settings.get("max_tokens", 8192),
-                temperature=default_model.settings.get("temperature", 0.7),
-                runtime=AgentRuntimeConfig(),  # Use default runtime settings
-            )
-
-            # Create LLM interface with agent config
-            interface = await create_llm_interface(agent_config)
-            self._llm_interface = interface
-            logger.info(f"LLM interface created successfully for {provider}/{model}")
-            return interface
-        except Exception as e:
-            logger.error(f"Error creating LLM interface: {e}", exc_info=True)
-            return None
-
-    async def get_llm_interface_async(self) -> Optional[BaseLLMInterface]:
-        """Asynchronous LLM interface retrieval."""
-        return await self.get_llm_interface()
 
     def store_artifact(
         self, name: str, data: Any, content_type: str, metadata: Optional[Dict[str, Any]] = None
@@ -514,38 +383,6 @@ class Session(BaseModel):
     async def summary_async(self) -> Dict[str, Any]:
         """Asynchronous session summary generation."""
         return await asyncio.to_thread(self.summary)
-
-    def add_node_to_conversation(
-        self,
-        content: Union[BasePrompt, LLMResponse],
-        node_type: str,
-        metadata: Optional[Dict[str, Any]] = None,
-        parent_id: Optional[str] = None,
-    ) -> str:
-        """Add a node to the current conversation.
-
-        Args:
-            content: The content to add (prompt or response)
-            node_type: Type of the node
-            metadata: Optional metadata for the node
-            parent_id: Optional ID of the parent node
-
-        Returns:
-            str: ID of the created node
-
-        Raises:
-            RuntimeError: If no active conversation exists
-        """
-        if not self.orchestrator or not self.active_conversation_id:
-            raise RuntimeError("No active conversation")
-
-        conversation = self.orchestrator.active_conversations[self.active_conversation_id]
-        node_id = conversation.add_node(content=content, node_type=node_type, metadata=metadata or {})
-
-        if parent_id:
-            conversation.add_edge(source_id=parent_id, target_id=node_id, edge_type="response_to")
-
-        return node_id
 
     async def add_node_to_conversation_async(
         self,
