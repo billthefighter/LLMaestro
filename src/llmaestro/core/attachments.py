@@ -111,6 +111,7 @@ class FileAttachment(BaseAttachment):
     """General purpose file attachment."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True, from_attributes=True)
+    file_id: Optional[str] = Field(default=None, description="ID of the file when uploaded to an LLM provider")
 
     def validate(self) -> bool:
         """Validate the file attachment."""
@@ -144,11 +145,15 @@ class AttachmentConverter:
     @staticmethod
     def to_interface_format(attachment: BaseAttachment) -> dict:
         """Convert attachment to format expected by LLM interfaces."""
-        return {
+        result = {
             "content": attachment.content,
             "media_type": str(attachment.media_type),
             "file_name": attachment.file_name or "",
         }
+        # Add file_id if present
+        if isinstance(attachment, FileAttachment) and attachment.file_id is not None:
+            result["file_id"] = attachment.file_id
+        return result
 
     @staticmethod
     def from_dict(data: Dict[str, Any]) -> BaseAttachment:
@@ -160,4 +165,11 @@ class AttachmentConverter:
         media_type_enum = MediaType.from_mime_type(media_type)
         if media_type_enum.is_image():
             return ImageAttachment(content=data["content"], media_type=media_type_enum, file_name=data.get("file_name"))
-        return FileAttachment(content=data["content"], media_type=media_type_enum, file_name=data.get("file_name"))
+
+        # Handle file attachments with potential file_id
+        return FileAttachment(
+            content=data["content"],
+            media_type=media_type_enum,
+            file_name=data.get("file_name"),
+            file_id=data.get("file_id"),
+        )

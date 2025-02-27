@@ -8,7 +8,7 @@ from llmaestro.core.attachments import FileAttachment, BaseAttachment
 from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.prompts.types import ResponseFormat, PromptMetadata
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.core.models import LLMResponse
+from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.llm.responses import ResponseFormatType
 from llmaestro.llm.enums import MediaType
 import base64
@@ -37,6 +37,8 @@ def invoice_response_format() -> ResponseFormat:
     """Create a response format for invoice data extraction."""
     schema = {
         "type": "object",
+        "name": "invoice_data",
+        "strict": True,
         "properties": {
             "total": {
                 "type": "string",
@@ -55,12 +57,13 @@ def invoice_response_format() -> ResponseFormat:
                 "description": "The gross amount including VAT in euro"
             }
         },
-        "required": ["total", "vat_percentage", "vat_total", "gross_total"]
+        "required": ["total", "vat_percentage", "vat_total", "gross_total"],
+        "additionalProperties": False
     }
 
     return ResponseFormat(
-        format=ResponseFormatType.JSON,
-        schema=json.dumps(schema)
+        format=ResponseFormatType.JSON_SCHEMA,
+        response_schema=json.dumps(schema)
     )
 
 @pytest.fixture
@@ -71,7 +74,9 @@ def invoice_prompt(invoice_attachment: FileAttachment, invoice_response_format: 
         description="Extract financial data from invoice",
         system_prompt="""You are an expert at extracting financial data from invoices.
 Extract the requested information accurately, maintaining the exact numerical values and currency format as shown in the invoice.
-Return the data in the specified JSON format.""",
+Return the data in the specified JSON format.
+IMPORTANT: Return ONLY the raw JSON without any markdown formatting or code blocks.
+Do not wrap the response in ```json``` or any other markdown.""",
         user_prompt="Please extract the parameters requested in the expected response format.",
         metadata=PromptMetadata(
             type="invoice_extraction",
@@ -80,6 +85,16 @@ Return the data in the specified JSON format.""",
         ),
         attachments=[invoice_attachment]
     )
+
+@pytest.fixture
+def sample_invoice_response() -> str:
+    """Get a sample invoice response for testing without using real tokens."""
+    return json.dumps({
+        "total": "381.12 euro",
+        "vat_percentage": "19%",
+        "vat_total": "72.41 euro",
+        "gross_total": "453.52 euro"
+    })
 
 def test_sample_invoice_path_exists(sample_invoice_path: Path):
     """Test that the sample invoice file exists."""
@@ -98,11 +113,11 @@ def test_invoice_attachment_creation(invoice_attachment: FileAttachment):
 def test_invoice_response_format_creation(invoice_response_format: ResponseFormat):
     """Test that the response format is created correctly."""
     assert invoice_response_format is not None
-    assert invoice_response_format.format == ResponseFormatType.JSON
-    assert invoice_response_format.schema is not None
+    assert invoice_response_format.format == ResponseFormatType.JSON_SCHEMA
+    assert invoice_response_format.response_schema is not None
 
     # Verify schema can be parsed
-    schema_dict: Dict[str, Any] = json.loads(invoice_response_format.schema)
+    schema_dict: Dict[str, Any] = json.loads(invoice_response_format.response_schema)
     assert schema_dict["type"] == "object"
     assert "total" in schema_dict["properties"]
     assert "vat_percentage" in schema_dict["properties"]
@@ -120,16 +135,27 @@ def test_invoice_prompt_creation(invoice_prompt: MemoryPrompt):
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_invoice_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_prompt: MemoryPrompt):
-    """Test extracting data from a sample invoice using real LLM."""
+async def test_invoice_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_prompt: MemoryPrompt, sample_invoice_response: str):
+    """Test extracting data from a sample invoice."""
     if not test_settings.use_real_tokens:
-        pytest.skip("Skipping test that requires LLM API tokens")
-    # Arrange
-    model_name = llm_registry.get_registered_models()[0]
-    llm_instance = await llm_registry.create_instance(model_name)
-
-    # Act
-    response = await llm_instance.interface.process(invoice_prompt)
+        # Create a mock response using the fixture
+        response = LLMResponse(
+            content=sample_invoice_response,
+            success=True,
+            token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            context_metrics=ContextMetrics(
+                max_context_tokens=0,
+                current_context_tokens=0,
+                available_tokens=0,
+                context_utilization=0.0
+            ),
+            metadata={"model": "mock"}
+        )
+    else:
+        # Use real LLM for response
+        model_name = llm_registry.get_registered_models()[0]
+        llm_instance = await llm_registry.create_instance(model_name)
+        response = await llm_instance.interface.process(invoice_prompt)
 
     # Assert
     assert isinstance(response, LLMResponse)

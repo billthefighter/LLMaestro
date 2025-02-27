@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List, Optional, Union, AsyncIterator, TYPE_CHECKING, cast, overload, BinaryIO
 import base64
+import json
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -82,7 +83,11 @@ class OpenAIInterface(BaseLLMInterface):
                 user_prompt=prompt,
                 metadata=PromptMetadata(
                     type="direct_input",
-                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
+                    expected_response=ResponseFormat(
+                        format=ResponseFormatType.TEXT,
+                        response_schema=None,
+                        retry_config=None,
+                    ),
                     tags=[],
                 ),
             )
@@ -115,7 +120,9 @@ class OpenAIInterface(BaseLLMInterface):
         logger.debug(f"Number of converted attachments: {len(attachments)}")
 
         # Format messages
-        messages = self._format_messages(input_data=user_prompt, system_prompt=system_prompt, attachments=attachments)
+        messages = await self._format_messages(
+            input_data=user_prompt, system_prompt=system_prompt, attachments=attachments
+        )
         logger.debug(f"Formatted messages: {messages}")
 
         if not self.state:
@@ -128,6 +135,138 @@ class OpenAIInterface(BaseLLMInterface):
 
         return messages, model_name, temperature, max_tokens
 
+    @property
+    def supports_structured_output(self) -> bool:
+        """Whether this interface supports native structured output."""
+        return True
+
+    @property
+    def supports_json_schema(self) -> bool:
+        """Whether this interface supports JSON schema validation."""
+        return True
+
+    def configure_structured_output(self, config: Dict[str, Any]) -> Dict[str, Any]:
+        """Configure structured output settings for OpenAI.
+
+        Args:
+            config: Configuration from ResponseFormat.get_structured_output_config()
+
+        Returns:
+            Dict of OpenAI-specific configuration
+        """
+        output_config: Dict[str, Any] = {}
+
+        # Configure response format for JSON output
+        if config.get("format") in ["json", "json_schema"]:
+            output_config["response_format"] = {"type": "json_object"}
+
+            # Add schema validation to system message if provided
+            if config.get("schema"):
+                schema = json.loads(config["schema"]) if isinstance(config["schema"], str) else config["schema"]
+
+                # Configure function calling for schema validation
+                output_config["functions"] = [
+                    {
+                        "name": "output_json",
+                        "description": "Output JSON data according to the schema",
+                        "parameters": schema,
+                    }
+                ]
+                output_config["function_call"] = {"name": "output_json"}
+
+                # Add schema validation instructions to system message
+                if "messages" in config and len(config["messages"]) > 0:
+                    system_msg = config["messages"][0]
+                    if isinstance(system_msg, dict) and "content" in system_msg:
+                        system_msg["content"] = (
+                            str(system_msg["content"])
+                            + "\nPlease provide your response as a valid JSON object that conforms to the following schema:\n"
+                            + json.dumps(schema, indent=2)
+                            + "\nEnsure your response is a complete, well-formed JSON object with all required fields."
+                            + "\nYour response should be a single JSON object enclosed in curly braces {}."
+                        )
+
+                # Add response format instructions
+                output_config["response_format"] = {"type": "json_object", "schema": schema}
+
+        return output_config
+
+    async def parse_structured_response(
+        self,
+        response: str,
+        expected_format: ResponseFormat,
+    ) -> Any:
+        """Parse a structured response from OpenAI.
+
+        Args:
+            response: The raw response string from OpenAI
+            expected_format: The expected response format
+
+        Returns:
+            Parsed response object (may be a Pydantic model or dict)
+        """
+        try:
+            # Clean up the response string to ensure valid JSON
+            response = response.strip()
+
+            # Remove any markdown or code block markers
+            if response.startswith("```") and response.endswith("```"):
+                lines = response.split("\n")
+                response = "\n".join(lines[1:-1])  # Remove first and last lines
+                if response.startswith("json"):
+                    response = "\n".join(response.split("\n")[1:])  # Remove language identifier
+
+            # Clean up the response
+            response = response.strip()
+
+            # First try to parse as a complete JSON object
+            try:
+                # If response is already a valid JSON object, parse it directly
+                if response.startswith("{") and response.endswith("}"):
+                    parsed_data = json.loads(response)
+                else:
+                    # If the response has content but is missing braces, add them
+                    if not response.startswith("{"):
+                        response = "{"
+
+                    # Clean up any trailing commas and ensure proper JSON formatting
+                    response = response.rstrip(",")
+                    if not response.endswith("}"):
+                        response = response + "}"
+
+                    # Clean up any extra whitespace between key-value pairs
+                    response = " ".join(response.split())
+
+                    parsed_data = json.loads(response)
+
+                # Handle function call responses
+                if isinstance(parsed_data, dict):
+                    if "arguments" in parsed_data:
+                        parsed_data = json.loads(parsed_data["arguments"])
+                    elif "function_call" in parsed_data and "arguments" in parsed_data["function_call"]:
+                        parsed_data = json.loads(parsed_data["function_call"]["arguments"])
+
+                # Validate against schema if provided
+                if expected_format.response_schema:
+                    schema = (
+                        json.loads(expected_format.response_schema)
+                        if isinstance(expected_format.response_schema, str)
+                        else expected_format.response_schema
+                    )
+                    # TODO: Add schema validation here
+
+                return parsed_data
+
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {str(e)}")
+                logger.error(f"Response content: {response}")
+                raise
+
+        except Exception as e:
+            logger.error(f"Error parsing structured response: {str(e)}")
+            logger.error(f"Raw response: {response}")
+            raise
+
     async def _create_chat_completion(
         self,
         messages: List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]],
@@ -137,13 +276,47 @@ class OpenAIInterface(BaseLLMInterface):
         stream: bool = False,
     ) -> Union[ChatCompletion, AsyncIterator[ChatCompletionChunk]]:
         """Create a chat completion with the given parameters."""
-        return await self.client.chat.completions.create(
-            messages=messages,
-            model=model,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stream=stream,
-        )
+        # Get expected response format from prompt metadata if available
+        kwargs: Dict[str, Any] = {
+            "messages": messages,
+            "model": model,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stream": stream,
+        }
+
+        # Configure structured output if available
+        if self.context and self.context.current_message:
+            current_node = self.context.graph.nodes.get(self.context.current_message)
+            if current_node and isinstance(current_node.content, BasePrompt):
+                metadata = current_node.content.metadata
+                if metadata and metadata.expected_response:
+                    config = metadata.expected_response.get_structured_output_config()
+
+                    # Check if we have a Pydantic model to parse into
+                    if hasattr(metadata.expected_response, "pydantic_model"):
+                        try:
+                            # Use the newer parse method if available
+                            return await self.client.beta.chat.completions.parse(
+                                messages=messages,
+                                model=model,
+                                response_format=metadata.expected_response.pydantic_model,
+                                max_tokens=max_tokens,
+                                temperature=temperature,
+                            )
+                        except (AttributeError, ImportError):
+                            # Fallback to old method if parse is not available
+                            output_config = self.configure_structured_output(config)
+                            kwargs.update(output_config)
+                    else:
+                        output_config = self.configure_structured_output(config)
+                        kwargs.update(output_config)
+
+        # Create completion using standard method
+        logger.debug(f"Prepared messages: {messages}")
+        logger.debug(f"Model name: {model}, Temperature: {temperature}, Max tokens: {max_tokens}")
+
+        return await self.client.chat.completions.create(**kwargs)
 
     def _create_response_metadata(self, is_streaming: bool = False, is_partial: bool = False) -> Dict[str, Any]:
         """Create common metadata for LLMResponse."""
@@ -270,7 +443,7 @@ class OpenAIInterface(BaseLLMInterface):
         """
         return await self.client.files.create(file=file, purpose=purpose)
 
-    def _format_messages(
+    async def _format_messages(
         self, input_data: Any, system_prompt: Optional[str] = None, attachments: Optional[List[BaseAttachment]] = None
     ) -> List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]]:
         """Format input data and optional system prompt into messages."""
@@ -297,13 +470,27 @@ class OpenAIInterface(BaseLLMInterface):
             # Handle file attachments
             if file_attachments:
                 for file_att in file_attachments:
-                    # Create a separate message for each file attachment
-                    file_message: Dict[str, Any] = {
-                        "role": "assistant",
-                        "content": None,
-                        "file_ids": [getattr(file_att, "file_id", None)] if hasattr(file_att, "file_id") else [],
-                    }
-                    messages.append(file_message)
+                    # If no file_id, try to upload the file
+                    if not file_att.file_id and isinstance(file_att.content, str):
+                        try:
+                            # Decode base64 content
+                            file_content = base64.b64decode(file_att.content)
+                            # Upload the file
+                            file_obj = await self.upload_file(file_content)
+                            # Update the attachment with the file ID
+                            file_att.file_id = file_obj.id
+                        except Exception as e:
+                            logger.error(f"Failed to upload file: {str(e)}")
+                            continue
+
+                    # Create a separate message for each file attachment with file_id
+                    if file_att.file_id:
+                        file_message: Dict[str, Any] = {
+                            "role": "user",
+                            "content": f"Processing file: {file_att.file_name}",
+                            "file_ids": [file_att.file_id],
+                        }
+                        messages.append(file_message)
 
             # Handle image attachments in the last user message
             if image_attachments:
@@ -357,6 +544,17 @@ class OpenAIInterface(BaseLLMInterface):
             content = response.choices[0].message.content if response.choices else ""
             if content is None:
                 content = ""  # Ensure content is never None
+
+            # Strip markdown code block formatting if present
+            if content.startswith("```") and content.endswith("```"):
+                # Extract content between code block markers
+                lines = content.split("\n")
+                if len(lines) > 2:  # Has at least opening, content, and closing
+                    # Remove first and last lines (```json and ```)
+                    content = "\n".join(lines[1:-1])
+                    # If the first line was ```json or similar, remove it
+                    if content.startswith("json") or content.startswith("{"):
+                        content = "\n".join(content.split("\n")[1:])
 
             # Create token usage info
             usage = response.usage

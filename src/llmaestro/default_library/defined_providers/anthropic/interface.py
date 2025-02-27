@@ -298,7 +298,7 @@ class AnthropicLLM(BaseLLMInterface):
                 user_prompt=prompt,
                 metadata=PromptMetadata(
                     type="direct_input",
-                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
+                    expected_response=ResponseFormat(format=ResponseFormatType.TEXT, response_schema=None),
                     tags=[],
                 ),
                 current_version=VersionInfo(

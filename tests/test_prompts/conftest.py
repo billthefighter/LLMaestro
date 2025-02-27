@@ -31,7 +31,7 @@ def valid_prompt_data() -> Dict:
             type="test",
             expected_response=ResponseFormat(
                 format="json",
-                schema='{"type": "object"}'
+                response_schema='{"type": "object"}'
             ),
         ),
     }

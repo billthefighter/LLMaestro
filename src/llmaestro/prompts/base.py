@@ -115,6 +115,12 @@ class BasePrompt(BaseModel):
         self._create_variables_model()
         self._validate_template()
 
+    def __str__(self) -> str:
+        """Return a string representation of the prompt."""
+        return (
+            f"{self.name}: {self.description} \nSystem Prompt: {self.system_prompt} \nUser Prompt: {self.user_prompt}"
+        )
+
     def _create_variables_model(self) -> None:
         """Create a Pydantic model for the prompt variables."""
         if not self.variables:
@@ -257,12 +263,10 @@ class BasePrompt(BaseModel):
             # Add response format information to system prompt if available
             if self.metadata and self.metadata.expected_response:
                 response_format = self.metadata.expected_response
-                if response_format.format and response_format.schema:
-                    formatted_system_prompt = f"{formatted_system_prompt}\nPlease provide your response in {response_format.format} format using the following schema:\n{response_format.schema}"
+                if response_format.format and response_format.response_schema:
+                    formatted_system_prompt = f"{formatted_system_prompt}\nPlease provide your response in {response_format.format.value} format using the following schema:\n{response_format.response_schema}"
                 elif response_format.format:
-                    formatted_system_prompt = (
-                        f"{formatted_system_prompt}\nPlease provide your response in {response_format.format} format."
-                    )
+                    formatted_system_prompt = f"{formatted_system_prompt}\nPlease provide your response in {response_format.format.value} format."
 
             # Format attachments for LLM interface using AttachmentConverter
             formatted_attachments = [AttachmentConverter.to_interface_format(att) for att in self.attachments]

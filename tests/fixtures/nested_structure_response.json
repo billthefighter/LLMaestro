@@ -1,0 +1,25 @@
+{
+  "title": "Innovators Squad",
+  "team_size": 3,
+  "department": "Research & Development",
+  "people": [
+    {
+      "name": "Alice Johnson",
+      "age": 29,
+      "hobbies": ["reading", "chess", "coding"],
+      "occupation": "Software Engineer"
+    },
+    {
+      "name": "Bob Smith",
+      "age": 35,
+      "hobbies": ["hiking", "photography"],
+      "occupation": "Product Manager"
+    },
+    {
+      "name": "Charlie Davis",
+      "age": 27,
+      "hobbies": ["gaming", "music", "traveling"],
+      "occupation": "UX Designer"
+    }
+  ]
+}

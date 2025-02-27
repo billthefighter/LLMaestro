@@ -19,7 +19,7 @@ async def hello_world_prompt() -> MemoryPrompt:
         user_prompt="Say hello!",
         metadata=PromptMetadata(
             type="test",
-            expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
+            expected_response=ResponseFormat(format=ResponseFormatType.TEXT, response_schema=None),
             tags=["test"],
             is_active=True
         )
@@ -113,7 +113,7 @@ async def test_llm_with_variables(test_settings, llm_registry: LLMRegistry):
         user_prompt="Say hello to {name}!",
         metadata=PromptMetadata(
             type="test",
-            expected_response=ResponseFormat(format=ResponseFormatType.TEXT, schema=None),
+            expected_response=ResponseFormat(format=ResponseFormatType.TEXT, response_schema=None),
             tags=["test"],
             is_active=True
         )

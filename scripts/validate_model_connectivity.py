@@ -39,7 +39,9 @@ HELLO_WORLD_PROMPT = TestPrompt(
     description="Simple test prompt for model connectivity",
     system_prompt="You are a helpful assistant. Keep responses brief.",
     user_prompt="Say hello world",
-    metadata=PromptMetadata(type="test", expected_response=ResponseFormat(format="text", schema=None), tags=["test"]),
+    metadata=PromptMetadata(
+        type="test", expected_response=ResponseFormat(format="text", response_schema=None), tags=["test"]
+    ),
     current_version=VersionInfo(
         number="1.0.0", author="system", timestamp=datetime.now(), description="Initial version", change_type="create"
     ),

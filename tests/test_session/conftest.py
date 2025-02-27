@@ -38,7 +38,7 @@ def mock_prompt() -> MemoryPrompt:
         user_prompt="Hello {name}",
         metadata=PromptMetadata(
             type="test",
-            expected_response=ResponseFormat(format="text", schema=None),
+            expected_response=ResponseFormat(format="text", response_schema=None),
             tags=["test"],
             is_active=True
         ),

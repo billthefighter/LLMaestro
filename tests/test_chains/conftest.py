@@ -60,7 +60,7 @@ def prompt() -> BasePrompt:
                     type="test",
                     expected_response=ResponseFormat(
                         format="json",
-                        schema='{"type": "object"}'
+                        response_schema='{"type": "object"}'
                     ),
                 ),
                 current_version=VersionInfo(
@@ -81,7 +81,7 @@ def prompt() -> BasePrompt:
             type="test",
             expected_response=ResponseFormat(
                 format="json",
-                schema='{"type": "object"}'
+                response_schema='{"type": "object"}'
             ),
         ),
         current_version=VersionInfo(

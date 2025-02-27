@@ -75,7 +75,7 @@ def test_prompt() -> BasePrompt:
             type="test",
             expected_response=ResponseFormat(
                 format=ResponseFormatType.TEXT,
-                schema=None,
+                response_schema=None,
             ),
         ),
     )
@@ -341,7 +341,8 @@ async def test_prompt_variable_rendering(openai_interface: OpenAIInterface, test
     user_message = next(msg for msg in messages if msg["role"] == "user")
 
     # Verify rendered content
-    assert system_message["content"] == "You are helping a developer with code review"
+    expected_system_prompt = "You are helping a developer with code review\nPlease provide your response in text format."
+    assert system_message["content"] == expected_system_prompt
     assert user_message["content"] == "Please analyze the following code snippet: def hello(): return 'world'"
 
     # Verify response
@@ -401,10 +402,9 @@ async def test_file_handling(openai_interface: OpenAIInterface, mock_openai_resp
     file_attachment = FileAttachment(
         content=file_content,
         file_name=file_name,
-        media_type=MediaType.PDF
+        media_type=MediaType.PDF,
+        file_id=file_obj.id  # Set file_id directly in constructor
     )
-    # Set the file ID directly
-    setattr(file_attachment, "file_id", file_obj.id)
 
     # Create a prompt with the file attachment
     test_prompt = MemoryPrompt(
@@ -417,7 +417,7 @@ async def test_file_handling(openai_interface: OpenAIInterface, mock_openai_resp
             type="test",
             expected_response=ResponseFormat(
                 format=ResponseFormatType.TEXT,
-                schema=None,
+                response_schema=None,
             ),
         ),
         attachments=[file_attachment]

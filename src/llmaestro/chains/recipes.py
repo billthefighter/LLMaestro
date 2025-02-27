@@ -96,7 +96,7 @@ async def example_json_validation_chain():
             type="user_info",
             expected_response=ResponseFormat(
                 format=ResponseFormatType.JSON,
-                schema="""
+                response_schema="""
                 {
                     "type": "object",
                     "properties": {
@@ -141,7 +141,7 @@ Each response should include: thought process, action taken, and next steps.""",
             type="conversation",
             expected_response=ResponseFormat(
                 format=ResponseFormatType.JSON,
-                schema="""
+                response_schema="""
                 {
                     "type": "object",
                     "properties": {

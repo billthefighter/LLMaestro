@@ -4,7 +4,7 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, cast, Type
 
 import jsonschema
 import yaml
@@ -17,6 +17,7 @@ class ResponseFormatType(str, Enum):
     """Enumeration of supported response formats from LLMs."""
 
     JSON = "json"
+    JSON_SCHEMA = "json_schema"  # For structured JSON output with schema validation
     TEXT = "text"
     MARKDOWN = "markdown"
     CODE = "code"
@@ -47,18 +48,102 @@ class ResponseFormat(BaseModel):
     """Response format specification with validation capabilities."""
 
     format: ResponseFormatType
-    schema: Optional[str] = None  # Schema for structured response formats
+    response_schema: Optional[str] = None  # Schema for structured response formats
     retry_config: Optional[RetryConfig] = Field(default_factory=RetryConfig)
+    convert_to_json_schema: bool = Field(default=True, description="Whether to convert Pydantic models to JSON schema")
+    pydantic_model: Optional[Type[BaseModel]] = None
+
+    @classmethod
+    def from_pydantic_model(
+        cls,
+        model: Type[BaseModel],
+        convert_to_json_schema: bool = True,
+        format_type: ResponseFormatType = ResponseFormatType.JSON_SCHEMA,
+    ) -> "ResponseFormat":
+        """Create a ResponseFormat from a Pydantic model.
+
+        Args:
+            model: The Pydantic model class to use for response validation
+            convert_to_json_schema: Whether to convert the model to JSON schema
+            format_type: The response format type to use
+        """
+        schema = None
+        if convert_to_json_schema:
+            schema = json.dumps(model.model_json_schema())
+
+        return cls(
+            format=format_type,
+            response_schema=schema,
+            convert_to_json_schema=convert_to_json_schema,
+            pydantic_model=model,
+        )
+
+    def get_structured_output_config(self) -> Dict[str, Any]:
+        """Get configuration for structured output based on format type and schema.
+
+        This method is used by LLM interfaces to configure their structured output
+        settings based on the response format requirements.
+
+        Returns:
+            Dict containing configuration for structured output, which may include:
+            - schema: The JSON schema if using schema validation
+            - response_format: Format-specific configuration for the LLM
+            - model_info: Information about the Pydantic model if using direct model parsing
+        """
+        config: Dict[str, Any] = {
+            "format": self.format.value,
+            "requires_schema": self.requires_schema,
+        }
+
+        if self.pydantic_model:
+            config["model_info"] = {
+                "model_name": self.pydantic_model.__name__,
+                "model_class": self.pydantic_model,
+            }
+
+        if self.response_schema:
+            config["schema"] = json.loads(self.response_schema)
+
+        # Add format-specific configuration
+        if self.format == ResponseFormatType.JSON_SCHEMA:
+            config["response_format"] = {"type": "json_object"}
+
+        return config
+
+    def get_required_fields(self) -> List[str]:
+        """Get the list of required fields from the response schema.
+
+        Returns:
+            List of field names that are required according to the schema.
+        """
+        if not self.response_schema:
+            return []
+
+        try:
+            schema = json.loads(self.response_schema)
+            return schema.get("required", [])
+        except json.JSONDecodeError:
+            return []
 
     @property
     def requires_schema(self) -> bool:
         """Whether this format type typically requires a schema."""
-        return self.format in {ResponseFormatType.JSON, ResponseFormatType.XML, ResponseFormatType.YAML}
+        return self.format in {
+            ResponseFormatType.JSON,
+            ResponseFormatType.JSON_SCHEMA,
+            ResponseFormatType.XML,
+            ResponseFormatType.YAML,
+        }
 
     @property
     def is_structured(self) -> bool:
         """Whether this format represents structured data."""
-        return self.format in {ResponseFormatType.JSON, ResponseFormatType.XML, ResponseFormatType.YAML}
+        return self.format in {
+            ResponseFormatType.JSON,
+            ResponseFormatType.JSON_SCHEMA,
+            ResponseFormatType.XML,
+            ResponseFormatType.YAML,
+        }
 
     def validate_response(self, response: str) -> ValidationResult:
         """Validate a response against the format and schema requirements."""
@@ -68,7 +153,7 @@ class ResponseFormat(BaseModel):
             formatted = self._parse_format(response)
             result.formatted_response = formatted
 
-            if self.requires_schema and self.schema:
+            if self.requires_schema and self.response_schema:
                 self._validate_against_schema(formatted, result)
             else:
                 result.is_valid = True
@@ -95,15 +180,15 @@ class ResponseFormat(BaseModel):
     def _validate_against_schema(self, parsed_response: Any, result: ValidationResult) -> None:
         """Validate parsed response against schema."""
         try:
-            if self.format == ResponseFormatType.JSON and self.schema:
-                schema = json.loads(cast(str, self.schema))
+            if self.format == ResponseFormatType.JSON and self.response_schema:
+                schema = json.loads(cast(str, self.response_schema))
                 jsonschema.validate(parsed_response, schema)
             elif self.format == ResponseFormatType.XML:
                 # XML schema validation would go here
                 pass
-            elif self.format == ResponseFormatType.YAML and self.schema:
+            elif self.format == ResponseFormatType.YAML and self.response_schema:
                 if isinstance(parsed_response, (dict, list)):
-                    schema = json.loads(cast(str, self.schema))
+                    schema = json.loads(cast(str, self.response_schema))
                     jsonschema.validate(parsed_response, schema)
 
             result.is_valid = True
