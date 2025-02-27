@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import base64
 import logging
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, TYPE_CHECKING, AsyncIterator
+from typing import Any, Dict, List, Optional, Set, Union, AsyncIterator
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -51,15 +51,17 @@ class ImageInput:
         return cls(content=content, media_type=media_type, file_name=path.name)
 
     @classmethod
-    def from_bytes(cls, data: bytes, mime_type: Union[str, MediaType], file_name: Optional[str] = None) -> "ImageInput":
+    def from_bytes(
+        cls, data: bytes, media_type: Union[str, MediaType], file_name: Optional[str] = None
+    ) -> "ImageInput":
         """Create an ImageInput from bytes."""
         content = base64.b64encode(data).decode()
-        media_type = mime_type if isinstance(mime_type, MediaType) else MediaType.from_mime_type(mime_type)
-        return cls(content=content, media_type=media_type, file_name=file_name)
+        media_type_enum = media_type if isinstance(media_type, MediaType) else MediaType.from_mime_type(media_type)
+        return cls(content=content, media_type=media_type_enum, file_name=file_name)
 
 
-class BaseLLMInterface(BaseModel):
-    """Base interface for LLM interactions."""
+class BaseLLMInterface(BaseModel, ABC):
+    """Base class for LLM interfaces."""
 
     # Default supported media types (can be overridden by specific implementations)
     SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG, MediaType.PDF}
@@ -112,14 +114,9 @@ class BaseLLMInterface(BaseModel):
         if not self.credentials and not self.ignore_missing_credentials:
             raise ValueError(f"API key is required for provider {self.state.model_family if self.state else 'unknown'}")
 
-    def _format_messages(
-        self, input_data: Any, system_prompt: Optional[str] = None, images: Optional[List[ImageInput]] = None
-    ) -> List[Dict[str, Any]]:
-        """Format input data and optional system prompt into messages."""
+    def _format_messages(self, input_data: Any) -> List[Dict[str, Any]]:
+        """Format input data into messages."""
         messages = []
-
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
 
         if isinstance(input_data, str):
             messages.append({"role": "user", "content": input_data})
@@ -129,17 +126,39 @@ class BaseLLMInterface(BaseModel):
             messages.extend(input_data)
 
         # Add images if provided
-        if images:
-            # Convert the last user message to include images
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i]["role"] == "user":
-                    messages[i]["images"] = [
-                        {"content": img.content, "mime_type": str(img.media_type), "file_name": img.file_name}
-                        for img in images
-                    ]
+        if hasattr(self, "images") and self.images:
+            # Find or create user message
+            last_user_msg = None
+            for msg in reversed(messages):
+                if msg["role"] == "user":
+                    last_user_msg = msg
                     break
+            if not last_user_msg:
+                last_user_msg = {"role": "user", "content": ""}
+                messages.append(last_user_msg)
+
+            # Add images to user message
+            if "images" not in last_user_msg:
+                last_user_msg["images"] = []
+            last_user_msg["images"].extend(
+                [
+                    {"content": img.content, "media_type": str(img.media_type), "file_name": img.file_name}
+                    for img in self.images
+                ]
+            )
 
         return messages
+
+    @property
+    @abstractmethod
+    def model_family(self) -> str:
+        """Get the model family."""
+        pass
+
+    @abstractmethod
+    async def initialize(self) -> None:
+        """Initialize async components of the interface."""
+        pass
 
     @abstractmethod
     async def process(
@@ -147,7 +166,15 @@ class BaseLLMInterface(BaseModel):
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
-        """Process a prompt through the LLM and return a standardized response."""
+        """Process input using the LLM.
+
+        Args:
+            prompt: The prompt to process, either as a BasePrompt or string
+            variables: Optional variables to use in prompt rendering
+
+        Returns:
+            LLMResponse containing the model's response and metadata
+        """
         pass
 
     @abstractmethod
@@ -166,11 +193,15 @@ class BaseLLMInterface(BaseModel):
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
     ) -> AsyncIterator[LLMResponse]:
-        """Stream responses from the LLM one token at a time."""
-        pass
+        """Stream responses from the LLM one token at a time.
 
-    async def initialize(self) -> None:
-        """Initialize the interface."""
+        Args:
+            prompt: The prompt to process, either as a BasePrompt or string
+            variables: Optional variables to use in prompt rendering
+
+        Yields:
+            LLMResponse objects containing partial responses
+        """
         pass
 
     async def shutdown(self) -> None:

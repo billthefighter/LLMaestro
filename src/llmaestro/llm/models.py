@@ -11,6 +11,27 @@ from llmaestro.llm.capabilities import LLMCapabilities, ProviderCapabilities, Vi
 from llmaestro.llm.credentials import APIKey
 
 
+class TokenUsage(BaseModel):
+    """Token usage statistics for LLM responses."""
+
+    prompt_tokens: int = Field(ge=0, description="Number of tokens in the prompt")
+    completion_tokens: int = Field(ge=0, description="Number of tokens in the completion")
+    total_tokens: int = Field(ge=0, description="Total number of tokens used")
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
+class ContextMetrics(BaseModel):
+    """Metrics about context window usage."""
+
+    max_context_tokens: int = Field(ge=0, description="Maximum context window size in tokens")
+    current_context_tokens: int = Field(ge=0, description="Current number of tokens in context")
+    available_tokens: int = Field(ge=0, description="Number of tokens available in context")
+    context_utilization: float = Field(ge=0.0, le=1.0, description="Context window utilization (0-1)")
+
+    model_config = ConfigDict(validate_assignment=True)
+
+
 class LLMMetadata(BaseModel):
     """Metadata about a model's lifecycle and status."""
 

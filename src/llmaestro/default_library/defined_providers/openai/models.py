@@ -4,7 +4,7 @@ from typing import Dict, Callable
 
 from llmaestro.llm.capabilities import LLMCapabilities
 from llmaestro.llm.models import LLMState, LLMProfile, LLMMetadata, LLMRuntimeConfig
-from llmaestro.default_library.defined_profiders.openai.provider import OPENAI_PROVIDER
+from llmaestro.default_library.defined_providers.openai.provider import OPENAI_PROVIDER
 
 
 class OpenAIModels:

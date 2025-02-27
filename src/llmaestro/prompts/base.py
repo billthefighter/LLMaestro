@@ -11,6 +11,8 @@ from llmaestro.prompts.mixins import VersionMixin
 from llmaestro.prompts.types import PromptMetadata
 from pydantic import BaseModel, Field, create_model
 
+from llmaestro.core.attachments import BaseAttachment, FileAttachment, ImageAttachment, AttachmentConverter
+
 
 # Type definitions for prompt variables
 class SerializableType(str, Enum):
@@ -86,15 +88,6 @@ class PromptVariable(BaseModel):
         raise ValueError(f"Invalid string_conversion_template for variable {self.name}")
 
 
-class FileAttachment(BaseModel):
-    """Represents a file attachment for a prompt."""
-
-    content: Union[str, bytes]
-    media_type: MediaType
-    file_name: str
-    description: Optional[str] = None
-
-
 class BasePrompt(BaseModel):
     """Base class for all prompts.
 
@@ -108,7 +101,7 @@ class BasePrompt(BaseModel):
     user_prompt: str = Field(description="User prompt template")
     metadata: Optional[PromptMetadata] = Field(default=None, description="Optional metadata about the prompt")
     examples: Optional[List[Dict[str, Any]]] = None
-    attachments: List[FileAttachment] = Field(default_factory=list, description="List of file attachments")
+    attachments: List[BaseAttachment] = Field(default_factory=list, description="List of file attachments")
     variables: List[PromptVariable] = Field(default_factory=list, description="List of variable definitions")
 
     # Variables model for validation
@@ -196,9 +189,14 @@ class BasePrompt(BaseModel):
         if isinstance(media_type, str):
             media_type = MediaType.from_mime_type(media_type)
 
-        attachment = FileAttachment(
-            content=content, media_type=media_type, file_name=file_name, description=description
-        )
+        if media_type.is_image():
+            attachment = ImageAttachment(
+                content=content, media_type=media_type, file_name=file_name, description=description
+            )
+        else:
+            attachment = FileAttachment(
+                content=content, media_type=media_type, file_name=file_name, description=description
+            )
         self.attachments.append(attachment)
 
     def clear_attachments(self) -> None:
@@ -222,19 +220,6 @@ class BasePrompt(BaseModel):
 
         Raises:
             ValueError: If required variables are missing or if variable values don't match expected types.
-
-        Example:
-            ```python
-            # Using the variables model (recommended)
-            VariablesModel = prompt.get_variables_model()
-            vars = VariablesModel(user_name="Alice", items=["item1", "item2"])
-            system, user, attachments = prompt.render(variables=vars)
-
-            # Using a dictionary (types will still be validated)
-            system, user, attachments = prompt.render(
-                variables={"user_name": "Alice", "items": ["item1", "item2"]}
-            )
-            ```
         """
         self._validate_template()
 
@@ -269,11 +254,18 @@ class BasePrompt(BaseModel):
             formatted_system_prompt = self.system_prompt.format(**converted_kwargs)
             formatted_user_prompt = self.user_prompt.format(**converted_kwargs)
 
-            # Format attachments for LLM interface
-            formatted_attachments = [
-                {"content": att.content, "mime_type": str(att.media_type), "file_name": att.file_name}
-                for att in self.attachments
-            ]
+            # Add response format information to system prompt if available
+            if self.metadata and self.metadata.expected_response:
+                response_format = self.metadata.expected_response
+                if response_format.format and response_format.schema:
+                    formatted_system_prompt = f"{formatted_system_prompt}\nPlease provide your response in {response_format.format} format using the following schema:\n{response_format.schema}"
+                elif response_format.format:
+                    formatted_system_prompt = (
+                        f"{formatted_system_prompt}\nPlease provide your response in {response_format.format} format."
+                    )
+
+            # Format attachments for LLM interface using AttachmentConverter
+            formatted_attachments = [AttachmentConverter.to_interface_format(att) for att in self.attachments]
 
             return formatted_system_prompt, formatted_user_prompt, formatted_attachments
         except KeyError as e:

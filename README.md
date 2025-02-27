@@ -1,6 +1,6 @@
 # LLMaestro
 
-A system for orchestrating large-scale LLM tasks that exceed token limits through task decomposition and parallel processing. Also includes a collection of applications that demonstrate common use cases and best practices.
+A system for programmatically interacting with LLMs, with support for conversations, chains, and task orchestration.
 
 It's like LiteLLM and LangChain, but worse!
 

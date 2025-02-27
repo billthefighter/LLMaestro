@@ -108,7 +108,13 @@ def llm_registry(test_settings, config_api_key) -> LLMRegistry:
         credential = {"openai": APIKey(key="TEST_KEY_NOT_REAL!")}
         logger.info("Using test API key for registry")
 
-    factory = LLMDefaultFactory(credentials=credential)
+    # Set up factory with correct providers path
+    providers_path = Path(__file__).parent.parent / "src" / "llmaestro" / "default_library" / "defined_providers"
+    factory = LLMDefaultFactory(
+        credentials=credential,
+        defined_providers_path=providers_path
+    )
+    logger.info(f"Using providers path: {providers_path}")
     registry = asyncio.run(factory.DefaultLLMRegistryFactory())
     return registry
 

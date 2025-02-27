@@ -11,6 +11,7 @@ from openai.types.chat.chat_completion import Choice
 from openai.types.chat.chat_completion_chunk import Choice as ChunkChoice, ChoiceDelta
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
 from openai.types.completion_usage import CompletionUsage
+from openai.types.file_object import FileObject
 
 from llmaestro.llm.models import (
     LLMState,
@@ -23,35 +24,61 @@ from llmaestro.llm.models import (
 from llmaestro.llm.capabilities import ProviderCapabilities
 from llmaestro.llm.rate_limiter import RateLimitConfig
 from llmaestro.llm.credentials import APIKey
-from llmaestro.default_library.defined_profiders.openai.interface import OpenAIInterface
-from llmaestro.prompts.base import BasePrompt
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, ResponseFormatType, VersionInfo
+from llmaestro.default_library.defined_providers.openai.interface import OpenAIInterface
+from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
+from llmaestro.prompts.types import (
+    PromptMetadata,
+    ResponseFormat,
+)
 from llmaestro.llm.enums import MediaType
+from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.core.attachments import FileAttachment
+from llmaestro.llm.responses import ResponseFormatType
 
 # Create a concrete test prompt class
-class TestPrompt(BasePrompt):
-    """Test prompt class that implements abstract methods."""
-
-    name: str = "test_prompt"
-    description: str = "Test prompt"
-    system_prompt: str = "Test system prompt"
-    user_prompt: str = "Test user prompt"
-    metadata: PromptMetadata = PromptMetadata(
-        type="test",
-        expected_response=ResponseFormat(
-            format=ResponseFormatType.TEXT,
-            schema=None,
+@pytest.fixture
+def test_prompt() -> BasePrompt:
+    """Create a test prompt instance with variables."""
+    return MemoryPrompt(
+        name="test_prompt",
+        description="Test prompt",
+        system_prompt="You are helping {role} with {task}",
+        user_prompt="Please {action} the following {input_type}: {content}",
+        variables=[
+            PromptVariable(
+                name="role",
+                description="The role of the assistant",
+                expected_input_type=SerializableType.STRING,
+            ),
+            PromptVariable(
+                name="task",
+                description="The task to perform",
+                expected_input_type=SerializableType.STRING,
+            ),
+            PromptVariable(
+                name="action",
+                description="The action to perform",
+                expected_input_type=SerializableType.STRING,
+            ),
+            PromptVariable(
+                name="input_type",
+                description="The type of input",
+                expected_input_type=SerializableType.STRING,
+            ),
+            PromptVariable(
+                name="content",
+                description="The content to process",
+                expected_input_type=SerializableType.STRING,
+            ),
+        ],
+        metadata=PromptMetadata(
+            type="test",
+            expected_response=ResponseFormat(
+                format=ResponseFormatType.TEXT,
+                schema=None,
+            ),
         ),
-        tags=[],
     )
-
-    async def load(self):
-        """Implement abstract load method."""
-        pass
-
-    async def save(self):
-        """Implement abstract save method."""
-        pass
 
 @pytest.fixture
 def mock_openai_response() -> ChatCompletion:
@@ -247,11 +274,16 @@ async def test_process_string_prompt(openai_interface: OpenAIInterface, mock_ope
     assert response.token_usage.total_tokens == 30
 
 @pytest.mark.asyncio
-async def test_process_base_prompt(openai_interface: OpenAIInterface, mock_openai_response: ChatCompletion):
+async def test_process_base_prompt(openai_interface: OpenAIInterface, test_prompt: BasePrompt, mock_openai_response: ChatCompletion):
     """Test processing a BasePrompt instance."""
-    prompt = TestPrompt()
     openai_interface.client.chat.completions.create.return_value = mock_openai_response
-    response = await openai_interface.process(prompt)
+    response = await openai_interface.process(test_prompt, variables={
+        "role": "a tester",
+        "task": "testing",
+        "action": "validate",
+        "input_type": "test case",
+        "content": "test content",
+    })
     assert response.success
     assert response.content == "Test response"
     assert response.token_usage.total_tokens == 30
@@ -287,15 +319,124 @@ async def test_error_handling(openai_interface: OpenAIInterface):
     assert response.error is not None and "Test error" in response.error
 
 @pytest.mark.asyncio
-async def test_batch_process(openai_interface: OpenAIInterface, mock_openai_response: ChatCompletion):
+async def test_prompt_variable_rendering(openai_interface: OpenAIInterface, test_prompt: BasePrompt, mock_openai_response: ChatCompletion):
+    """Test that prompt variables are correctly rendered."""
+    variables = {
+        "role": "a developer",
+        "task": "code review",
+        "action": "analyze",
+        "input_type": "code snippet",
+        "content": "def hello(): return 'world'",
+    }
+
+    openai_interface.client.chat.completions.create.return_value = mock_openai_response
+    response = await openai_interface.process(test_prompt, variables=variables)
+
+    # Verify the API was called with correctly rendered prompts
+    call_args = openai_interface.client.chat.completions.create.call_args
+    messages = call_args.kwargs["messages"]
+
+    # Find system and user messages
+    system_message = next(msg for msg in messages if msg["role"] == "system")
+    user_message = next(msg for msg in messages if msg["role"] == "user")
+
+    # Verify rendered content
+    assert system_message["content"] == "You are helping a developer with code review"
+    assert user_message["content"] == "Please analyze the following code snippet: def hello(): return 'world'"
+
+    # Verify response
+    assert response.success
+    assert response.content == "Test response"
+
+@pytest.mark.asyncio
+async def test_batch_process(openai_interface: OpenAIInterface, test_prompt: BasePrompt, mock_openai_response: ChatCompletion):
     """Test batch processing of prompts."""
     prompts = [
-        TestPrompt(),
+        test_prompt,
         "Test prompt 2",
     ]
+    variables = [
+        {
+            "role": "a tester",
+            "task": "testing",
+            "action": "validate",
+            "input_type": "test case",
+            "content": "test content",
+        },
+        None,
+    ]
     openai_interface.client.chat.completions.create.return_value = mock_openai_response
-    responses = await openai_interface.batch_process(prompts)
+    responses = await openai_interface.batch_process(prompts, variables=variables)
     assert len(responses) == 2
     assert all(r.success for r in responses)
     assert all(r.content == "Test response" for r in responses)
     assert all(r.token_usage.total_tokens == 30 for r in responses)
+
+@pytest.mark.asyncio
+async def test_file_handling(openai_interface: OpenAIInterface, mock_openai_response: ChatCompletion):
+    """Test handling of file attachments."""
+    # Mock file upload response
+    mock_file_object = FileObject(
+        id="file-123",
+        bytes=1000,
+        created_at=1234567890,
+        filename="test.pdf",
+        object="file",
+        purpose="assistants",
+        status="processed",
+        status_details=None
+    )
+    openai_interface.client.files.create.return_value = mock_file_object
+
+    # Create a test file attachment
+    file_content = b"Test PDF content"
+    file_name = "test.pdf"
+
+    # Upload the file
+    file_obj = await openai_interface.upload_file(file_content)
+    assert file_obj.id == "file-123"
+    assert file_obj.filename == "test.pdf"
+
+    # Create a file attachment
+    file_attachment = FileAttachment(
+        content=file_content,
+        file_name=file_name,
+        media_type=MediaType.PDF
+    )
+    # Set the file ID directly
+    setattr(file_attachment, "file_id", file_obj.id)
+
+    # Create a prompt with the file attachment
+    test_prompt = MemoryPrompt(
+        name="test_prompt",
+        description="Test prompt with file",
+        system_prompt="Process this file",
+        user_prompt="Please analyze the attached file",
+        variables=[],
+        metadata=PromptMetadata(
+            type="test",
+            expected_response=ResponseFormat(
+                format=ResponseFormatType.TEXT,
+                schema=None,
+            ),
+        ),
+        attachments=[file_attachment]
+    )
+
+    # Process the prompt
+    openai_interface.client.chat.completions.create.return_value = mock_openai_response
+    response = await openai_interface.process(test_prompt)
+
+    # Verify the response
+    assert response.success
+    assert response.content == "Test response"
+
+    # Verify that the file was included in the messages
+    call_args = openai_interface.client.chat.completions.create.call_args
+    messages = call_args.kwargs["messages"]
+
+    # Find the file message
+    file_message = next((msg for msg in messages if msg["role"] == "assistant" and "file_ids" in msg), None)
+    assert file_message is not None
+    assert file_message["file_ids"] == ["file-123"]
+    assert file_message["content"] is None

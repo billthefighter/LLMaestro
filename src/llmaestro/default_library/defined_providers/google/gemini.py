@@ -87,7 +87,7 @@ class GeminiLLM(BaseLLMInterface):
             if attachments:
                 for att in attachments:
                     img_input = ImageInput(
-                        content=att["content"], media_type=att["mime_type"], file_name=att["file_name"]
+                        content=att["content"], media_type=att["media_type"], file_name=att["file_name"]
                     )
                     images.append(self._create_image_part(img_input))
 

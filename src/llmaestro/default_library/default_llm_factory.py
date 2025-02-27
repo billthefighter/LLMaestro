@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from pathlib import Path
-from typing import Dict, Type, Optional
+from typing import Dict, Type
 import logging
 from enum import Enum
 
@@ -25,7 +25,7 @@ class LLMDefaultFactory(BaseModel):
     """Default factory for LLM states."""
 
     defined_providers_path: Path = Field(
-        default=Path(__file__).parent / "defined_profiders", description="Path to defined providers directory"
+        default=Path(__file__).parent / "defined_providers", description="Path to defined providers directory"
     )
     credentials: Dict[str, APIKey] = Field(
         default_factory=dict, description="Dictionary mapping provider names to their API keys"
@@ -43,10 +43,11 @@ class LLMDefaultFactory(BaseModel):
             Populated LLMRegistry
 
         Raises:
-            RuntimeError: If no providers are registered or no credentials are available
+            RuntimeError: If no providers are registered, including a summary of all warnings
         """
         # Create new registry at the start
         registry = LLMRegistry()
+        warnings = []
 
         try:
             # Get all provider directories
@@ -73,10 +74,12 @@ class LLMDefaultFactory(BaseModel):
                             missing_files.append(required_file.value)
 
                     if missing_files:
-                        logger.warning(
+                        warning = (
                             f"Provider {provider_name} is missing required files: {', '.join(missing_files)}. "
                             "Provider will be skipped."
                         )
+                        warnings.append(warning)
+                        logger.warning(warning)
                         continue
 
                     # Load provider configuration
@@ -87,10 +90,12 @@ class LLMDefaultFactory(BaseModel):
                     # Get credentials for this provider
                     credentials = self.credentials.get(provider_name) or self.credentials.get(provider.family)
                     if not credentials:
-                        logger.warning(
+                        warning = (
                             f"No credentials found for provider {provider_name} "
                             f"(family: {provider.family}). Provider will be skipped."
                         )
+                        warnings.append(warning)
+                        logger.warning(warning)
                         continue
 
                     # Load interface implementation
@@ -101,7 +106,9 @@ class LLMDefaultFactory(BaseModel):
                     # Load and register models
                     models = self._load_models(provider_dir, provider)
                     if not models:
-                        logger.warning(f"No models found for provider {provider_name}")
+                        warning = f"No models found for provider {provider_name}"
+                        warnings.append(warning)
+                        logger.warning(warning)
                         continue
 
                     # Register each model
@@ -118,26 +125,31 @@ class LLMDefaultFactory(BaseModel):
                             )
 
                         except Exception as e:
-                            logger.error(
-                                "Failed to register model %s: %s. Continuing with next model.", model_name, str(e)
-                            )
+                            warning = f"Failed to register model {model_name}: {str(e)}"
+                            warnings.append(warning)
+                            logger.error(warning)
                             continue
 
                     registered_providers.add(provider_name)
 
                 except Exception as e:
-                    logger.error("Failed to process provider %s: %s", provider_name, str(e))
+                    warning = f"Failed to process provider {provider_name}: {str(e)}"
+                    warnings.append(warning)
+                    logger.error(warning)
                     continue
 
-            # Validate registration results
+            # Validate registration results and raise error with warnings if no providers
             if not registered_providers:
-                raise RuntimeError("No providers were successfully registered")
+                warning_summary = "\n".join(warnings)
+                raise RuntimeError(f"No providers were successfully registered. Warning summary:\n{warning_summary}")
 
             if not registered_models:
-                raise RuntimeError("No models were successfully registered")
+                warning_summary = "\n".join(warnings)
+                raise RuntimeError(f"No models were successfully registered. Warning summary:\n{warning_summary}")
 
             if not self.credentials:
-                raise RuntimeError("No credentials were provided")
+                warning_summary = "\n".join(warnings)
+                raise RuntimeError(f"No credentials were provided. Warning summary:\n{warning_summary}")
 
             # Log summary
             logger.info(
@@ -148,70 +160,71 @@ class LLMDefaultFactory(BaseModel):
                 registered_models,
             )
 
+            if warnings:
+                logger.warning("Initialization completed with warnings:\n%s", "\n".join(warnings))
+
             return registry
 
         except Exception as e:
-            logger.error("Failed to initialize registry: %s", str(e))
-            raise
+            # If we have warnings, include them in the error message
+            if warnings:
+                warning_summary = "\n".join(warnings)
+                raise RuntimeError(f"Failed to initialize registry: {str(e)}\nWarning summary:\n{warning_summary}")
+            else:
+                raise RuntimeError(f"Failed to initialize registry: {str(e)}")
 
-    def _load_provider(self, provider_dir: Path) -> Optional[Provider]:
+    def _load_provider(self, provider_dir: Path) -> Provider:
         """Load provider configuration from a provider directory.
 
         Args:
             provider_dir: Path to provider directory
 
         Returns:
-            Provider configuration if successful, None otherwise
+            Provider configuration
+
+        Raises:
+            RuntimeError: If no provider instance is found or if there's an error loading the provider
         """
-        try:
-            provider_file = provider_dir / ProviderRequiredFiles.PROVIDER.value
-            provider_module = self._import_module_from_file(provider_file)
+        provider_file = provider_dir / ProviderRequiredFiles.PROVIDER.value
+        provider_module = self._import_module_from_file(provider_file)
 
-            # Look for Provider instance in module
-            provider = next((obj for name, obj in vars(provider_module).items() if isinstance(obj, Provider)), None)
+        # Look for Provider instance in module
+        provider = next((obj for name, obj in vars(provider_module).items() if isinstance(obj, Provider)), None)
 
-            if not provider:
-                logger.warning(f"No Provider instance found in {provider_file}")
-                return None
+        if not provider:
+            raise RuntimeError(f"No Provider instance found in {provider_file}")
 
-            return provider
+        return provider
 
-        except Exception as e:
-            logger.error("Failed to load provider from %s: %s", provider_dir, str(e))
-            return None
-
-    def _load_interface(self, provider_dir: Path) -> Optional[Type[BaseLLMInterface]]:
+    def _load_interface(self, provider_dir: Path) -> Type[BaseLLMInterface]:
         """Load interface implementation from a provider directory.
 
         Args:
             provider_dir: Path to provider directory
 
         Returns:
-            Interface class if successful, None otherwise
+            Interface class
+
+        Raises:
+            RuntimeError: If no interface implementation is found or if there's an error loading the interface
         """
-        try:
-            interface_file = provider_dir / ProviderRequiredFiles.INTERFACE.value
-            interface_module = self._import_module_from_file(interface_file)
+        interface_file = provider_dir / ProviderRequiredFiles.INTERFACE.value
+        interface_module = self._import_module_from_file(interface_file)
 
-            # Find interface class in module
-            interface_class = next(
-                (
-                    obj
-                    for name, obj in vars(interface_module).items()
-                    if isinstance(obj, type) and issubclass(obj, BaseLLMInterface) and obj != BaseLLMInterface
-                ),
-                None,
-            )
+        # Find interface class in module
+        interface_class = next(
+            (
+                obj
+                for name, obj in vars(interface_module).items()
+                if isinstance(obj, type) and issubclass(obj, BaseLLMInterface) and obj != BaseLLMInterface
+            ),
+            None,
+        )
 
-            if not interface_class:
-                logger.warning(f"No interface implementation found in {interface_file}")
-                return None
+        if not interface_class:
+            raise RuntimeError(f"No interface implementation found in {interface_file}")
 
-            return interface_class
-
-        except Exception as e:
-            logger.error("Failed to load interface from %s: %s", provider_dir, str(e))
-            return None
+        return interface_class
 
     def _load_models(self, provider_dir: Path, provider: Provider) -> Dict[str, LLMState]:
         """Load model definitions from a provider directory.
@@ -222,55 +235,52 @@ class LLMDefaultFactory(BaseModel):
 
         Returns:
             Dictionary mapping model names to their LLM states
+
+        Raises:
+            RuntimeError: If no models are found or if there's an error loading the models
         """
-        try:
-            models_file = provider_dir / ProviderRequiredFiles.MODELS.value
-            models_module = self._import_module_from_file(models_file)
+        models_file = provider_dir / ProviderRequiredFiles.MODELS.value
+        models_module = self._import_module_from_file(models_file)
 
-            # Look for dictionary of model states or factory methods
-            models: Dict[str, LLMState] = {}
+        # Look for dictionary of model states or factory methods
+        models: Dict[str, LLMState] = {}
 
-            # Try different ways to find model definitions
-            for name, obj in vars(models_module).items():
-                # Case 1: Direct dictionary of LLMStates
-                if isinstance(obj, dict) and all(isinstance(v, LLMState) for v in obj.values()):
-                    models.update(obj)
-                # Case 2: Direct LLMState instance
-                elif isinstance(obj, LLMState):
-                    models[obj.profile.name] = obj
-                # Case 3: Class with MODELS dictionary or factory methods
-                elif isinstance(obj, type):
-                    # Try to instantiate the class and get models
-                    try:
-                        instance = obj()
-                        # If class has a MODELS dictionary of factory methods
-                        if hasattr(instance, "MODELS"):
-                            class_models = instance.MODELS
-                            if isinstance(class_models, dict):
-                                # Call each factory method to get LLMState instances
-                                for model_name, factory_method in class_models.items():
-                                    try:
-                                        if callable(factory_method):
-                                            state = factory_method()
-                                            if isinstance(state, LLMState):
-                                                models[model_name] = state
-                                    except Exception as e:
-                                        logger.warning(f"Failed to create model {model_name}: {str(e)}")
-                                        continue
+        # Try different ways to find model definitions
+        for name, obj in vars(models_module).items():
+            # Case 1: Direct dictionary of LLMStates
+            if isinstance(obj, dict) and all(isinstance(v, LLMState) for v in obj.values()):
+                models.update(obj)
+            # Case 2: Direct LLMState instance
+            elif isinstance(obj, LLMState):
+                models[obj.profile.name] = obj
+            # Case 3: Class with MODELS dictionary or factory methods
+            elif isinstance(obj, type):
+                # Try to instantiate the class and get models
+                try:
+                    instance = obj()
+                    # If class has a MODELS dictionary of factory methods
+                    if hasattr(instance, "MODELS"):
+                        class_models = instance.MODELS
+                        if isinstance(class_models, dict):
+                            # Call each factory method to get LLMState instances
+                            for model_name, factory_method in class_models.items():
+                                try:
+                                    if callable(factory_method):
+                                        state = factory_method()
+                                        if isinstance(state, LLMState):
+                                            models[model_name] = state
+                                except Exception as e:
+                                    logger.warning(f"Failed to create model {model_name}: {str(e)}")
+                                    continue
 
-                    except Exception as e:
-                        logger.warning(f"Failed to process class {name}: {str(e)}")
-                        continue
+                except Exception as e:
+                    logger.warning(f"Failed to process class {name}: {str(e)}")
+                    continue
 
-            if not models:
-                logger.warning(f"No model definitions found in {models_file}")
-                return {}
+        if not models:
+            raise RuntimeError(f"No model definitions found in {models_file}")
 
-            return models
-
-        except Exception as e:
-            logger.error("Failed to load models from %s: %s", provider_dir, str(e))
-            return {}
+        return models
 
     def _import_module_from_file(self, file_path: Path):
         """Import a Python module from a file path.

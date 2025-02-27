@@ -85,6 +85,19 @@ class AnthropicLLM(BaseLLMInterface):
                 }
                 content_blocks.append({"type": "image", "source": source})
 
+        # Process attachments
+        if "attachments" in message:
+            for att in message["attachments"]:
+                img_input = ImageInput(content=att["content"], media_type=att["media_type"], file_name=att["file_name"])
+                source = {
+                    "type": "base64",
+                    "media_type": str(self._validate_media_type(img_input.media_type)),
+                    "data": img_input.content
+                    if isinstance(img_input.content, str)
+                    else base64.b64encode(img_input.content).decode(),
+                }
+                content_blocks.append({"type": "image", "source": source})
+
         return content_blocks
 
     def _format_messages(self, input_data: str) -> List[Dict[str, Any]]:
@@ -113,7 +126,7 @@ class AnthropicLLM(BaseLLMInterface):
             # Convert attachments to ImageInput objects if any
             images = (
                 [
-                    ImageInput(content=att["content"], media_type=att["mime_type"], file_name=att["file_name"])
+                    ImageInput(content=att["content"], media_type=att["media_type"], file_name=att["file_name"])
                     for att in attachments
                 ]
                 if attachments
