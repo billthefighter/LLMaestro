@@ -1,5 +1,4 @@
 """Base classes for prompts."""
-import json
 import re
 from abc import abstractmethod
 from datetime import datetime
@@ -11,6 +10,7 @@ from llmaestro.prompts.mixins import VersionMixin
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.prompts.tools import ToolParams
 from pydantic import BaseModel, Field, create_model
+from llmaestro.llm.schema_utils import schema_to_json
 
 from llmaestro.core.attachments import BaseAttachment, FileAttachment, ImageAttachment, AttachmentConverter
 from llmaestro.llm.responses import ResponseFormat
@@ -59,19 +59,10 @@ class PromptVariable(BaseModel):
             if not isinstance(value, (dict, str)):
                 raise ValueError(f"Schema variable {self.name} expects a dict or JSON string, got {type(value)}")
 
-            # If it's already a string, validate it's valid JSON
-            if isinstance(value, str):
-                try:
-                    json.loads(value)
-                    return value
-                except json.JSONDecodeError as e:
-                    raise ValueError(f"Schema variable {self.name} contains invalid JSON: {e}")
-
-            # If it's a dict, convert to JSON string
             try:
-                return json.dumps(value)
-            except TypeError as e:
-                raise ValueError(f"Schema variable {self.name} contains non-serializable values: {e}")
+                return schema_to_json(value)
+            except ValueError as e:
+                raise ValueError(f"Schema variable {self.name} contains invalid JSON: {e}")
 
         if self.string_conversion_template is None:
             return str(value)
@@ -79,15 +70,7 @@ class PromptVariable(BaseModel):
         if isinstance(self.string_conversion_template, str):
             return self.string_conversion_template.format(value=value)
 
-        if callable(self.string_conversion_template):
-            try:
-                return self.string_conversion_template(value)
-            except Exception as e:
-                raise ValueError(
-                    f"Function passed to string_conversion_template for variable {self.name} raised an error: {e}"
-                ) from e
-
-        raise ValueError(f"Invalid string_conversion_template for variable {self.name}")
+        return self.string_conversion_template(value)
 
 
 class BasePrompt(BaseModel):

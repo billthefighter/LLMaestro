@@ -485,12 +485,17 @@ class BaseLLMInterface(BaseModel, ABC):
         The configuration can specify either a Pydantic model or a JSON schema (mutually exclusive),
         along with format-specific settings.
 
+        When a Pydantic model is provided, implementations should handle it in one of two ways:
+        1. If config.pydantic_model is set, use the model directly for validation/schema generation
+        2. If config.schema is set, use the pre-converted JSON schema
+
         Args:
             config: Configuration specifying how to handle structured output, including:
                    - format: The requested output format (JSON, YAML, etc.)
                    - requires_schema: Whether schema validation is required
-                   - schema: Optional JSON schema for validation
-                   - pydantic_model: Optional Pydantic model for validation
+                   - schema: Optional JSON schema for validation (mutually exclusive with pydantic_model)
+                   - pydantic_model: Optional Pydantic model for direct use (mutually exclusive with schema)
+                   - model_name: Name of the Pydantic model if using pydantic_model
                    - response_format_override: Optional provider-specific format settings
 
         Returns:

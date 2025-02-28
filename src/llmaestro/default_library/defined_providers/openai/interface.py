@@ -167,19 +167,37 @@ class OpenAIInterface(BaseLLMInterface):
         """
         output_config: Dict[str, Any] = {}
 
-        # Get the effective schema (either from Pydantic model or direct schema)
-        schema = config.effective_schema
-
-        if schema:
-            # Use function calling for schema validation
+        if config.pydantic_model:
+            # Use the Pydantic model directly for function calling
+            schema = config.pydantic_model.model_json_schema()
+            logger.debug(f"Using Pydantic model directly: {config.model_name}")
+            logger.debug(f"Generated schema from model: {json.dumps(schema, indent=2)}")
             output_config["functions"] = [
-                {"name": "output_json", "description": "Output JSON data according to the schema", "parameters": schema}
+                {
+                    "name": "output_json",
+                    "description": f"Output JSON data according to {config.model_name} schema",
+                    "parameters": schema,
+                }
+            ]
+            output_config["function_call"] = {"name": "output_json"}
+        elif config.schema:
+            # Use provided JSON schema for function calling
+            logger.debug("Using provided JSON schema")
+            logger.debug(f"Schema: {json.dumps(config.schema, indent=2)}")
+            output_config["functions"] = [
+                {
+                    "name": "output_json",
+                    "description": "Output JSON data according to the schema",
+                    "parameters": config.schema,
+                }
             ]
             output_config["function_call"] = {"name": "output_json"}
         elif config.format in [ResponseFormatType.JSON, ResponseFormatType.JSON_SCHEMA]:
             # Use simple JSON mode without schema
+            logger.debug("Using simple JSON mode without schema")
             output_config["response_format"] = {"type": "json_object"}
 
+        logger.debug(f"Final output config: {json.dumps(output_config, indent=2)}")
         return output_config
 
     async def parse_structured_response(
@@ -310,7 +328,7 @@ class OpenAIInterface(BaseLLMInterface):
         kwargs = {
             "messages": formatted_messages,
             "model": model,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,  # Note: the OpenAI API uses max_completion_tokens instead of max_tokens
             "temperature": temperature,
             "stream": stream,
         }
@@ -427,15 +445,44 @@ class OpenAIInterface(BaseLLMInterface):
         if variables is not None and len(variables) != len(prompts):
             raise ValueError("Number of variable sets must match number of prompts")
 
-        # Process runtime tools once for reuse
-        runtime_tools = self._process_tools(tools) if tools else []
-
         # Process each prompt
         results = []
         for i, prompt in enumerate(prompts):
-            # Use corresponding variables if provided, otherwise None
-            prompt_vars = variables[i] if variables is not None else None
-            result = await self.process(prompt, prompt_vars, tools=tools)
+            try:
+                # Use corresponding variables if provided, otherwise None
+                prompt_vars = variables[i] if variables is not None else None
+
+                # Get prompt-level tools and messages through _prepare_request
+                (
+                    messages,
+                    model_name,
+                    temperature,
+                    max_tokens,
+                    prompt_tools,
+                    response_format,
+                ) = await self._prepare_request(prompt, prompt_vars)
+
+                # Process and merge tools
+                final_tools = await self._prepare_tools(prompt_tools, tools)
+
+                # Create chat completion
+                response = await self._create_chat_completion(
+                    messages=messages,
+                    model=model_name,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    stream=False,
+                    tools=final_tools if not response_format else None,  # Don't use tools if using response format
+                    response_format=response_format,
+                )
+
+                if not isinstance(response, ChatCompletion):
+                    raise ValueError("Expected ChatCompletion response for non-streaming request")
+                logger.debug(f"Raw OpenAIResponse for prompt {i}: {response}")
+                result = await self._handle_response(response)
+            except Exception as e:
+                result = self._handle_error(e)
+
             results.append(result)
 
         return results

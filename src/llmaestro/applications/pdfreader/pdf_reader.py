@@ -13,6 +13,7 @@ from llmaestro.core.models import BaseResponse
 from llmaestro.llm.interfaces.base import ImageInput, MediaType
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.prompts.base import BasePrompt
+from llmaestro.llm.schema_utils import schema_to_json, validate_json
 from pdf2image import convert_from_path
 from pydantic import BaseModel, Field
 
@@ -138,8 +139,8 @@ class PDFReader:
             image_input = ImageInput(content=img_data, media_type=MediaType.JPEG, file_name=f"page_{i+1}.jpg")
 
             # Prepare prompt variables
-            schema_str = self.output_model.model_json_schema()
-            variables = {"output_schema": json.dumps(schema_str, indent=2)}
+            schema_str = schema_to_json(self.output_model)
+            variables = {"output_schema": schema_str}
 
             # Render prompt
             system_prompt, user_prompt, attachments, tools = self.prompt.render(**variables)
@@ -155,7 +156,7 @@ class PDFReader:
 
             # Parse response
             if response.content:
-                result = json.loads(response.content)
+                result = validate_json(response.content)
                 results.append(result)
 
         # Combine results from all pages

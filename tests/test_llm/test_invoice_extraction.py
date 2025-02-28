@@ -13,6 +13,31 @@ from llmaestro.llm.responses import ResponseFormatType
 from llmaestro.llm.enums import MediaType
 import base64
 from llmaestro.llm.responses import ResponseFormat
+from pydantic import BaseModel, Field
+
+class InvoiceData(BaseModel):
+    """Pydantic model for invoice data extraction."""
+
+    total: str = Field(
+        ...,
+        description="The total amount before VAT in euro",
+        pattern=r"^[0-9]+[.,][0-9]{2}\s*(?:€|euro)?$"
+    )
+    vat_percentage: str = Field(
+        ...,
+        description="The VAT percentage",
+        pattern=r"^[0-9]+(?:[.,][0-9]+)?\s*%$"
+    )
+    vat_total: str = Field(
+        ...,
+        description="The total VAT amount in euro",
+        pattern=r"^[0-9]+[.,][0-9]{2}\s*(?:€|euro)?$"
+    )
+    gross_total: str = Field(
+        ...,
+        description="The gross amount including VAT in euro",
+        pattern=r"^[0-9]+[.,][0-9]{2}\s*(?:€|euro)?$"
+    )
 
 @pytest.fixture
 def sample_invoice_path() -> Path:
@@ -169,6 +194,30 @@ Do not wrap the response in ```json``` or any other markdown.""",
         expected_response=invoice_response_format
     )
 
+@pytest.fixture
+def invoice_pydantic_prompt(invoice_png_attachment: FileAttachment) -> MemoryPrompt:
+    """Create a MemoryPrompt for invoice data extraction using Pydantic model."""
+    return MemoryPrompt(
+        name="invoice_pydantic_extractor",
+        description="Extract financial data from PNG invoice using Pydantic model",
+        system_prompt="""You are an expert at extracting financial data from invoices.
+Extract the requested information accurately, maintaining the exact numerical values and currency format as shown in the invoice.
+Return the data in the specified JSON format.
+IMPORTANT: Return ONLY the raw JSON without any markdown formatting or code blocks.
+Do not wrap the response in ```json``` or any other markdown.""",
+        user_prompt="Please extract the parameters requested in the expected response format.",
+        metadata=PromptMetadata(
+            type="invoice_extraction",
+            tags=["finance", "invoice", "data_extraction", "png", "pydantic"]
+        ),
+        attachments=[invoice_png_attachment],
+        expected_response=ResponseFormat.from_pydantic_model(
+            model=InvoiceData,
+            convert_to_json_schema=False,  # Important: Pass the model directly
+            format_type=ResponseFormatType.JSON_SCHEMA
+        )
+    )
+
 def test_sample_invoice_path_exists(sample_invoice_path: Path):
     """Test that the sample invoice file exists."""
     assert sample_invoice_path.exists()
@@ -225,7 +274,7 @@ def test_invoice_prompt_creation(invoice_prompt: MemoryPrompt):
 @pytest.mark.integration
 async def test_invoice_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_prompt: MemoryPrompt, sample_invoice_response: str):
     """Test extracting data from a sample invoice.
-    
+
     Note: This test is currently marked as xfail due to PDF processing issues.
     The model returns the example values from the prompt (100€, 20%, 19.50€)
     instead of the actual invoice values (381.12€, 19%, 72.41€).
@@ -308,3 +357,54 @@ async def test_invoice_png_data_extraction(test_settings, llm_registry: LLMRegis
     assert abs(normalize_percentage(data["vat_percentage"]) - 19.0) < 0.01
     assert abs(normalize_amount(data["vat_total"]) - 72.41) < 0.35  # Wider tolerance for VAT amount
     assert abs(normalize_amount(data["gross_total"]) - 453.52) < 0.01
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_invoice_pydantic_extraction(test_settings, llm_registry: LLMRegistry, invoice_pydantic_prompt: MemoryPrompt, sample_invoice_response: str, caplog):
+    """Test extracting data from a sample invoice using direct Pydantic model."""
+    # Set logging level to DEBUG to capture debug messages
+    caplog.set_level("DEBUG")
+
+    if not test_settings.use_real_tokens:
+        # Create a mock response using the fixture
+        response = LLMResponse(
+            content=sample_invoice_response,
+            success=True,
+            token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            context_metrics=ContextMetrics(
+                max_context_tokens=0,
+                current_context_tokens=0,
+                available_tokens=0,
+                context_utilization=0.0
+            ),
+            metadata={"model": "mock"}
+        )
+    else:
+        model_name = "gpt-4o-mini-2024-07-18"  # Specify GPT-4 mini model
+        llm_instance = await llm_registry.create_instance(model_name)
+        response = await llm_instance.interface.process(invoice_pydantic_prompt)
+
+        # Verify that the log message about using Pydantic model directly appears
+        assert any(
+            "Using Pydantic model directly: InvoiceData" in record.message
+            for record in caplog.records
+        ), "Expected log message about using Pydantic model directly was not found"
+
+    # Assert
+    assert isinstance(response, LLMResponse)
+    assert response.success is True
+    assert isinstance(response.content, str)
+
+    # Parse and validate the response as a Pydantic model
+    data = InvoiceData.model_validate_json(response.content)
+    assert isinstance(data, InvoiceData)
+
+    # Verify the extracted values using normalized comparison
+    # Note: We test against the actual values shown in the invoice, not calculated values.
+    # There can be small discrepancies in VAT calculations due to rounding
+    # (e.g. 381.12 * 19% = 72.74, but invoice shows 72.41)
+    # We use a wider tolerance for VAT total since the model may calculate instead of extract
+    assert abs(normalize_amount(data.total) - 381.12) < 0.01
+    assert abs(normalize_percentage(data.vat_percentage) - 19.0) < 0.01
+    assert abs(normalize_amount(data.vat_total) - 72.41) < 0.35  # Wider tolerance for VAT amount
+    assert abs(normalize_amount(data.gross_total) - 453.52) < 0.01

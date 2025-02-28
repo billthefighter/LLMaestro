@@ -11,7 +11,6 @@ from llmaestro.chains.chains import ChainGraph, ChainNode, NodeType, OutputTrans
 from llmaestro.config.agent import AgentTypeConfig
 from llmaestro.config.manager import ConfigurationManager
 from llmaestro.llm.interfaces.base import BaseLLMInterface
-from llmaestro.llm.interfaces.factory import create_llm_interface
 from llmaestro.prompts.loader import PromptLoader
 from pydantic import BaseModel
 from llmaestro.llm.interfaces.factory import LLMFactory
@@ -76,7 +75,7 @@ class ChangelistManager:
         factory = LLMFactory(
             registry=self.llm_registry,
             provider_manager=self.provider_manager,
-            credential_manager=self.credential_manager
+            credential_manager=self.credential_manager,
         )
         self.llm = factory.create_llm(model_name=agent_config.model, runtime_config=agent_config.runtime)
 
