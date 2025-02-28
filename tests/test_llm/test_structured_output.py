@@ -3,7 +3,7 @@
 import json
 import pytest
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormatType
@@ -22,6 +22,13 @@ class Person(BaseModel):
     age: int
     hobbies: List[str]
     occupation: Optional[str] = None
+
+    @field_validator('age')
+    def validate_age(cls, v: int) -> int:
+        """Validate that age is non-negative."""
+        if v < 0:
+            raise ValueError("Age must be non-negative")
+        return v
 
 
 class NestedStructure(BaseModel):
