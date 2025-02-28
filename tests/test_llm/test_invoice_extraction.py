@@ -212,11 +212,25 @@ def test_invoice_prompt_creation(invoice_prompt: MemoryPrompt):
     assert invoice_prompt.metadata is not None
     assert invoice_prompt.expected_response is not None
 
-@pytest.mark.xfail(reason="PDF extraction currently returns example values from prompt instead of actual invoice values")
+@pytest.mark.xfail(
+    reason="""PDF extraction currently returns example values from prompt instead of actual invoice values.
+    The model appears to prioritize the example from the system prompt over the actual PDF content.
+    This suggests either:
+    1. Issues with PDF text extraction/rendering
+    2. Prompt example having too much weight in the model's decision
+    3. Potential differences in how PDFs vs PNGs are processed
+    Note: The PNG version of the same invoice works correctly."""
+)
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_invoice_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_prompt: MemoryPrompt, sample_invoice_response: str):
-    """Test extracting data from a sample invoice."""
+    """Test extracting data from a sample invoice.
+    
+    Note: This test is currently marked as xfail due to PDF processing issues.
+    The model returns the example values from the prompt (100€, 20%, 19.50€)
+    instead of the actual invoice values (381.12€, 19%, 72.41€).
+    See the xfail reason for more details.
+    """
     if not test_settings.use_real_tokens:
         # Create a mock response using the fixture
         response = LLMResponse(
