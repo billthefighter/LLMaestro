@@ -9,9 +9,11 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 from llmaestro.llm.enums import MediaType
 from llmaestro.prompts.mixins import VersionMixin
 from llmaestro.prompts.types import PromptMetadata
+from llmaestro.prompts.tools import ToolParams
 from pydantic import BaseModel, Field, create_model
 
 from llmaestro.core.attachments import BaseAttachment, FileAttachment, ImageAttachment, AttachmentConverter
+from llmaestro.llm.responses import ResponseFormat
 
 
 # Type definitions for prompt variables
@@ -103,6 +105,8 @@ class BasePrompt(BaseModel):
     examples: Optional[List[Dict[str, Any]]] = None
     attachments: List[BaseAttachment] = Field(default_factory=list, description="List of file attachments")
     variables: List[PromptVariable] = Field(default_factory=list, description="List of variable definitions")
+    expected_response: Optional[ResponseFormat] = Field(default=None, description="Expected response format")
+    tools: List[ToolParams] = Field(default_factory=list, description="List of tools available to the prompt")
 
     # Variables model for validation
     _variables_model: Optional[Type[BaseModel]] = None
@@ -209,73 +213,71 @@ class BasePrompt(BaseModel):
         """Remove all attachments from the prompt."""
         self.attachments.clear()
 
-    def render(
-        self, variables: Optional[Union[Dict[str, Any], BaseModel]] = None, **additional_kwargs: Any
-    ) -> Tuple[str, str, List[Dict[str, Any]]]:
-        """Render the prompt template with the given variables.
+    def render(self, **variable_values: Any) -> Tuple[str, str, List[Dict[str, Any]], List[ToolParams]]:
+        """Render the prompt template with the given variable values.
 
         Args:
-            variables: Dictionary or Pydantic model containing variable values.
-                      If using the variables model from get_variables_model(),
-                      values will be validated against expected types.
-            additional_kwargs: Additional keyword arguments for backward compatibility.
+            **variable_values: Keyword arguments matching the defined variables.
+                             Values must match the types defined in the prompt's variables.
 
         Returns:
-            Tuple of (system_prompt, user_prompt, attachments)
-            where attachments is a list of dicts compatible with LLM interface
+            Tuple of (system_prompt, user_prompt, attachments, tools)
+            where:
+            - attachments is a list of dicts compatible with LLM interface
+            - tools is a list of ToolParams that can be formatted by the specific LLM interface
 
         Raises:
             ValueError: If required variables are missing or if variable values don't match expected types.
         """
         self._validate_template()
 
-        # Convert variables to dict if it's a model
-        var_dict: Dict[str, Any] = {}
-        if isinstance(variables, BaseModel):
-            var_dict = variables.model_dump()
-        elif variables is not None:
-            # If we have a variables model, validate the dict
-            if self._variables_model is not None:
-                var_dict = self._variables_model(**variables).model_dump()
-            else:
-                var_dict = variables
-
-        # Add additional kwargs
-        all_kwargs = {**var_dict, **additional_kwargs}
+        # Validate variables against the model
+        if self._variables_model is not None:
+            try:
+                validated_vars = self._variables_model(**variable_values)
+                var_dict = validated_vars.model_dump()
+            except Exception as e:
+                raise ValueError(f"Invalid variable values: {e}")
+        else:
+            var_dict = variable_values
 
         try:
             # Convert variables using their defined conversion methods
             converted_kwargs: Dict[str, str] = {}
             for var in self.variables:
-                if var.name in all_kwargs:
-                    converted_kwargs[var.name] = var.convert_value(all_kwargs[var.name])
+                if var.name in var_dict:
+                    converted_kwargs[var.name] = var.convert_value(var_dict[var.name])
                 elif var.name in self._extract_template_vars():
                     raise ValueError(f"Missing required variable: {var.name}")
 
-            # Add any remaining kwargs that don't have PromptVariable definitions
-            for key, value in all_kwargs.items():
-                if key not in converted_kwargs:
-                    converted_kwargs[key] = str(value)
-
+            # Format the prompts
             formatted_system_prompt = self.system_prompt.format(**converted_kwargs)
             formatted_user_prompt = self.user_prompt.format(**converted_kwargs)
 
             # Add response format information to system prompt if available
-            if self.metadata and self.metadata.expected_response:
-                response_format = self.metadata.expected_response
-                if response_format.format and response_format.response_schema:
-                    formatted_system_prompt = f"{formatted_system_prompt}\nPlease provide your response in {response_format.format.value} format using the following schema:\n{response_format.response_schema}"
-                elif response_format.format:
-                    formatted_system_prompt = f"{formatted_system_prompt}\nPlease provide your response in {response_format.format.value} format."
+            if self.expected_response:
+                formatted_system_prompt = self._add_response_format(formatted_system_prompt)
 
-            # Format attachments for LLM interface using AttachmentConverter
+            # Format attachments for LLM interface
             formatted_attachments = [AttachmentConverter.to_interface_format(att) for att in self.attachments]
 
-            return formatted_system_prompt, formatted_user_prompt, formatted_attachments
+            return formatted_system_prompt, formatted_user_prompt, formatted_attachments, self.tools
         except KeyError as e:
             required_vars = self._extract_template_vars()
-            missing_vars = [var for var in required_vars if var not in all_kwargs]
+            missing_vars = [var for var in required_vars if var not in var_dict]
             raise ValueError(f"Missing required variables: {missing_vars}. Error: {e}") from e
+
+    def _add_response_format(self, system_prompt: str) -> str:
+        """Add response format information to the system prompt."""
+        if not self.expected_response:
+            return system_prompt
+
+        response_format = self.expected_response
+        if response_format.format and response_format.response_schema:
+            return f"{system_prompt}\nPlease provide your response in {response_format.format.value} format using the following schema:\n{response_format.response_schema}"
+        elif response_format.format:
+            return f"{system_prompt}\nPlease provide your response in {response_format.format.value} format."
+        return system_prompt
 
     def _validate_template(self) -> None:
         """Validate the template format and variables."""

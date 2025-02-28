@@ -5,8 +5,6 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from llmaestro.llm.responses import ResponseFormat
-
 
 class VersionInfo(BaseModel):
     """Version information for a prompt."""
@@ -29,7 +27,6 @@ class PromptMetadata(BaseModel):
     """Enhanced metadata for prompts."""
 
     type: str
-    expected_response: ResponseFormat
     model_requirements: Optional[Dict] = None
     decomposition: Optional[Dict] = None
     tags: List[str] = Field(default_factory=list)

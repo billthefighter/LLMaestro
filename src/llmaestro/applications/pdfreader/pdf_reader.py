@@ -142,7 +142,7 @@ class PDFReader:
             variables = {"output_schema": json.dumps(schema_str, indent=2)}
 
             # Render prompt
-            system_prompt, user_prompt, attachments = self.prompt.render(**variables)
+            system_prompt, user_prompt, attachments, tools = self.prompt.render(**variables)
 
             # Format messages with attachments
             messages = [

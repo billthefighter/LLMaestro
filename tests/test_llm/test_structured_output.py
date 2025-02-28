@@ -37,14 +37,14 @@ def person_prompt() -> MemoryPrompt:
 Extract the requested information accurately and return it in the specified JSON format.
 Make sure to include all required fields and validate against the provided schema.""",
         user_prompt="Please create a profile for a fictional person with their name, age, and hobbies.",
-        metadata=PromptMetadata(
-            type="person_extraction",
-            expected_response=ResponseFormat(
+        expected_response=ResponseFormat(
                 format=ResponseFormatType.JSON_SCHEMA,
                 response_schema=json.dumps(Person.model_json_schema()),
                 pydantic_model=Person,
                 convert_to_json_schema=True
             ),
+        metadata=PromptMetadata(
+            type="person_extraction",
             tags=["structured", "person", "test"]
         )
     )
@@ -62,14 +62,14 @@ Make sure to include all required fields and validate against the provided schem
         user_prompt="Please create a profile for a fictional team with a title, list of team members (at least 2), and team size.",
         metadata=PromptMetadata(
             type="team_extraction",
-            expected_response=ResponseFormat(
+            tags=["structured", "team", "test"]
+        ),
+        expected_response=ResponseFormat(
                 format=ResponseFormatType.JSON_SCHEMA,
                 response_schema=json.dumps(NestedStructure.model_json_schema()),
                 pydantic_model=NestedStructure,
                 convert_to_json_schema=True
             ),
-            tags=["structured", "team", "test"]
-        )
     )
 
 

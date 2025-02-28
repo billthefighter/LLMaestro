@@ -78,7 +78,7 @@ class GeminiLLM(BaseLLMInterface):
             logger.debug(f"Variables: {variables}")
 
             # Render the prompt with optional variables
-            system_prompt, user_prompt, attachments = prompt.render(**(variables or {}))
+            system_prompt, user_prompt, attachments, tools = prompt.render(**(variables or {}))
             logger.debug(f"Rendered system prompt: {system_prompt}")
             logger.debug(f"Rendered user prompt: {user_prompt}")
 

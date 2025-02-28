@@ -6,7 +6,14 @@ from pydantic import BaseModel, Field
 import pytest
 
 from llmaestro.llm.interfaces.base import ToolParams
+from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
+from llmaestro.prompts.tools import ToolParams
+from llmaestro.llm.llm_registry import LLMRegistry
+from llmaestro.core.models import LLMResponse
+from llmaestro.prompts.memory import MemoryPrompt
+import logging
 
+logger = logging.getLogger(__name__)
 
 # Test Fixtures
 @pytest.fixture
@@ -158,3 +165,68 @@ def test_type_conversions(input_type, expected_type):
     tool_params = ToolParams.from_function(test_func)
     param_type = tool_params.parameters["properties"]["param"]["type"]
     assert param_type == expected_type  # Use JSON Schema types
+
+
+@pytest.fixture
+async def openai_prompt() -> BasePrompt:
+    """Create a prompt for testing OpenAI tool usage."""
+    return MemoryPrompt(
+        name="weather_query",
+        description="Query weather information using tools",
+        system_prompt="You are a weather assistant.",
+        user_prompt="What is the weather like in {location} today?",
+        variables=[
+            PromptVariable(name="location", expected_input_type=SerializableType.STRING)
+        ],
+        tools=[
+            ToolParams(
+                name="get_weather",
+                description="Get current temperature for a given location.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "City and country e.g. Bogotá, Colombia"
+                        }
+                    },
+                    "required": ["location"],
+                    "additionalProperties": False
+                },
+                is_async=False,
+                source=get_weather
+            )
+        ]
+    )
+
+
+def get_weather(location: str) -> str:
+    """Get current temperature for a given location."""
+    return f"The weather in {location} is always sunny."
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_openai_tool_integration(test_settings, llm_registry: LLMRegistry, openai_prompt: BasePrompt):
+    """Test OpenAI interface with tool integration."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
+    # Arrange
+    logger.info("Testing OpenAI tool integration")
+    logger.info(f"llm_registry.get_registered_models(): {llm_registry.get_registered_models()}")
+    model_name = "o3-mini-2025-01-31"  # Use a model that supports tool usage
+    llm_instance = await llm_registry.create_instance(model_name)
+
+    # Act - removed tools parameter since it's already defined in the prompt
+    response = await llm_instance.interface.process(openai_prompt, variables={"location": "Paris"})
+
+    # Assert
+    assert isinstance(response, LLMResponse)
+    assert response.success is True
+    assert isinstance(response.content, str)
+
+    # Validate the response contains successful tool execution
+    assert "Tool 'get_weather' executed successfully" in response.content
+    assert "The weather in Paris" in response.content
+    assert "sunny" in response.content

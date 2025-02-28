@@ -6,19 +6,21 @@ import base64
 import json
 
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletion, ChatCompletionChunk
+from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessage
 from openai.types.chat.chat_completion_system_message_param import ChatCompletionSystemMessageParam
 from openai.types.chat.chat_completion_user_message_param import ChatCompletionUserMessageParam
 from openai.types.file_object import FileObject
 from openai.types import FilePurpose
+from pydantic import BaseModel
 
 from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
-from llmaestro.llm.interfaces.base import BaseLLMInterface
+from llmaestro.llm.interfaces.base import BaseLLMInterface, ToolInputType, ProcessedToolType
 from llmaestro.core.attachments import BaseAttachment, ImageAttachment, AttachmentConverter, FileAttachment
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.prompts.types import PromptMetadata, ResponseFormat
 from llmaestro.llm.responses import ResponseFormatType
+from llmaestro.prompts.tools import ToolParams
 
 if TYPE_CHECKING:
     pass
@@ -60,20 +62,43 @@ class OpenAIInterface(BaseLLMInterface):
         # Additional OpenAI-specific initialization can go here
 
     @overload
-    async def process(self, prompt: str, variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
+    async def process(
+        self,
+        prompt: str,
+        variables: Optional[Dict[str, Any]] = None,
+        tools: None = None,
+    ) -> LLMResponse:
         ...
 
     @overload
-    async def process(self, prompt: BasePrompt, variables: Optional[Dict[str, Any]] = None) -> LLMResponse:
+    async def process(
+        self,
+        prompt: Union[BasePrompt, str],
+        variables: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[ToolInputType]] = None,
+    ) -> LLMResponse:
         ...
 
     async def _prepare_request(
         self,
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
-    ) -> tuple[List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]], str, float, int]:
-        """Prepare common request parameters for both streaming and non-streaming calls."""
-        logger.debug("Starting _prepare_request")
+    ) -> tuple[
+        List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]],
+        str,
+        float,
+        int,
+        List[ProcessedToolType],
+    ]:
+        """Prepare common request parameters for both streaming and non-streaming calls.
+
+        Returns a tuple of:
+        - Formatted messages
+        - Model name
+        - Temperature
+        - Max tokens
+        - Processed tools from the prompt
+        """
         # Convert string prompt to MemoryPrompt if needed
         if isinstance(prompt, str):
             prompt = MemoryPrompt(
@@ -83,15 +108,14 @@ class OpenAIInterface(BaseLLMInterface):
                 user_prompt=prompt,
                 metadata=PromptMetadata(
                     type="direct_input",
-                    expected_response=ResponseFormat(
-                        format=ResponseFormatType.TEXT,
-                        response_schema=None,
-                        retry_config=None,
-                    ),
                     tags=[],
                 ),
+                expected_response=ResponseFormat(
+                    format=ResponseFormatType.TEXT,
+                    response_schema=None,
+                    retry_config=None,
+                ),
             )
-            logger.debug("Converted string prompt to MemoryPrompt")
 
         # Validate credentials
         self.validate_credentials()
@@ -99,31 +123,15 @@ class OpenAIInterface(BaseLLMInterface):
             raise ValueError("No credentials provided")
 
         # Render the prompt with optional variables
-        logger.debug("Rendering prompt with variables")
-        system_prompt, user_prompt, attachment_dicts = prompt.render(**(variables or {}))
-        logger.debug(f"Rendered system prompt: {system_prompt}")
-        logger.debug(f"Rendered user prompt: {user_prompt}")
-
-        # Log attachments with truncated content
-        for att in attachment_dicts:
-            content = att.get("content", "")
-            if len(content) > 40:
-                truncated_content = f"{content[:30]}...{content[-10:]}"
-            else:
-                truncated_content = content
-            logger.debug(
-                f"Attachment: type={att.get('media_type')}, name={att.get('file_name')}, content_preview={truncated_content}"
-            )
+        system_prompt, user_prompt, attachment_dicts, prompt_tools = prompt.render(**(variables or {}))
 
         # Convert dictionary attachments to BaseAttachment objects
         attachments = [AttachmentConverter.from_dict(att) for att in attachment_dicts]
-        logger.debug(f"Number of converted attachments: {len(attachments)}")
 
         # Format messages
         messages = await self._format_messages(
             input_data=user_prompt, system_prompt=system_prompt, attachments=attachments
         )
-        logger.debug(f"Formatted messages: {messages}")
 
         if not self.state:
             raise ValueError("No state provided, a LLMState must be provided to the LLMInterface")
@@ -133,7 +141,12 @@ class OpenAIInterface(BaseLLMInterface):
         max_tokens = self.state.runtime_config.max_tokens
         temperature = self.state.runtime_config.temperature
 
-        return messages, model_name, temperature, max_tokens
+        # Process prompt-level tools
+        # Cast the tools from prompt.render() to List[ToolInputType] since we know they're compatible
+        prompt_tools_input = cast(Optional[List[ToolInputType]], prompt_tools)
+        processed_tools = self._process_tools(prompt_tools_input) if prompt_tools_input else []
+
+        return messages, model_name, temperature, max_tokens, processed_tools
 
     @property
     def supports_structured_output(self) -> bool:
@@ -267,6 +280,30 @@ class OpenAIInterface(BaseLLMInterface):
             logger.error(f"Raw response: {response}")
             raise
 
+    def _format_tools_for_provider(self, tools: List[ProcessedToolType]) -> List[Dict[str, Any]]:
+        """Convert processed tools into OpenAI's function calling format.
+
+        Args:
+            tools: List of processed ToolParams objects
+
+        Returns:
+            List of tool definitions in OpenAI's format
+        """
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": {
+                        **tool.parameters,
+                        "additionalProperties": False,
+                    },
+                },
+            }
+            for tool in tools
+        ]
+
     async def _create_chat_completion(
         self,
         messages: List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]],
@@ -274,47 +311,26 @@ class OpenAIInterface(BaseLLMInterface):
         max_tokens: int,
         temperature: float,
         stream: bool = False,
+        tools: Optional[List[ProcessedToolType]] = None,
     ) -> Union[ChatCompletion, AsyncIterator[ChatCompletionChunk]]:
         """Create a chat completion with the given parameters."""
-        # Get expected response format from prompt metadata if available
-        kwargs: Dict[str, Any] = {
+        kwargs = {
             "messages": messages,
             "model": model,
-            "max_tokens": max_tokens,
+            "max_completion_tokens": max_tokens,
             "temperature": temperature,
             "stream": stream,
         }
 
-        # Configure structured output if available
-        if self.context and self.context.current_message:
-            current_node = self.context.graph.nodes.get(self.context.current_message)
-            if current_node and isinstance(current_node.content, BasePrompt):
-                metadata = current_node.content.metadata
-                if metadata and metadata.expected_response:
-                    config = metadata.expected_response.get_structured_output_config()
+        # Check model capabilities and filter unsupported parameters
+        kwargs = self._check_model_capabilities(**kwargs)
 
-                    # Check if we have a Pydantic model to parse into
-                    if hasattr(metadata.expected_response, "pydantic_model"):
-                        try:
-                            # Use the newer parse method if available
-                            return await self.client.beta.chat.completions.parse(
-                                messages=messages,
-                                model=model,
-                                response_format=metadata.expected_response.pydantic_model,
-                                max_tokens=max_tokens,
-                                temperature=temperature,
-                            )
-                        except (AttributeError, ImportError):
-                            # Fallback to old method if parse is not available
-                            output_config = self.configure_structured_output(config)
-                            kwargs.update(output_config)
-                    else:
-                        output_config = self.configure_structured_output(config)
-                        kwargs.update(output_config)
-
-        # Create completion using standard method
-        logger.debug(f"Prepared messages: {messages}")
-        logger.debug(f"Model name: {model}, Temperature: {temperature}, Max tokens: {max_tokens}")
+        # Configure tools if provided
+        if tools:
+            # Convert tools to OpenAI's format
+            openai_tools = self._format_tools_for_provider(tools)
+            kwargs["tools"] = openai_tools
+            kwargs["tool_choice"] = "auto"  # Let OpenAI decide when to use tools
 
         return await self.client.chat.completions.create(**kwargs)
 
@@ -326,33 +342,74 @@ class OpenAIInterface(BaseLLMInterface):
             "is_partial": is_partial,
         }
 
+    def _process_tools(self, tools: Optional[List[ToolInputType]]) -> List[ProcessedToolType]:
+        """Process a list of tools into standardized ToolParams objects for OpenAI.
+
+        This method converts various tool input types into ToolParams objects:
+        - Functions are converted using ToolParams.from_function
+        - Pydantic models are passed directly using OpenAI's pydantic_function_tool
+
+        Args:
+            tools: List of tools to process, can be functions, Pydantic models, or ToolParams
+
+        Returns:
+            List of processed ToolParams objects ready for use with the LLM
+        """
+        if not tools:
+            return []
+
+        processed_tools = []
+        for tool in tools:
+            if isinstance(tool, ProcessedToolType):
+                # For existing ToolParams, keep as is
+                processed_tools.append(tool)
+            elif isinstance(tool, type) and issubclass(tool, BaseModel):
+                # For Pydantic models, create a ToolParams with the model as the function
+                schema = tool.model_json_schema()
+                tool_params = ToolParams(
+                    name=tool.__name__, description=tool.__doc__ or "", parameters=schema, return_type=tool, source=tool
+                )
+                processed_tools.append(tool_params)
+            elif callable(tool):
+                # For callables, create a ToolParams with the function
+                tool_params = ToolParams.from_function(tool)
+                processed_tools.append(tool_params)
+            else:
+                raise ValueError(f"Unsupported tool type: {type(tool)}")
+
+        return processed_tools
+
     async def process(
         self,
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[ToolInputType]] = None,
     ) -> LLMResponse:
-        """Process input using OpenAI's API."""
+        """Process input using OpenAI's API with tool support."""
         try:
-            logger.debug(f"Processing prompt: {prompt}")
-            logger.debug(f"Variables: {variables}")
+            # Get prompt-level tools and messages through _prepare_request
+            messages, model_name, temperature, max_tokens, prompt_tools = await self._prepare_request(prompt, variables)
 
-            # Safe access to metadata and expected_response with proper null checks
-            metadata = prompt.metadata if isinstance(prompt, BasePrompt) else None
-            expected_response = metadata.expected_response if metadata else None
+            # Process runtime tools if provided
+            runtime_tools = self._process_tools(tools) if tools else []
 
-            logger.debug(f"Prompt metadata: {metadata}")
-            logger.debug(f"Expected response format: {expected_response}")
+            # Merge tools, giving precedence to runtime tools
+            final_tools = prompt_tools + runtime_tools
 
-            messages, model_name, temperature, max_tokens = await self._prepare_request(prompt, variables)
-            logger.debug(f"Prepared messages: {messages}")
-            logger.debug(f"Model name: {model_name}, Temperature: {temperature}, Max tokens: {max_tokens}")
+            # Cache all tools for execution
+            for tool in final_tools:
+                self.available_tools[tool.name] = tool
+
+            # Create chat completion
             response = await self._create_chat_completion(
                 messages=messages,
                 model=model_name,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=False,
+                tools=final_tools,
             )
+
             if not isinstance(response, ChatCompletion):
                 raise ValueError("Expected ChatCompletion response for non-streaming request")
             return await self._handle_response(response)
@@ -364,18 +421,22 @@ class OpenAIInterface(BaseLLMInterface):
         prompts: List[Union[BasePrompt, str]],
         variables: Optional[List[Optional[Dict[str, Any]]]] = None,
         batch_size: Optional[int] = None,
+        tools: Optional[List[ToolInputType]] = None,
     ) -> List[LLMResponse]:
-        """Process multiple prompts in a batch."""
+        """Process multiple prompts in a batch with tool support."""
         # Ensure variables list matches prompts length if provided
         if variables is not None and len(variables) != len(prompts):
             raise ValueError("Number of variable sets must match number of prompts")
+
+        # Process runtime tools once for reuse
+        runtime_tools = self._process_tools(tools) if tools else []
 
         # Process each prompt
         results = []
         for i, prompt in enumerate(prompts):
             # Use corresponding variables if provided, otherwise None
             prompt_vars = variables[i] if variables is not None else None
-            result = await self.process(prompt, prompt_vars)
+            result = await self.process(prompt, prompt_vars, tools=tools)
             results.append(result)
 
         return results
@@ -384,16 +445,30 @@ class OpenAIInterface(BaseLLMInterface):
         self,
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
+        tools: Optional[List[ToolInputType]] = None,
     ) -> AsyncIterator[LLMResponse]:
-        """Stream responses from OpenAI's API one token at a time."""
+        """Stream responses from OpenAI's API one token at a time with tool support."""
         try:
-            messages, model_name, temperature, max_tokens = await self._prepare_request(prompt, variables)
+            # Get prompt-level tools and messages
+            messages, model_name, temperature, max_tokens, prompt_tools = await self._prepare_request(prompt, variables)
+
+            # Process runtime tools
+            runtime_tools = self._process_tools(tools) if tools else []
+
+            # Merge tools
+            final_tools = prompt_tools + runtime_tools
+
+            # Cache tools
+            for tool in final_tools:
+                self.available_tools[tool.name] = tool
+
             stream = await self._create_chat_completion(
                 messages=messages,
                 model=model_name,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=True,
+                tools=final_tools,
             )
 
             if not isinstance(stream, AsyncIterator):
@@ -407,8 +482,8 @@ class OpenAIInterface(BaseLLMInterface):
                             content=content,
                             success=True,
                             token_usage=TokenUsage(
-                                completion_tokens=1,  # Each chunk is roughly one token
-                                prompt_tokens=0,  # We don't know prompt tokens in streaming
+                                completion_tokens=1,
+                                prompt_tokens=0,
                                 total_tokens=1,
                             ),
                             context_metrics=self._calculate_context_metrics(),
@@ -537,36 +612,78 @@ class OpenAIInterface(BaseLLMInterface):
 
         return cast(List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]], messages)
 
+    async def _handle_tool_call(self, message: ChatCompletionMessage) -> str:
+        """Handle OpenAI's function calling response.
+
+        Args:
+            message: The message containing tool calls
+
+        Returns:
+            Formatted response incorporating tool results
+        """
+        if not message.tool_calls:
+            return message.content or ""
+
+        results = []
+        for tool_call in message.tool_calls:
+            if not tool_call.function:
+                continue
+
+            # Get the tool from our processed tools
+            tool_name = tool_call.function.name
+            logger.debug(f"Looking for tool: {tool_name}")
+            logger.debug(f"Available tools: {list(self.available_tools.keys())}")
+
+            tool = self.get_cached_tool(tool_name)
+
+            if not tool:
+                error_msg = f"Error: Tool '{tool_name}' not found"
+                logger.error(error_msg)
+                results.append(error_msg)
+                continue
+
+            try:
+                # Parse arguments
+                args = json.loads(tool_call.function.arguments)
+                logger.debug(f"Executing {tool_name} with args: {args}")
+
+                # Execute and format result
+                result = await self._handle_tool_execution(tool, args)
+                logger.debug(f"Tool execution result: {result}")
+                results.append(result)
+
+            except json.JSONDecodeError:
+                error_msg = f"Error: Invalid arguments for tool '{tool_name}'"
+                logger.error(error_msg)
+                results.append(error_msg)
+            except Exception as e:
+                error_msg = f"Error executing '{tool_name}': {str(e)}"
+                logger.error(error_msg)
+                results.append(error_msg)
+
+        # Combine all results
+        return "\n\n".join(results)
+
     async def _handle_response(self, response: ChatCompletion) -> LLMResponse:
         """Handle the response from OpenAI's API."""
         try:
-            # Extract content and metadata from response
-            content = response.choices[0].message.content if response.choices else ""
-            if content is None:
-                content = ""  # Ensure content is never None
+            message = response.choices[0].message if response.choices else None
+            if not message:
+                return self._handle_error(ValueError("No response choices available"))
 
-            # Strip markdown code block formatting if present
-            if content.startswith("```") and content.endswith("```"):
-                # Extract content between code block markers
-                lines = content.split("\n")
-                if len(lines) > 2:  # Has at least opening, content, and closing
-                    # Remove first and last lines (```json and ```)
-                    content = "\n".join(lines[1:-1])
-                    # If the first line was ```json or similar, remove it
-                    if content.startswith("json") or content.startswith("{"):
-                        content = "\n".join(content.split("\n")[1:])
+            # Handle tool calls if present
+            if message.tool_calls:
+                content = await self._handle_tool_call(message)
+            else:
+                content = message.content or ""
 
             # Create token usage info
-            usage = response.usage
-            if usage is None:
-                # Fallback if usage is not available
-                token_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-            else:
-                token_usage = TokenUsage(
-                    prompt_tokens=usage.prompt_tokens,
-                    completion_tokens=usage.completion_tokens,
-                    total_tokens=usage.total_tokens,
-                )
+            usage = response.usage or TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+            token_usage = TokenUsage(
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+                total_tokens=usage.total_tokens,
+            )
 
             return LLMResponse(
                 content=content,

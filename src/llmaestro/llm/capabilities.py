@@ -80,6 +80,7 @@ class LLMCapabilities(BaseModel):
     supports_system_prompt: bool = True
     supports_tools: bool = False
     supports_parallel_requests: bool = True
+    supports_temperature: bool = False
 
     # Advanced Features
     supports_frequency_penalty: bool = False

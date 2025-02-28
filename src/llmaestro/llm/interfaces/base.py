@@ -3,11 +3,10 @@ from __future__ import annotations
 
 import base64
 import logging
-import inspect
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, AsyncIterator, Type, Callable
+from typing import Any, Dict, List, Optional, Set, Union, AsyncIterator, Type, Callable, TypeVar
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -19,8 +18,14 @@ from llmaestro.llm.enums import MediaType
 from llmaestro.prompts.types import ResponseFormat
 from .tokenizers import BaseTokenizer
 from llmaestro.llm.models import LLMState  # Direct import instead of TYPE_CHECKING
+from llmaestro.prompts.tools import ToolParams
 
 logger = logging.getLogger(__name__)
+
+# Add type variables for better type hinting
+ToolInputType = Union[Callable[..., Any], Type[BaseModel], ToolParams]
+ProcessedToolType = ToolParams
+T = TypeVar("T")
 
 
 @dataclass
@@ -60,82 +65,47 @@ class ImageInput:
         return cls(content=content, media_type=media_type_enum, file_name=file_name)
 
 
-class ToolParams(BaseModel):
-    """Parameters for a tool/function that can be used by an LLM."""
-
-    name: str = Field(description="The function's name")
-    description: str = Field(description="Details on when and how to use the function")
-    parameters: Dict[str, Any] = Field(description="JSON schema defining the function's input arguments")
-    return_type: Optional[Any] = Field(default=None, description="The return type of the function if available")
-    is_async: bool = Field(default=False, description="Whether the function is async")
-
-    model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
-
-    @staticmethod
-    def _get_parameter_schema(param: inspect.Parameter) -> Dict[str, Any]:
-        """Get JSON Schema for a parameter using Pydantic's type system."""
-        from pydantic import TypeAdapter
-
-        # Get type annotation or default to str
-        annotation = param.annotation if param.annotation != inspect.Parameter.empty else str
-
-        # Get JSON schema for the type
-        schema = TypeAdapter(annotation).json_schema()
-
-        # Add default value if present
-        if param.default != inspect.Parameter.empty:
-            schema["default"] = param.default
-
-        return schema
-
-    @classmethod
-    def from_function(cls, func: Callable) -> ToolParams:
-        """Generate tool parameters from a function."""
-        sig = inspect.signature(func)
-        doc = inspect.getdoc(func) or ""
-
-        parameters = {}
-        required = []
-
-        for name, param in sig.parameters.items():
-            if name == "self":
-                continue
-
-            # Get parameter schema using Pydantic
-            param_info = cls._get_parameter_schema(param)
-
-            # Handle required fields
-            if param.default == inspect.Parameter.empty:
-                required.append(name)
-
-            parameters[name] = param_info
-
-        param_schema = {"type": "object", "properties": parameters, "required": required}
-
-        # Check if async
-        is_async = inspect.iscoroutinefunction(func)
-
-        # Get return type if available
-        return_type = None
-        if sig.return_annotation != inspect.Signature.empty:
-            return_type = sig.return_annotation
-
-        return cls(
-            name=func.__name__, description=doc, parameters=param_schema, return_type=return_type, is_async=is_async
-        )
-
-    @classmethod
-    def from_pydantic(cls, model: Type[BaseModel]) -> ToolParams:
-        """Generate tool parameters from a Pydantic model."""
-        schema = model.model_json_schema()
-
-        tool_params = cls(name=model.__name__, description=model.__doc__ or "", parameters=schema, return_type=model)
-
-        return tool_params
-
-
 class BaseLLMInterface(BaseModel, ABC):
-    """Base class for LLM interfaces."""
+    """Base class for LLM interfaces.
+
+    This class provides the foundation for implementing LLM provider interfaces.
+    It handles common functionality like message formatting, token counting,
+    and tool management.
+
+    Tool Management:
+    --------------
+    Tools can be provided at three levels, in order of precedence (highest to lowest):
+
+    1. Runtime Tools (process method argument):
+       - Highest precedence
+       - Used for request-specific tools
+       - Overrides conflicting tools from other levels
+
+    2. Prompt-Level Tools (BasePrompt.tools):
+       - Medium precedence
+       - Defined as part of the prompt template
+       - Overrides interface-level tools
+
+    3. Interface-Level Tools (available_tools cache):
+       - Lowest precedence
+       - Shared across all requests using this interface
+       - Available to all prompts
+
+    Tool Processing Flow:
+    ------------------
+    1. Tools are processed through _process_tools() into standardized ToolParams
+    2. Tools are cached in available_tools to avoid reprocessing
+    3. Provider-specific formatting is handled by _format_tools_for_provider()
+    4. Tool execution is managed by _handle_tool_execution()
+
+    Implementation Guide:
+    ------------------
+    When implementing a new LLM interface:
+    1. Override _format_tools_for_provider() to convert ToolParams to provider format
+    2. Use _handle_tool_execution() for consistent tool execution
+    3. Implement tool response handling in process() and stream() methods
+    4. Cache processed tools using available_tools
+    """
 
     # Default supported media types (can be overridden by specific implementations)
     SUPPORTED_MEDIA_TYPES: Set[MediaType] = {MediaType.JPEG, MediaType.PNG, MediaType.PDF}
@@ -149,7 +119,7 @@ class BaseLLMInterface(BaseModel, ABC):
     ignore_missing_credentials: bool = Field(default=False, description="Whether to ignore missing credentials")
     credentials: Optional[APIKey] = Field(default=None, description="API credentials")
     images: List[ImageInput] = Field(default_factory=list, description="List of images to include in messages")
-    available_tools: Dict[str, ToolParams] = Field(
+    available_tools: Dict[str, ProcessedToolType] = Field(
         default_factory=dict, description="Cache of processed tool parameters, keyed by tool name"
     )
 
@@ -252,21 +222,31 @@ class BaseLLMInterface(BaseModel, ABC):
         """Initialize async components of the interface."""
         pass
 
-    def _process_tools(self, tools: Optional[List[Union[Callable, Type[BaseModel], ToolParams]]]) -> List[ToolParams]:
-        """Process a list of tools into standardized ToolParams objects.
+    def _process_tools(self, tools: Optional[List[ToolInputType]]) -> List[ProcessedToolType]:
+        """Process tools into standardized format and update cache.
 
-        This helper method converts various tool input types into ToolParams objects:
-        - Functions are converted using ToolParams.from_function
-        - Pydantic models are converted using ToolParams.from_pydantic
-        - ToolParams objects are processed using _use_tool
-
-        The processed tools are cached in self.processed_tools to avoid reprocessing.
+        This method handles the conversion of various tool types into ToolParams
+        and manages the tool cache. Tools are processed once and cached for reuse.
 
         Args:
-            tools: List of tools to process, can be functions, Pydantic models, or ToolParams
+            tools: List of tools to process. Can be:
+                - Functions (converted using ToolParams.from_function)
+                - Pydantic models (converted using ToolParams.from_pydantic)
+                - ToolParams objects (used as-is)
 
         Returns:
-            List of processed ToolParams objects ready for use with the LLM
+            List of processed ToolParams objects
+
+        Example:
+            ```python
+            # Process different tool types
+            tools = [
+                my_function,  # Function
+                MyPydanticModel,  # Pydantic model
+                existing_tool_params  # ToolParams
+            ]
+            processed = self._process_tools(tools)
+            ```
         """
         if not tools:
             return []
@@ -284,11 +264,6 @@ class BaseLLMInterface(BaseModel, ABC):
             else:
                 raise ValueError(f"Unsupported tool type: {type(tool)}")
 
-            # Check cache first
-            if tool_name in self.available_tools:
-                processed_tools.append(self.available_tools[tool_name])
-                continue
-
             # Process and cache new tool
             processed_tool = None
             if isinstance(tool, ToolParams):
@@ -299,6 +274,7 @@ class BaseLLMInterface(BaseModel, ABC):
                 processed_tool = self._use_tool(ToolParams.from_function(tool))
 
             if processed_tool:
+                # Update cache and add to result list
                 self.available_tools[tool_name] = processed_tool
                 processed_tools.append(processed_tool)
 
@@ -308,7 +284,7 @@ class BaseLLMInterface(BaseModel, ABC):
         """Clear the cached processed tools."""
         self.available_tools.clear()
 
-    def get_cached_tool(self, name: str) -> Optional[ToolParams]:
+    def get_cached_tool(self, name: str) -> Optional[ProcessedToolType]:
         """Get a processed tool from the cache by name.
 
         Args:
@@ -324,24 +300,55 @@ class BaseLLMInterface(BaseModel, ABC):
         self,
         prompt: Union[BasePrompt, str],
         variables: Optional[Dict[str, Any]] = None,
-        tools: Optional[List[Union[Callable, Type[BaseModel], ToolParams]]] = None,
+        tools: Optional[List[ToolInputType]] = None,
     ) -> LLMResponse:
-        """Process input using the LLM.
-
-        Args:
-            prompt: The prompt to process, either as a BasePrompt or string
-            variables: Optional variables to use in prompt rendering
-            tools: Optional list of tools/functions that can be called by the LLM.
-                  Can be functions, Pydantic models, or ToolParams objects.
+        """Process input using the LLM with optional tool support.
 
         Implementation Requirements:
-            - Must use _process_tools() to convert tools into standardized format
-            - Must handle tool invocation responses from the LLM
-            - Must validate tool inputs against parameter schemas
-            - Must handle both sync and async tool execution
+        1. Process tools in order of precedence:
+           - Runtime tools (from method argument)
+           - Prompt-level tools (from BasePrompt.tools)
+           - Interface-level tools (from available_tools)
+        2. Use _process_tools() to standardize tool format
+        3. Use _format_tools_for_provider() for API-specific formatting
+        4. Use _handle_tool_execution() for consistent tool execution
+        5. Handle both sync and async tool execution
+        6. Validate tool inputs against parameter schemas
 
-        Returns:
-            LLMResponse containing the model's response and metadata
+        Example Implementation:
+            ```python
+            async def process(self, prompt, variables=None, tools=None):
+                # Process tools in order of precedence
+                final_tools = []
+
+                # 1. Interface-level tools (lowest precedence)
+                final_tools.extend(self.available_tools.values())
+
+                # 2. Prompt-level tools (medium precedence)
+                if isinstance(prompt, BasePrompt) and prompt.tools:
+                    prompt_tools = self._process_tools(prompt.tools)
+                    final_tools.extend(prompt_tools)
+
+                # 3. Runtime tools (highest precedence)
+                if tools:
+                    runtime_tools = self._process_tools(tools)
+                    final_tools.extend(runtime_tools)
+
+                # Format for provider and make API call
+                api_tools = self._format_tools_for_provider(final_tools)
+                response = await self._make_api_call(prompt, api_tools)
+
+                # Handle tool calls in response
+                if response.tool_calls:
+                    for call in response.tool_calls:
+                        result = await self._handle_tool_execution(
+                            self.available_tools[call.name],
+                            call.arguments
+                        )
+                        # Process tool result...
+
+                return LLMResponse(...)
+            ```
         """
         pass
 
@@ -447,17 +454,115 @@ class BaseLLMInterface(BaseModel, ABC):
         """
         pass
 
-    @abstractmethod
     def _use_tool(self, tool_params: ToolParams) -> ToolParams:
-        """Process tool parameters for specific LLM implementation.
+        """Validate and normalize tool parameters.
 
-        This method should be implemented by subclasses to convert the
-        ToolParams into a format suitable for their specific LLM API.
+        This base implementation ensures tools meet minimum requirements.
+        Providers typically won't need to override this unless they have
+        specific validation needs.
 
         Args:
             tool_params: The tool parameters to process
 
         Returns:
-            Processed tool parameters
+            Validated and normalized tool parameters
+
+        Raises:
+            ValueError: If tool parameters are invalid
+        """
+        if not tool_params.name:
+            raise ValueError("Tool must have a name")
+        if not tool_params.parameters:
+            raise ValueError("Tool must have parameters schema")
+        return tool_params
+
+    @abstractmethod
+    def _format_tools_for_provider(self, tools: List[ProcessedToolType]) -> Any:
+        """Convert processed tools into provider-specific format.
+
+        This method should be implemented by provider interfaces to convert
+        standardized ToolParams into the format expected by their API.
+
+        Args:
+            tools: List of processed ToolParams objects
+
+        Returns:
+            Provider-specific tool format (type varies by provider)
+
+        Example Implementation:
+            ```python
+            def _format_tools_for_provider(self, tools):
+                return [{
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.parameters
+                } for tool in tools]
+            ```
         """
         pass
+
+    async def _handle_tool_execution(self, tool: ProcessedToolType, args: Dict[str, Any]) -> str:
+        """Execute a tool and format its result for LLM consumption.
+
+        This method provides consistent tool execution and result formatting
+        across all interfaces. Override only if provider needs custom handling.
+
+        Args:
+            tool: The processed tool to execute
+            args: Arguments to pass to the tool
+
+        Returns:
+            Formatted string response suitable for LLM consumption
+
+        Example Response:
+            ```
+            Tool 'calculator' executed successfully.
+            Result: 42
+            Type: int
+            ```
+        """
+        try:
+            result = await tool.execute(**args)
+            return f"Tool '{tool.name}' executed successfully.\n" f"Result: {result}\n" f"Type: {type(result).__name__}"
+        except Exception as e:
+            return f"Tool '{tool.name}' execution failed.\nError: {str(e)}"
+
+    def _check_model_capabilities(self, **kwargs: Any) -> Dict[str, Any]:
+        """Check if the model supports specific capabilities and filter parameters accordingly.
+
+        This method checks the model's capabilities (stored in state.profile.capabilities)
+        and removes any unsupported parameters from the kwargs.
+
+        Args:
+            **kwargs: Parameters to check against model capabilities
+
+        Returns:
+            Dict of filtered parameters that are supported by the model
+
+        Example:
+            ```python
+            kwargs = {
+                "temperature": 0.7,
+                "max_tokens": 100,
+                "stream": True
+            }
+            filtered = self._check_model_capabilities(**kwargs)
+            # If model doesn't support temperature, it will be removed
+            ```
+        """
+        if not self.state or not getattr(self.state.profile, "capabilities", None):
+            return kwargs
+
+        filtered_kwargs = kwargs.copy()
+        capabilities = self.state.profile.capabilities
+
+        # Check temperature support
+        if not getattr(capabilities, "supports_temperature", False):
+            filtered_kwargs.pop("temperature", None)
+
+        # Add more capability checks here as needed
+        # Example:
+        # if not getattr(capabilities, 'supports_streaming', False):
+        #     filtered_kwargs.pop('stream', None)
+
+        return filtered_kwargs

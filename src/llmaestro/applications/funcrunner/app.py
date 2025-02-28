@@ -92,23 +92,17 @@ class FunctionRunner:
         self.llm_registry = LLMRegistry()
         self.provider_manager = ProviderStateManager()
         self.credential_manager = CredentialManager()
-        
+
         # Initialize provider
-        self.provider_manager.initialize_provider(
-            family=self.config.provider,
-            api_key=self.config.api_key
-        )
-        
+        self.provider_manager.initialize_provider(family=self.config.provider, api_key=self.config.api_key)
+
         # Create LLM instance
         factory = LLMFactory(
             registry=self.llm_registry,
             provider_manager=self.provider_manager,
-            credential_manager=self.credential_manager
+            credential_manager=self.credential_manager,
         )
-        self.llm = factory.create_llm(
-            model_name=self.config.model,
-            runtime_config=self.config.runtime
-        )
+        self.llm = factory.create_llm(model_name=self.config.model, runtime_config=self.config.runtime)
 
     def _init_prompts(self):
         """Load prompt templates for function calling."""
@@ -147,7 +141,7 @@ class FunctionRunner:
 
         # Render prompt with function definitions and user input
         prompt = self.prompts["function_calling"]
-        system_prompt, user_prompt = prompt.render(
+        system_prompt, user_prompt, attachments, tools = prompt.render(
             functions="\n".join(str(f) for f in function_definitions), user_input=user_input
         )
 
