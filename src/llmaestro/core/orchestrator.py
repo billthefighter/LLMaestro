@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, Callable, Awaitable
 from uuid import uuid4
 
 from pydantic import BaseModel
@@ -33,6 +33,48 @@ class Orchestrator:
         self.agent_pool = agent_pool
         self.active_conversations: Dict[str, ConversationGraph] = {}
         self.active_conversation_id: Optional[str] = None
+
+        # Callback functions for visualization
+        self.conversation_created_callback: Optional[Callable[[ConversationGraph], Awaitable[None]]] = None
+        self.conversation_updated_callback: Optional[Callable[[ConversationGraph], Awaitable[None]]] = None
+        self.node_added_callback: Optional[Callable[[str, str], Awaitable[None]]] = None
+        self.node_updated_callback: Optional[Callable[[str, str], Awaitable[None]]] = None
+
+    def on_conversation_created(self, handler: Callable[[ConversationGraph], Awaitable[None]]) -> None:
+        """Register a handler for conversation creation events."""
+        self.conversation_created_callback = handler
+
+    def on_conversation_updated(self, handler: Callable[[ConversationGraph], Awaitable[None]]) -> None:
+        """Register a handler for conversation update events."""
+        self.conversation_updated_callback = handler
+
+    def on_node_added(self, handler: Callable[[str, str], Awaitable[None]]) -> None:
+        """Register a handler for node addition events."""
+        self.node_added_callback = handler
+
+    def on_node_updated(self, handler: Callable[[str, str], Awaitable[None]]) -> None:
+        """Register a handler for node update events."""
+        self.node_updated_callback = handler
+
+    async def _notify_conversation_created(self, conversation: ConversationGraph) -> None:
+        """Notify callback of conversation creation."""
+        if self.conversation_created_callback:
+            await self.conversation_created_callback(conversation)
+
+    async def _notify_conversation_updated(self, conversation: ConversationGraph) -> None:
+        """Notify callback of conversation update."""
+        if self.conversation_updated_callback:
+            await self.conversation_updated_callback(conversation)
+
+    async def _notify_node_added(self, conversation_id: str, node_id: str) -> None:
+        """Notify callback of node addition."""
+        if self.node_added_callback:
+            await self.node_added_callback(conversation_id, node_id)
+
+    async def _notify_node_updated(self, conversation_id: str, node_id: str) -> None:
+        """Notify callback of node update."""
+        if self.node_updated_callback:
+            await self.node_updated_callback(conversation_id, node_id)
 
     def _resolve_conversation_id(
         self, conversation: Optional[Union[str, ConversationGraph, ConversationNode]] = None
@@ -109,12 +151,17 @@ class Orchestrator:
         conversation = ConversationGraph(id=str(uuid4()), metadata={"name": name, **(metadata or {})})
 
         # Add initial prompt node
-        conversation.add_node(
+        node_id = conversation.add_conversation_node(
             content=initial_prompt, node_type="prompt", metadata={"execution": ExecutionMetadata().model_dump()}
         )
 
         self.active_conversations[conversation.id] = conversation
         self.active_conversation_id = conversation.id  # Set as active by default
+
+        # Notify handlers
+        await self._notify_conversation_created(conversation)
+        await self._notify_node_added(conversation.id, node_id)
+
         return conversation
 
     async def execute_prompt_in_active(self, prompt: BasePrompt, dependencies: Optional[List[str]] = None) -> str:
@@ -138,14 +185,15 @@ class Orchestrator:
         )
 
         # Add prompt node
-        prompt_node_id = conversation.add_node(
+        prompt_node_id = conversation.add_conversation_node(
             content=prompt, node_type="prompt", metadata={"execution": exec_metadata.model_dump()}
         )
+        await self._notify_node_added(conversation.id, prompt_node_id)
 
         # Add dependency edges
         if dependencies:
             for dep_id in dependencies:
-                conversation.add_edge(source_id=dep_id, target_id=prompt_node_id, edge_type="depends_on")
+                conversation.add_conversation_edge(source_id=dep_id, target_id=prompt_node_id, edge_type="depends_on")
 
         try:
             # Check if dependencies are complete
@@ -154,12 +202,13 @@ class Orchestrator:
             # Update status
             node = conversation.nodes[prompt_node_id]
             node.metadata["execution"]["status"] = "running"
+            await self._notify_node_updated(conversation.id, prompt_node_id)
 
             # Execute prompt
             response = await self.agent_pool.execute_prompt(prompt)
 
             # Add response node
-            response_node_id = conversation.add_node(
+            response_node_id = conversation.add_conversation_node(
                 content=response,
                 node_type="response",
                 metadata={
@@ -168,13 +217,18 @@ class Orchestrator:
                     ).model_dump()
                 },
             )
+            await self._notify_node_added(conversation.id, response_node_id)
 
             # Link response to prompt
-            conversation.add_edge(source_id=prompt_node_id, target_id=response_node_id, edge_type="response_to")
+            conversation.add_conversation_edge(
+                source_id=prompt_node_id, target_id=response_node_id, edge_type="response_to"
+            )
 
             # Update prompt node status
             node.metadata["execution"]["status"] = "completed"
             node.metadata["execution"]["completed_at"] = datetime.now()
+            await self._notify_node_updated(conversation.id, prompt_node_id)
+            await self._notify_conversation_updated(conversation)
 
             return response_node_id
 
@@ -183,6 +237,8 @@ class Orchestrator:
             node = conversation.nodes[prompt_node_id]
             node.metadata["execution"]["status"] = "failed"
             node.metadata["execution"]["error"] = str(e)
+            await self._notify_node_updated(conversation.id, prompt_node_id)
+            await self._notify_conversation_updated(conversation)
             raise
 
     async def execute_parallel_in_active(
@@ -274,9 +330,9 @@ class Orchestrator:
     ) -> str:
         """Add a node to a conversation."""
         conversation = self._get_conversation(conversation)
-        node_id = conversation.add_node(content=content, node_type=node_type, metadata=metadata or {})
+        node_id = conversation.add_conversation_node(content=content, node_type=node_type, metadata=metadata or {})
 
         if parent_id:
-            conversation.add_edge(source_id=parent_id, target_id=node_id, edge_type="response_to")
+            conversation.add_conversation_edge(source_id=parent_id, target_id=node_id, edge_type="response_to")
 
         return node_id

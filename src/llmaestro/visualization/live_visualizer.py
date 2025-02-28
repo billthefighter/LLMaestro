@@ -1,3 +1,5 @@
+"""Real-time visualization using WebSockets."""
+
 import asyncio
 import json
 from dataclasses import asdict, dataclass, field
@@ -6,9 +8,11 @@ from typing import Any, Dict, Optional, Set
 import websockets.legacy.server
 from websockets.legacy.server import WebSocketServer, WebSocketServerProtocol, serve
 
+from llmaestro.chains.chains import ChainGraph, ChainNode
+from llmaestro.core.conversations import ConversationGraph
 from llmaestro.core.logging_config import configure_logging
-from llmaestro.llm.chains import ChainStep
 from llmaestro.visualization.chain_visualizer import ChainVisualizer
+from llmaestro.visualization.conversation_visualizer import ConversationVisualizer
 
 # Configure module logger
 logger = configure_logging(module_name=__name__)
@@ -23,17 +27,19 @@ class StepMetadata:
     data: Dict[str, Any] = field(default_factory=dict)
 
 
-class LiveChainVisualizer:
-    """Real-time chain visualization using WebSockets."""
+class LiveVisualizer:
+    """Real-time graph visualization using WebSockets."""
 
     def __init__(self, host: str = "localhost", port: int = 8765):
         self.host = host
         self.port = port
         self.clients: Set[WebSocketServerProtocol] = set()
         self.chain_visualizer = ChainVisualizer()
+        self.conversation_visualizer = ConversationVisualizer()
         self.server: Optional[WebSocketServer] = None
         self.step_metadata: Dict[str, StepMetadata] = {}
-        logger.info(f"LiveChainVisualizer initialized with host={host}, port={port}")
+        self.current_chain: Optional[ChainGraph] = None
+        logger.info(f"LiveVisualizer initialized with host={host}, port={port}")
 
     async def register(self, websocket: WebSocketServerProtocol):
         """Register a new client connection."""
@@ -95,26 +101,43 @@ class LiveChainVisualizer:
             logger.info("WebSocket server stopped")
 
     # Chain event handlers
-    async def on_step_start(self, step: ChainStep):
-        """Handle step start event."""
-        logger.info(f"Step started: {step.task_type}")
-        metadata = StepMetadata(status="running")
-        self.step_metadata[step.id] = metadata
-        self.chain_visualizer._process_chain_step(step)
+    async def on_chain_start(self, chain: ChainGraph):
+        """Handle chain start event."""
+        logger.info("Chain started")
+        self.current_chain = chain
+        self.chain_visualizer.process_graph(chain)
         await self.broadcast_update()
 
-    async def on_step_complete(self, step: ChainStep):
+    async def on_step_start(self, step: ChainNode):
+        """Handle step start event."""
+        logger.info(f"Step started: {step.node_type}")
+        metadata = StepMetadata(status="running")
+        self.step_metadata[step.id] = metadata
+
+        if self.current_chain:
+            self.current_chain.add_node(step)
+            self.chain_visualizer.process_graph(self.current_chain)
+            await self.broadcast_update()
+
+    async def on_step_complete(self, step: ChainNode):
         """Handle step completion event."""
-        logger.info(f"Step completed: {step.task_type}")
+        logger.info(f"Step completed: {step.node_type}")
         if step.id in self.step_metadata:
             self.step_metadata[step.id].status = "completed"
         await self.broadcast_update()
 
-    async def on_step_error(self, step: ChainStep, error: Exception):
+    async def on_step_error(self, step: ChainNode, error: Exception):
         """Handle step error event."""
-        logger.error(f"Step error in {step.task_type}: {error}")
+        logger.error(f"Step error in {step.node_type}: {error}")
         if step.id in self.step_metadata:
             metadata = self.step_metadata[step.id]
             metadata.status = "error"
             metadata.error = str(error)
+        await self.broadcast_update()
+
+    # Conversation event handlers
+    async def on_conversation_update(self, conversation: ConversationGraph):
+        """Handle conversation update event."""
+        logger.info("Processing conversation update")
+        self.conversation_visualizer.process_graph(conversation)
         await self.broadcast_update()

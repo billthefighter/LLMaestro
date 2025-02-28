@@ -6,7 +6,7 @@ import base64
 import json
 
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletion, ChatCompletionChunk, ChatCompletionMessage
+from openai.types.chat import ChatCompletion, ChatCompletionMessage
 from openai.types.chat.chat_completion_system_message_param import ChatCompletionSystemMessageParam
 from openai.types.chat.chat_completion_user_message_param import ChatCompletionUserMessageParam
 from openai.types.file_object import FileObject
@@ -167,35 +167,18 @@ class OpenAIInterface(BaseLLMInterface):
         """
         output_config: Dict[str, Any] = {}
 
+        # For Pydantic models, we'll handle validation after the response
         if config.pydantic_model:
-            # Use the Pydantic model directly for function calling
-            schema = config.pydantic_model.model_json_schema()
             logger.debug(f"Using Pydantic model directly: {config.model_name}")
-            logger.debug(f"Generated schema from model: {json.dumps(schema, indent=2)}")
-            output_config["functions"] = [
-                {
-                    "name": "output_json",
-                    "description": f"Output JSON data according to {config.model_name} schema",
-                    "parameters": schema,
-                }
-            ]
-            output_config["function_call"] = {"name": "output_json"}
-        elif config.schema:
-            # Use provided JSON schema for function calling
-            logger.debug("Using provided JSON schema")
-            logger.debug(f"Schema: {json.dumps(config.schema, indent=2)}")
-            output_config["functions"] = [
-                {
-                    "name": "output_json",
-                    "description": "Output JSON data according to the schema",
-                    "parameters": config.schema,
-                }
-            ]
-            output_config["function_call"] = {"name": "output_json"}
-        elif config.format in [ResponseFormatType.JSON, ResponseFormatType.JSON_SCHEMA]:
-            # Use simple JSON mode without schema
-            logger.debug("Using simple JSON mode without schema")
+            # Just use JSON mode for the API call, we'll validate with Pydantic later
             output_config["response_format"] = {"type": "json_object"}
+            logger.debug(f"Final output config: using Pydantic model {config.model_name}")
+            return output_config
+
+        # For JSON schema or simple JSON mode, just use json_object type
+        # OpenAI API doesn't support schema in response_format
+        logger.debug("Using JSON mode")
+        output_config["response_format"] = {"type": "json_object"}
 
         logger.debug(f"Final output config: {json.dumps(output_config, indent=2)}")
         return output_config
@@ -310,47 +293,64 @@ class OpenAIInterface(BaseLLMInterface):
         self,
         messages: List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]],
         model: str,
-        max_tokens: int,
         temperature: float,
-        stream: bool = False,
+        max_tokens: int,
         tools: Optional[List[ProcessedToolType]] = None,
         response_format: Optional[Dict[str, Any]] = None,
-    ) -> Union[ChatCompletion, AsyncIterator[ChatCompletionChunk]]:
-        """Create a chat completion with the given parameters."""
-        # Format messages to ensure file_ids are properly included
-        formatted_messages = []
-        for msg in messages:
-            msg_dict = {"role": msg["role"], "content": msg["content"]}
-            if "file_ids" in msg:
-                msg_dict["file_ids"] = msg["file_ids"]
-            formatted_messages.append(msg_dict)
+        **kwargs: Any,
+    ) -> ChatCompletion:
+        """Create a chat completion with OpenAI.
 
-        kwargs = {
-            "messages": formatted_messages,
-            "model": model,
-            "max_completion_tokens": max_tokens,  # Note: the OpenAI API uses max_completion_tokens instead of max_tokens
-            "temperature": temperature,
-            "stream": stream,
-        }
+        Args:
+            messages: List of messages for the conversation
+            model: Model to use for completion
+            temperature: Temperature for sampling
+            max_tokens: Maximum tokens to generate
+            tools: Optional list of tools to use
+            response_format: Optional response format configuration
+            **kwargs: Additional keyword arguments
 
-        # Check model capabilities and filter unsupported parameters
-        kwargs = self._check_model_capabilities(**kwargs)
+        Returns:
+            ChatCompletion response from OpenAI
+        """
+        kwargs.update(
+            {
+                "messages": messages,
+                "model": model,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        )
 
-        # Configure tools if provided and not using structured output
-        if tools and not response_format:
-            # Convert tools to OpenAI's format
+        # Handle tools if provided
+        if tools:
             openai_tools = self._format_tools_for_provider(tools)
             kwargs["tools"] = openai_tools
             kwargs["tool_choice"] = "auto"  # Let OpenAI decide when to use tools
 
-        # Add structured output configuration if provided
+        # Handle response format configuration
         if response_format:
-            # Handle both response_format and functions configuration
-            if "response_format" in response_format:
-                kwargs["response_format"] = response_format["response_format"]
-            if "functions" in response_format:
-                kwargs["functions"] = response_format["functions"]
-                kwargs["function_call"] = response_format["function_call"]
+            if isinstance(response_format.get("response_format"), type) and issubclass(
+                response_format["response_format"], BaseModel
+            ):
+                # If it's a Pydantic model, use beta.chat.completions.parse
+                try:
+                    logger.debug("Using beta.chat.completions.parse with Pydantic model")
+                    return await self.client.beta.chat.completions.parse(
+                        messages=messages,
+                        model=model,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                        response_format=response_format["response_format"],
+                        **kwargs,
+                    )
+                except (AttributeError, ImportError, TypeError) as e:
+                    # If beta endpoint is not available or other error, fallback to JSON mode
+                    logger.warning(f"Failed to use beta.chat.completions.parse: {e}. Falling back to JSON mode")
+                    kwargs["response_format"] = {"type": "json_object"}
+            else:
+                # For regular JSON format or schema
+                kwargs["response_format"] = response_format.get("response_format", {"type": "json_object"})
 
         return await self.client.chat.completions.create(**kwargs)
 
@@ -419,9 +419,8 @@ class OpenAIInterface(BaseLLMInterface):
             response = await self._create_chat_completion(
                 messages=messages,
                 model=model_name,
-                max_tokens=max_tokens,
                 temperature=temperature,
-                stream=False,
+                max_tokens=max_tokens,
                 tools=final_tools if not response_format else None,  # Don't use tools if using response format
                 response_format=response_format,
             )
@@ -429,7 +428,21 @@ class OpenAIInterface(BaseLLMInterface):
             if not isinstance(response, ChatCompletion):
                 raise ValueError("Expected ChatCompletion response for non-streaming request")
             logger.debug(f"Raw OpenAIResponse: {response}")
-            return await self._handle_response(response)
+
+            # Get the response content
+            llm_response = await self._handle_response(response)
+
+            # If we have a Pydantic model in the prompt's expected response, validate against it
+            if isinstance(prompt, BasePrompt) and prompt.expected_response and prompt.expected_response.pydantic_model:
+                try:
+                    # Validate the response content against the Pydantic model
+                    model = prompt.expected_response.pydantic_model
+                    model.model_validate_json(llm_response.content)
+                except Exception as e:
+                    logger.error(f"Failed to validate response against Pydantic model: {str(e)}")
+                    return self._handle_error(e)
+
+            return llm_response
         except Exception as e:
             return self._handle_error(e)
 
@@ -469,9 +482,8 @@ class OpenAIInterface(BaseLLMInterface):
                 response = await self._create_chat_completion(
                     messages=messages,
                     model=model_name,
-                    max_tokens=max_tokens,
                     temperature=temperature,
-                    stream=False,
+                    max_tokens=max_tokens,
                     tools=final_tools if not response_format else None,  # Don't use tools if using response format
                     response_format=response_format,
                 )
@@ -506,9 +518,8 @@ class OpenAIInterface(BaseLLMInterface):
             stream = await self._create_chat_completion(
                 messages=messages,
                 model=model_name,
-                max_tokens=max_tokens,
                 temperature=temperature,
-                stream=True,
+                max_tokens=max_tokens,
                 tools=final_tools,
                 response_format=response_format,
             )

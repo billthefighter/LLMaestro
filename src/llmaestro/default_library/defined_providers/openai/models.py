@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Dict, Callable
 
-from llmaestro.llm.capabilities import LLMCapabilities
+from llmaestro.llm.capabilities import LLMCapabilities, VisionCapabilities
 from llmaestro.llm.models import LLMState, LLMProfile, LLMMetadata, LLMRuntimeConfig
 from llmaestro.default_library.defined_providers.openai.provider import OPENAI_PROVIDER
 
@@ -70,7 +70,7 @@ class OpenAIModels:
                     max_output_tokens=16384,
                     supports_streaming=True,
                     supports_function_calling=True,
-                    supports_vision=False,
+                    supports_vision=True,
                     supports_embeddings=False,
                     supports_json_mode=True,
                     supports_system_prompt=True,
@@ -90,6 +90,16 @@ class OpenAIModels:
                     is_preview=False,
                     is_deprecated=False,
                     min_api_version="2024-07-18",
+                ),
+                vision_capabilities=VisionCapabilities(
+                    max_images_per_request=1,
+                    supported_formats=["png", "jpeg", "gif", "webp"],
+                    max_image_size_mb=20,
+                    max_image_resolution=2048,
+                    supports_image_annotations=False,
+                    supports_image_analysis=True,
+                    supports_image_generation=False,
+                    cost_per_image=0.01,
                 ),
             ),
             provider=OPENAI_PROVIDER,

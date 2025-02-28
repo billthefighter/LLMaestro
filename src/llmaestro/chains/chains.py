@@ -3,10 +3,11 @@
 import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, Generic, List, Optional, Protocol, Set, Tuple, TypeVar, cast
+from typing import Any, Callable, Dict, Generic, Optional, Protocol, Set, Tuple, TypeVar, cast
 from uuid import uuid4
 
 from llmaestro.agents.agent_pool import AgentPool
+from llmaestro.core.graph import BaseEdge, BaseGraph, BaseNode
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.types import PromptMetadata
@@ -147,10 +148,9 @@ class ChainStep(BaseModel, Generic[T]):
         return cast(T, result)
 
 
-class ChainNode(BaseModel):
+class ChainNode(BaseNode):
     """Represents a single node in the chain graph."""
 
-    id: str = Field(default_factory=lambda: str(uuid4()))
     step: ChainStep = Field(...)
     node_type: NodeType = Field(...)
     metadata: ChainMetadata = Field(default_factory=ChainMetadata)
@@ -158,12 +158,9 @@ class ChainNode(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class ChainEdge(BaseModel):
+class ChainEdge(BaseEdge):
     """Represents a directed edge between chain nodes."""
 
-    source_id: str = Field(..., description="ID of the source node")
-    target_id: str = Field(..., description="ID of the target node")
-    edge_type: str = Field(..., description="Type of relationship")
     condition: Optional[str] = Field(default=None, description="Optional condition for edge traversal")
 
     model_config = ConfigDict(validate_assignment=True)
@@ -259,57 +256,13 @@ class ValidationNode(ChainNode):
         )
 
 
-class ChainGraph(BaseModel):
+class ChainGraph(BaseGraph[ChainNode, ChainEdge]):
     """A graph-based representation of an LLM chain."""
 
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    nodes: Dict[str, ChainNode] = Field(default_factory=dict)
-    edges: List[ChainEdge] = Field(default_factory=list)
     context: ChainContext = Field(default_factory=ChainContext)
     agent_pool: Optional[AgentPool] = None
 
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
-
-    def add_node(self, node: ChainNode) -> str:
-        """Add a node to the graph."""
-        self.nodes[node.id] = node
-        return node.id
-
-    def add_edge(self, edge: ChainEdge) -> None:
-        """Add an edge to the graph."""
-        if edge.source_id not in self.nodes or edge.target_id not in self.nodes:
-            raise ValueError("Both source and target nodes must exist in the graph")
-        self.edges.append(edge)
-
-    def get_node_dependencies(self, node_id: str) -> List[str]:
-        """Get IDs of nodes that must complete before this node."""
-        return [edge.source_id for edge in self.edges if edge.target_id == node_id]
-
-    def get_execution_order(self) -> List[List[str]]:
-        """Get nodes grouped by execution level (for parallel execution)."""
-        # Initialize
-        in_degree = {node_id: 0 for node_id in self.nodes}
-        for edge in self.edges:
-            in_degree[edge.target_id] += 1
-
-        # Group nodes by level
-        levels: List[List[str]] = []
-        while in_degree:
-            # Get all nodes with no dependencies
-            current_level = [node_id for node_id, degree in in_degree.items() if degree == 0]
-            if not current_level:
-                raise ValueError("Cycle detected in chain graph")
-
-            levels.append(current_level)
-
-            # Remove processed nodes and update dependencies
-            for node_id in current_level:
-                del in_degree[node_id]
-                for edge in self.edges:
-                    if edge.source_id == node_id and edge.target_id in in_degree:
-                        in_degree[edge.target_id] -= 1
-
-        return levels
 
     async def execute(self, **kwargs: Any) -> Dict[str, Any]:
         """Execute the chain graph."""

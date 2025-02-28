@@ -202,8 +202,16 @@ def invoice_pydantic_prompt(invoice_png_attachment: FileAttachment) -> MemoryPro
         description="Extract financial data from PNG invoice using Pydantic model",
         system_prompt="""You are an expert at extracting financial data from invoices.
 Extract the requested information accurately, maintaining the exact numerical values and currency format as shown in the invoice.
-Return the data in the specified JSON format.
-IMPORTANT: Return ONLY the raw JSON without any markdown formatting or code blocks.
+
+REQUIRED OUTPUT FORMAT:
+You must return a flat JSON object with these exact fields:
+- total: The total amount before VAT (e.g. "381,12 €")
+- vat_percentage: The VAT percentage (e.g. "19 %")
+- vat_total: The total VAT amount (e.g. "72,41 €")
+- gross_total: The gross amount including VAT (e.g. "453,53 €")
+
+DO NOT nest the response under an "invoice" key or any other wrapper.
+Return ONLY the raw JSON without any markdown formatting or code blocks.
 Do not wrap the response in ```json``` or any other markdown.""",
         user_prompt="Please extract the parameters requested in the expected response format.",
         metadata=PromptMetadata(
