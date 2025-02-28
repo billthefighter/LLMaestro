@@ -1,13 +1,14 @@
 """Tests for tool parameter generation functionality."""
 import inspect
-from typing import List, Optional
+from typing import List, Optional, Callable, Any
 from pydantic import BaseModel, Field
-
+import os
 import pytest
+import json
 
 from llmaestro.llm.interfaces.base import ToolParams
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
-from llmaestro.prompts.tools import ToolParams
+from llmaestro.prompts.tools import ToolParams, FunctionGuard, BasicFunctionGuard
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.memory import MemoryPrompt
@@ -44,6 +45,89 @@ def sample_pydantic_model():
         tags: Optional[List[str]] = Field(default=None, description="Optional tags")
 
     return TestModel
+
+
+# New fixtures for FunctionGuard testing
+@pytest.fixture
+def risky_file_function():
+    """Sample function that attempts file operations."""
+    def read_file(path: str) -> str:
+        """Read contents of a file."""
+        with open(path) as f:
+            return f.read()
+    return read_file
+
+
+class FileSystemGuard(BasicFunctionGuard):
+    """Custom guard for file system operations."""
+
+    def __init__(self, func: Callable, allowed_paths: List[str]):
+        super().__init__(func)
+        self.allowed_paths = allowed_paths
+
+    def is_safe_to_run(self, **kwargs: Any) -> bool:
+        if not super().is_safe_to_run(**kwargs):
+            return False
+
+        path = kwargs.get('path')
+        if not path:
+            return False
+
+        return any(str(path).startswith(allowed) for allowed in self.allowed_paths)
+
+
+# Test Cases for FunctionGuard
+def test_basic_function_guard(sample_sync_function):
+    """Test BasicFunctionGuard with valid and invalid arguments."""
+    guard = BasicFunctionGuard(sample_sync_function)
+
+    # Test valid arguments
+    assert guard.is_safe_to_run(name="test", count=3)
+    result = guard(name="test", count=3)
+    assert result == "Hello test 3 times"
+
+    # Test invalid arguments
+    assert not guard.is_safe_to_run(invalid_arg="test")
+    with pytest.raises(ValueError):
+        guard(invalid_arg="test")
+
+
+def test_custom_function_guard(risky_file_function, tmp_path):
+    """Test custom FunctionGuard implementation with file system safety checks."""
+    # Create a test file
+    test_file = tmp_path / "test.txt"
+    test_file.write_text("test content")
+
+    # Create guard with allowed path
+    guard = FileSystemGuard(risky_file_function, allowed_paths=[str(tmp_path)])
+
+    # Test with allowed path
+    assert guard.is_safe_to_run(path=str(test_file))
+    result = guard(path=str(test_file))
+    assert result == "test content"
+
+    # Test with disallowed path
+    disallowed_path = "/etc/passwd"
+    assert not guard.is_safe_to_run(path=disallowed_path)
+    with pytest.raises(ValueError):
+        guard(path=disallowed_path)
+
+
+def test_pydantic_model_guard(sample_pydantic_model):
+    """Test FunctionGuard with Pydantic model."""
+    guard = BasicFunctionGuard(sample_pydantic_model)
+
+    # Test valid model instantiation
+    assert guard.is_safe_to_run(name="test")
+    result = guard(name="test")
+    assert isinstance(result, sample_pydantic_model)
+    assert result.name == "test"
+    assert result.age == 0  # default value
+
+    # Test invalid model instantiation
+    assert not guard.is_safe_to_run(invalid_field="test")
+    with pytest.raises(ValueError):
+        guard(invalid_field="test")
 
 
 # Test Cases for from_function
@@ -168,7 +252,15 @@ def test_type_conversions(input_type, expected_type):
 
 
 @pytest.fixture
-async def openai_prompt() -> BasePrompt:
+def get_weather():
+    """Get current temperature for a given location."""
+    def _get_weather(location: str) -> str:
+        return f"The weather in {location} is always sunny."
+    return _get_weather
+
+
+@pytest.fixture
+async def openai_prompt(get_weather) -> BasePrompt:
     """Create a prompt for testing OpenAI tool usage."""
     return MemoryPrompt(
         name="weather_query",
@@ -194,15 +286,10 @@ async def openai_prompt() -> BasePrompt:
                     "additionalProperties": False
                 },
                 is_async=False,
-                source=get_weather
+                source=BasicFunctionGuard(get_weather)
             )
         ]
     )
-
-
-def get_weather(location: str) -> str:
-    """Get current temperature for a given location."""
-    return f"The weather in {location} is always sunny."
 
 
 @pytest.mark.asyncio
@@ -218,15 +305,115 @@ async def test_openai_tool_integration(test_settings, llm_registry: LLMRegistry,
     model_name = "o3-mini-2025-01-31"  # Use a model that supports tool usage
     llm_instance = await llm_registry.create_instance(model_name)
 
-    # Act - removed tools parameter since it's already defined in the prompt
+    # Act - first response should contain tool calls
     response = await llm_instance.interface.process(openai_prompt, variables={"location": "Paris"})
 
-    # Assert
+    # Assert first response
     assert isinstance(response, LLMResponse)
     assert response.success is True
-    assert isinstance(response.content, str)
 
-    # Validate the response contains successful tool execution
-    assert "Tool 'get_weather' executed successfully" in response.content
-    assert "The weather in Paris" in response.content
-    assert "sunny" in response.content
+    # The response should be a JSON string containing the tool call arguments
+    tool_args = json.loads(response.content)
+    assert "location" in tool_args
+    assert tool_args["location"] in ["Paris", "Paris, France"]
+
+    # Execute the tool directly
+    tool = openai_prompt.tools[0]  # get_weather tool
+    result = await tool.execute(**tool_args)
+
+    # Verify tool execution result
+    assert "The weather in Paris" in result
+    assert "sunny" in result
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tool_call_response_handling(test_settings, llm_registry: LLMRegistry):
+    """Test handling of tool call responses."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
+    # Create a test tool
+    def calculator(a: int, b: int, operation: str = "add") -> int:
+        """Simple calculator function."""
+        if operation == "add":
+            return a + b
+        elif operation == "multiply":
+            return a * b
+        raise ValueError(f"Unsupported operation: {operation}")
+
+    # Create a prompt with the calculator tool
+    prompt = MemoryPrompt(
+        name="calculator",
+        description="Test calculator tool",
+        system_prompt="You are a calculator assistant.",
+        user_prompt="What is {a} {operation} {b}?",
+        variables=[
+            PromptVariable(name="a", expected_input_type=SerializableType.INTEGER),
+            PromptVariable(name="b", expected_input_type=SerializableType.INTEGER),
+            PromptVariable(name="operation", expected_input_type=SerializableType.STRING),
+        ],
+        tools=[
+            ToolParams(
+                name="calculator",
+                description="Perform basic arithmetic operations.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "a": {"type": "integer"},
+                        "b": {"type": "integer"},
+                        "operation": {
+                            "type": "string",
+                            "enum": ["add", "multiply"]
+                        }
+                    },
+                    "required": ["a", "b", "operation"],
+                    "additionalProperties": False
+                },
+                is_async=False,
+                source=BasicFunctionGuard(calculator)
+            )
+        ]
+    )
+
+    # Get LLM instance
+    model_name = "o3-mini-2025-01-31"
+    llm_instance = await llm_registry.create_instance(model_name)
+
+    # Test addition
+    response = await llm_instance.interface.process(
+        prompt,
+        variables={"a": 5, "b": 3, "operation": "add"}
+    )
+
+    assert isinstance(response, LLMResponse)
+    assert response.success is True
+
+    # Parse tool call arguments
+    tool_args = json.loads(response.content)
+    assert tool_args["a"] == 5
+    assert tool_args["b"] == 3
+    assert tool_args["operation"] == "add"
+
+    # Execute tool
+    tool = prompt.tools[0]
+    result = await tool.execute(**tool_args)
+    assert result == 8
+
+    # Test multiplication
+    response = await llm_instance.interface.process(
+        prompt,
+        variables={"a": 4, "b": 6, "operation": "multiply"}
+    )
+
+    assert isinstance(response, LLMResponse)
+    assert response.success is True
+
+    # Parse tool call arguments
+    tool_args = json.loads(response.content)
+    assert tool_args["a"] == 4
+    assert tool_args["b"] == 6
+    assert tool_args["operation"] == "multiply"
+
+    # Execute tool
+    result = await tool.execute(**tool_args)
+    assert result == 24
