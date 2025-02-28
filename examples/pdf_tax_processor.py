@@ -295,8 +295,9 @@ class PDFTaxProcessor:
 
                 # Get response and process items
                 response_node = conversation.nodes[response_id]
-                if response_node.content and hasattr(response_node.content, 'success') and response_node.content.success:
+                if isinstance(response_node.content, LLMResponse) and response_node.content.success:
                     try:
+                        self.logger.debug(f"Raw response content: {response_node.content.content}")
                         items_data = json.loads(response_node.content.content)
                         items = TaxableItems.model_validate(items_data).items
                         all_items.extend(items)

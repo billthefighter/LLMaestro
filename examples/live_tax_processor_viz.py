@@ -118,7 +118,9 @@ class LiveTaxProcessorVisualizer:
 
         # Prepare visualization data
         graph_data = self._conversation_to_cytoscape(conversation)
-        self.logger.info(f"Broadcasting update for conversation {conversation_id} with {len(graph_data['nodes'])} nodes")
+        self.logger.debug(f"Broadcasting update for conversation {conversation_id}")
+        self.logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['edges'])} edges")
+        self.logger.debug(f"Node types: {[node['data']['type'] for node in graph_data['nodes']]}")
 
         config = self.renderer.get_config(
             elements=graph_data,
@@ -136,25 +138,34 @@ class LiveTaxProcessorVisualizer:
         # Broadcast to all clients
         websockets_clients = [ws for ws in self.connected_clients]
         if websockets_clients:
-            self.logger.info(f"Sending update to {len(websockets_clients)} clients")
-            await asyncio.gather(
-                *[client.send(json.dumps(update)) for client in websockets_clients]
-            )
+            self.logger.debug(f"Broadcasting to {len(websockets_clients)} clients")
+            try:
+                await asyncio.gather(
+                    *[client.send(json.dumps(update)) for client in websockets_clients]
+                )
+                self.logger.debug("Broadcast completed successfully")
+            except Exception as e:
+                self.logger.error(f"Error broadcasting update: {e}")
+        else:
+            self.logger.warning("No websocket clients available for broadcast")
 
     async def _handle_client(self, websocket):
         """Handle a client connection."""
         self.connected_clients.add(websocket)
-        self.logger.info(f"New client connected. Total clients: {len(self.connected_clients)}")
+        self.logger.info(f"New client connected from {websocket.remote_address}. Total clients: {len(self.connected_clients)}")
 
         try:
             async for message in websocket:
+                self.logger.debug(f"Received message from client: {message}")
                 # Handle incoming messages if needed
                 pass
         except websockets.exceptions.ConnectionClosed:
-            pass
+            self.logger.info(f"Client connection closed from {websocket.remote_address}")
+        except Exception as e:
+            self.logger.error(f"Error handling client connection: {e}")
         finally:
             self.connected_clients.remove(websocket)
-            self.logger.info(f"Client connection closed. Total clients: {len(self.connected_clients)}")
+            self.logger.info(f"Client disconnected. Total clients: {len(self.connected_clients)}")
 
     async def start(self):
         """Start the visualization server."""
@@ -179,12 +190,14 @@ class LiveTaxProcessorVisualizer:
     def track_conversation(self, conversation: ConversationGraph) -> None:
         """Start tracking a conversation for visualization."""
         self.logger.info(f"Starting to track conversation {conversation.id}")
+        self.logger.debug(f"Initial conversation state: {len(conversation.nodes)} nodes, {len(conversation.edges)} edges")
         self.active_conversations[conversation.id] = conversation
         asyncio.create_task(self._broadcast_update(conversation.id))
 
     def update_conversation(self, conversation_id: str, conversation: ConversationGraph) -> None:
         """Update the state of a tracked conversation."""
-        self.logger.info(f"Updating conversation {conversation_id} with {len(conversation.nodes)} nodes")
+        self.logger.info(f"Updating conversation {conversation_id}")
+        self.logger.debug(f"Updated conversation state: {len(conversation.nodes)} nodes, {len(conversation.edges)} edges")
         self.active_conversations[conversation_id] = conversation
         asyncio.create_task(self._broadcast_update(conversation_id))
 

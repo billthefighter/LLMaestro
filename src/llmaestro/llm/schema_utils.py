@@ -47,7 +47,24 @@ def schema_to_json(schema: Union[Dict[str, Any], Type[BaseModel], str]) -> str:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON schema string: {e}")
 
-    return json.dumps(convert_to_schema(schema))
+    if isinstance(schema, type) and issubclass(schema, BaseModel):
+        # For Pydantic models, use model_json_schema to get complete schema including nested models
+        return json.dumps(schema.model_json_schema())
+
+    if isinstance(schema, dict):
+        # Process dictionary schema, converting any nested Pydantic models
+        processed_schema = {}
+        for key, value in schema.items():
+            if isinstance(value, type) and issubclass(value, BaseModel):
+                processed_schema[key] = value.model_json_schema()
+            elif isinstance(value, dict):
+                # Recursively process nested dictionaries
+                processed_schema[key] = json.loads(schema_to_json(value))
+            else:
+                processed_schema[key] = value
+        return json.dumps(processed_schema)
+
+    raise ValueError(f"Unsupported schema type: {type(schema)}")
 
 
 def validate_json(

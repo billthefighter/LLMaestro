@@ -273,3 +273,147 @@ async def test_direct_schema_output_real(test_settings, llm_registry: LLMRegistr
     assert "tags" in parsed_data
     assert isinstance(parsed_data["tags"], list)
     assert all(isinstance(tag, str) for tag in parsed_data["tags"])
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_pydantic_model_direct_parse(test_settings, llm_registry: LLMRegistry):
+    """Test using a Pydantic model directly with beta.chat.completions.parse."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
+    # Arrange
+    model_name = "gpt-4o-mini-2024-07-18"
+    llm_instance = await llm_registry.create_instance(model_name)
+
+    # Create a simple prompt that expects a Person response
+    prompt = MemoryPrompt(
+        name="person_direct",
+        description="Create a person profile",
+        system_prompt="Create a profile for a fictional person.",
+        user_prompt="Create a profile for a software engineer in their 30s who enjoys coding and hiking.",
+        expected_response=ResponseFormat.from_pydantic_model(
+            model=Person,
+            convert_to_json_schema=False,  # Important: Don't convert to JSON schema
+            format_type=ResponseFormatType.PYDANTIC
+        ),
+        metadata=PromptMetadata(type="person_creation")
+    )
+
+    # Act
+    response = await llm_instance.interface.process(prompt)
+
+    # Assert
+    assert isinstance(response, LLMResponse)
+    assert response.success is True
+
+    # Debug output
+    print("\nDirect Parse Response Content:")
+    print(response.content)
+    print("\n")
+
+    # Validate response can be parsed into Person model
+    person = Person.model_validate_json(response.content)
+    assert isinstance(person, Person)
+    assert isinstance(person.name, str)
+    assert isinstance(person.age, int)
+    assert 30 <= person.age <= 39  # Verify age matches prompt requirements
+    assert isinstance(person.hobbies, list)
+    assert len(person.hobbies) >= 2  # Should have at least coding and hiking
+    assert any("coding" in hobby.lower() for hobby in person.hobbies)
+    assert any("hiking" in hobby.lower() for hobby in person.hobbies)
+
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_nested_pydantic_model_direct_parse(test_settings, llm_registry: LLMRegistry):
+    """Test using a nested Pydantic model directly with beta.chat.completions.parse."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
+    # Arrange
+    model_name = "gpt-4o-mini-2024-07-18"
+    llm_instance = await llm_registry.create_instance(model_name)
+
+    # Create a prompt that expects a NestedStructure response
+    prompt = MemoryPrompt(
+        name="team_direct",
+        description="Create a development team profile",
+        system_prompt="""Create a profile for a software development team.
+The team should have:
+- A descriptive title
+- At least 3 team members
+- Each team member should have realistic details
+- Team size should match the number of people""",
+        user_prompt="Create a profile for a full-stack development team working on a modern web application.",
+        expected_response=ResponseFormat.from_pydantic_model(
+            model=NestedStructure,
+            convert_to_json_schema=False,  # Important: Don't convert to JSON schema
+            format_type=ResponseFormatType.PYDANTIC
+        ),
+        metadata=PromptMetadata(type="team_creation")
+    )
+
+    # Act
+    response = await llm_instance.interface.process(prompt)
+
+    # Assert
+    assert isinstance(response, LLMResponse)
+    assert response.success is True
+
+    # Debug output
+    print("\nNested Parse Response Content:")
+    print(response.content)
+    print("\n")
+
+    # Validate response can be parsed into NestedStructure model
+    team = NestedStructure.model_validate_json(response.content)
+    assert isinstance(team, NestedStructure)
+    assert isinstance(team.title, str)
+    assert isinstance(team.people, list)
+    assert len(team.people) >= 3  # Verify minimum team size
+    assert team.team_size == len(team.people)  # Verify team_size matches actual size
+
+    # Validate nested Person objects
+    for person in team.people:
+        assert isinstance(person, Person)
+        assert isinstance(person.name, str)
+        assert isinstance(person.age, int)
+        assert isinstance(person.hobbies, list)
+        assert len(person.hobbies) > 0
+
+
+@pytest.mark.asyncio
+async def test_pydantic_model_validation_error_handling(test_settings, llm_registry: LLMRegistry):
+    """Test handling of validation errors when using Pydantic models with parse endpoint."""
+    if not test_settings.use_real_tokens:
+        pytest.skip("Skipping test that requires LLM API tokens")
+
+    # Arrange
+    model_name = "gpt-4o-mini-2024-07-18"
+    llm_instance = await llm_registry.create_instance(model_name)
+
+    # Create a prompt that's likely to generate invalid data
+    prompt = MemoryPrompt(
+        name="person_invalid",
+        description="Create an invalid person profile",
+        system_prompt="Create a profile for a person, but make some fields invalid.",
+        user_prompt="Create a profile for someone with an invalid age (use a negative number).",
+        expected_response=ResponseFormat.from_pydantic_model(
+            model=Person,
+            convert_to_json_schema=False,
+            format_type=ResponseFormatType.PYDANTIC
+        ),
+        metadata=PromptMetadata(type="person_creation_invalid")
+    )
+
+    # Act
+    response = await llm_instance.interface.process(prompt)
+
+    # Assert
+    assert isinstance(response, LLMResponse)
+    # The response might still be successful, but validation should fail
+    try:
+        Person.model_validate_json(response.content)
+        pytest.fail("Expected validation error but got none")
+    except Exception as e:
+        assert "validation error" in str(e).lower()

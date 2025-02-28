@@ -167,20 +167,26 @@ class OpenAIInterface(BaseLLMInterface):
         """
         output_config: Dict[str, Any] = {}
 
-        # For Pydantic models, we'll handle validation after the response
+        # For Pydantic models, we'll handle this differently in _create_chat_completion
         if config.pydantic_model:
             logger.debug(f"Using Pydantic model directly: {config.model_name}")
-            # Just use JSON mode for the API call, we'll validate with Pydantic later
-            output_config["response_format"] = {"type": "json_object"}
-            logger.debug(f"Final output config: using Pydantic model {config.model_name}")
+            # Return the model directly without wrapping in response_format
+            # This will be handled by beta.chat.completions.parse
+            output_config["pydantic_model"] = config.pydantic_model
             return output_config
 
-        # For JSON schema or simple JSON mode, just use json_object type
-        # OpenAI API doesn't support schema in response_format
-        logger.debug("Using JSON mode")
-        output_config["response_format"] = {"type": "json_object"}
+        # For JSON schema, use the OpenAI json_schema format
+        if hasattr(config, "json_schema") and config.json_schema:
+            logger.debug("Using JSON schema mode")
+            output_config["response_format"] = {
+                "type": "json_schema",
+                "schema": config.json_schema,
+            }
+            return output_config
 
-        logger.debug(f"Final output config: {json.dumps(output_config, indent=2)}")
+        # For simple JSON mode
+        logger.debug("Using simple JSON mode")
+        output_config["response_format"] = {"type": "json_object"}
         return output_config
 
     async def parse_structured_response(
@@ -313,46 +319,45 @@ class OpenAIInterface(BaseLLMInterface):
         Returns:
             ChatCompletion response from OpenAI
         """
-        kwargs.update(
-            {
-                "messages": messages,
-                "model": model,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-        )
+        logger.debug(f"Creating chat completion with model: {model}")
+        logger.debug(f"Response format configuration: {response_format}")
+        logger.debug(f"Number of messages: {len(messages)}")
+        logger.debug(f"First message content: {messages[0] if messages else 'No messages'}")
+
+        base_kwargs = {"model": model, "temperature": temperature, "max_tokens": max_tokens, **kwargs}
 
         # Handle tools if provided
         if tools:
             openai_tools = self._format_tools_for_provider(tools)
-            kwargs["tools"] = openai_tools
-            kwargs["tool_choice"] = "auto"  # Let OpenAI decide when to use tools
+            base_kwargs["tools"] = openai_tools
+            base_kwargs["tool_choice"] = "auto"  # Let OpenAI decide when to use tools
+            logger.debug(f"Added {len(openai_tools)} tools to request")
 
         # Handle response format configuration
         if response_format:
-            if isinstance(response_format.get("response_format"), type) and issubclass(
-                response_format["response_format"], BaseModel
-            ):
+            pydantic_model = response_format.get("pydantic_model")
+            logger.debug(f"Pydantic model from response_format: {pydantic_model}")
+
+            if pydantic_model is not None:
                 # If it's a Pydantic model, use beta.chat.completions.parse
                 try:
-                    logger.debug("Using beta.chat.completions.parse with Pydantic model")
+                    logger.debug(f"Using beta endpoint with Pydantic model: {pydantic_model}")
                     return await self.client.beta.chat.completions.parse(
-                        messages=messages,
-                        model=model,
-                        temperature=temperature,
-                        max_tokens=max_tokens,
-                        response_format=response_format["response_format"],
-                        **kwargs,
+                        messages=messages, response_format=pydantic_model, **base_kwargs
                     )
-                except (AttributeError, ImportError, TypeError) as e:
-                    # If beta endpoint is not available or other error, fallback to JSON mode
-                    logger.warning(f"Failed to use beta.chat.completions.parse: {e}. Falling back to JSON mode")
-                    kwargs["response_format"] = {"type": "json_object"}
+                except Exception as e:
+                    logger.warning(f"Beta endpoint failed: {e}, falling back to JSON mode")
+                    base_kwargs["response_format"] = {"type": "json_object"}
             else:
-                # For regular JSON format or schema
-                kwargs["response_format"] = response_format.get("response_format", {"type": "json_object"})
+                # For regular JSON format or schema, use the configured response_format
+                rf = response_format.get("response_format", {"type": "json_object"})
+                logger.debug(f"Using standard response format: {rf}")
+                base_kwargs["response_format"] = rf
 
-        return await self.client.chat.completions.create(**kwargs)
+        # Add messages last to avoid duplication
+        base_kwargs["messages"] = messages
+        logger.debug(f"Final request kwargs: {base_kwargs}")
+        return await self.client.chat.completions.create(**base_kwargs)
 
     def _create_response_metadata(self, is_streaming: bool = False, is_partial: bool = False) -> Dict[str, Any]:
         """Create common metadata for LLMResponse."""
