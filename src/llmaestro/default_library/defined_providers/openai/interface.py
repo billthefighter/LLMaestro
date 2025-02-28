@@ -18,8 +18,8 @@ from llmaestro.llm.interfaces.base import BaseLLMInterface, ToolInputType, Proce
 from llmaestro.core.attachments import BaseAttachment, ImageAttachment, AttachmentConverter, FileAttachment
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.memory import MemoryPrompt
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat
-from llmaestro.llm.responses import ResponseFormatType
+from llmaestro.prompts.types import PromptMetadata
+from llmaestro.llm.responses import ResponseFormatType, ResponseFormat, StructuredOutputConfig
 from llmaestro.prompts.tools import ToolParams
 
 if TYPE_CHECKING:
@@ -32,29 +32,30 @@ class OpenAIInterface(BaseLLMInterface):
     """OpenAI-specific implementation of the LLM interface."""
 
     def __init__(self, **data):
-        logger.debug("Initializing OpenAIInterface")
-        logger.debug(f"Init data: {data}")
-        try:
-            super().__init__(**data)
-            self.client = AsyncOpenAI(api_key=self.credentials.key if self.credentials else None)
-            logger.debug("OpenAIInterface initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize OpenAIInterface: {str(e)}", exc_info=True)
-            raise
+        super().__init__(**data)
+        self.client = AsyncOpenAI(api_key=self.credentials.key if self.credentials else None)
 
-    def model_post_init(self, __context: Any) -> None:
-        """Initialize the interface after Pydantic model validation."""
-        logger.debug("Running OpenAIInterface post-init")
-        super().model_post_init(__context)
+    def _post_super_init(self, **data):
+        """Initialize OpenAI-specific components."""
         if not self.state:
             logger.warning("No state provided in post-init")
             return
-        logger.debug("OpenAIInterface post-init completed")
+        logger.debug("OpenAI-specific initialization completed")
 
     @property
     def model_family(self) -> str:
         """Get the model family."""
         return "openai"
+
+    @property
+    def supports_structured_output(self) -> bool:
+        """Whether this interface supports native structured output."""
+        return True
+
+    @property
+    def supports_json_schema(self) -> bool:
+        """Whether this interface supports JSON schema validation."""
+        return True
 
     async def initialize(self) -> None:
         """Initialize async components of the interface."""
@@ -89,6 +90,7 @@ class OpenAIInterface(BaseLLMInterface):
         float,
         int,
         List[ProcessedToolType],
+        Optional[Dict[str, Any]],
     ]:
         """Prepare common request parameters for both streaming and non-streaming calls.
 
@@ -98,6 +100,7 @@ class OpenAIInterface(BaseLLMInterface):
         - Temperature
         - Max tokens
         - Processed tools from the prompt
+        - Response format configuration
         """
         # Convert string prompt to MemoryPrompt if needed
         if isinstance(prompt, str):
@@ -146,19 +149,14 @@ class OpenAIInterface(BaseLLMInterface):
         prompt_tools_input = cast(Optional[List[ToolInputType]], prompt_tools)
         processed_tools = self._process_tools(prompt_tools_input) if prompt_tools_input else []
 
-        return messages, model_name, temperature, max_tokens, processed_tools
+        # Configure structured output if specified in prompt
+        response_format = None
+        if prompt.expected_response:
+            response_format = self.configure_structured_output(prompt.expected_response.get_structured_output_config())
 
-    @property
-    def supports_structured_output(self) -> bool:
-        """Whether this interface supports native structured output."""
-        return True
+        return messages, model_name, temperature, max_tokens, processed_tools, response_format
 
-    @property
-    def supports_json_schema(self) -> bool:
-        """Whether this interface supports JSON schema validation."""
-        return True
-
-    def configure_structured_output(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def configure_structured_output(self, config: StructuredOutputConfig) -> Dict[str, Any]:
         """Configure structured output settings for OpenAI.
 
         Args:
@@ -169,38 +167,18 @@ class OpenAIInterface(BaseLLMInterface):
         """
         output_config: Dict[str, Any] = {}
 
-        # Configure response format for JSON output
-        if config.get("format") in ["json", "json_schema"]:
+        # Get the effective schema (either from Pydantic model or direct schema)
+        schema = config.effective_schema
+
+        if schema:
+            # Use function calling for schema validation
+            output_config["functions"] = [
+                {"name": "output_json", "description": "Output JSON data according to the schema", "parameters": schema}
+            ]
+            output_config["function_call"] = {"name": "output_json"}
+        elif config.format in [ResponseFormatType.JSON, ResponseFormatType.JSON_SCHEMA]:
+            # Use simple JSON mode without schema
             output_config["response_format"] = {"type": "json_object"}
-
-            # Add schema validation to system message if provided
-            if config.get("schema"):
-                schema = json.loads(config["schema"]) if isinstance(config["schema"], str) else config["schema"]
-
-                # Configure function calling for schema validation
-                output_config["functions"] = [
-                    {
-                        "name": "output_json",
-                        "description": "Output JSON data according to the schema",
-                        "parameters": schema,
-                    }
-                ]
-                output_config["function_call"] = {"name": "output_json"}
-
-                # Add schema validation instructions to system message
-                if "messages" in config and len(config["messages"]) > 0:
-                    system_msg = config["messages"][0]
-                    if isinstance(system_msg, dict) and "content" in system_msg:
-                        system_msg["content"] = (
-                            str(system_msg["content"])
-                            + "\nPlease provide your response as a valid JSON object that conforms to the following schema:\n"
-                            + json.dumps(schema, indent=2)
-                            + "\nEnsure your response is a complete, well-formed JSON object with all required fields."
-                            + "\nYour response should be a single JSON object enclosed in curly braces {}."
-                        )
-
-                # Add response format instructions
-                output_config["response_format"] = {"type": "json_object", "schema": schema}
 
         return output_config
 
@@ -219,59 +197,65 @@ class OpenAIInterface(BaseLLMInterface):
             Parsed response object (may be a Pydantic model or dict)
         """
         try:
+            # Log the raw response for debugging
+            logger.debug(f"Raw response before parsing: {response}")
+
+            # Handle function call responses
+            if isinstance(response, dict):
+                if "function_call" in response:
+                    function_call = cast(Dict[str, Any], response.get("function_call", {}))
+                    response = function_call.get("arguments", "")
+                elif "arguments" in response:
+                    response = cast(Dict[str, Any], response).get("arguments", "")
+
             # Clean up the response string to ensure valid JSON
-            response = response.strip()
+            if isinstance(response, str):
+                response = response.strip()
 
-            # Remove any markdown or code block markers
-            if response.startswith("```") and response.endswith("```"):
-                lines = response.split("\n")
-                response = "\n".join(lines[1:-1])  # Remove first and last lines
-                if response.startswith("json"):
-                    response = "\n".join(response.split("\n")[1:])  # Remove language identifier
+                # Remove any markdown or code block markers
+                if response.startswith("```"):
+                    lines = response.split("\n")
+                    # Remove first and last lines (code block markers)
+                    response = "\n".join(lines[1:-1])
+                    # If first line is a language identifier (e.g. 'json'), remove it
+                    if response.startswith("json"):
+                        response = "\n".join(response.split("\n")[1:])
 
-            # Clean up the response
-            response = response.strip()
+                # Clean up the response
+                response = response.strip()
+                logger.debug(f"Cleaned response before parsing: {response}")
 
-            # First try to parse as a complete JSON object
+            # Parse the JSON
             try:
-                # If response is already a valid JSON object, parse it directly
-                if response.startswith("{") and response.endswith("}"):
-                    parsed_data = json.loads(response)
+                if isinstance(response, str):
+                    # If response is already a valid JSON object, parse it directly
+                    if response.startswith("{") and response.endswith("}"):
+                        parsed_data = json.loads(response)
+                    else:
+                        # If the response has content but is missing braces, add them
+                        if not response.startswith("{"):
+                            response = "{"
+
+                        # Clean up any trailing commas and ensure proper JSON formatting
+                        response = response.rstrip(",")
+                        if not response.endswith("}"):
+                            response = response + "}"
+
+                        # Clean up any extra whitespace between key-value pairs
+                        response = " ".join(response.split())
+                        logger.debug(f"Final response before parsing: {response}")
+                        parsed_data = json.loads(response)
                 else:
-                    # If the response has content but is missing braces, add them
-                    if not response.startswith("{"):
-                        response = "{"
+                    parsed_data = response
 
-                    # Clean up any trailing commas and ensure proper JSON formatting
-                    response = response.rstrip(",")
-                    if not response.endswith("}"):
-                        response = response + "}"
-
-                    # Clean up any extra whitespace between key-value pairs
-                    response = " ".join(response.split())
-
-                    parsed_data = json.loads(response)
-
-                # Handle function call responses
-                if isinstance(parsed_data, dict):
-                    if "arguments" in parsed_data:
-                        parsed_data = json.loads(parsed_data["arguments"])
-                    elif "function_call" in parsed_data and "arguments" in parsed_data["function_call"]:
-                        parsed_data = json.loads(parsed_data["function_call"]["arguments"])
-
-                # Validate against schema if provided
-                if expected_format.response_schema:
-                    schema = (
-                        json.loads(expected_format.response_schema)
-                        if isinstance(expected_format.response_schema, str)
-                        else expected_format.response_schema
-                    )
-                    # TODO: Add schema validation here
+                # If we have a Pydantic model, validate against it
+                if expected_format.pydantic_model:
+                    return expected_format.pydantic_model.model_validate(parsed_data)
 
                 return parsed_data
 
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {str(e)}")
+                logger.error(f"JSON parsing error: {str(e)}")
                 logger.error(f"Response content: {response}")
                 raise
 
@@ -312,12 +296,21 @@ class OpenAIInterface(BaseLLMInterface):
         temperature: float,
         stream: bool = False,
         tools: Optional[List[ProcessedToolType]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> Union[ChatCompletion, AsyncIterator[ChatCompletionChunk]]:
         """Create a chat completion with the given parameters."""
+        # Format messages to ensure file_ids are properly included
+        formatted_messages = []
+        for msg in messages:
+            msg_dict = {"role": msg["role"], "content": msg["content"]}
+            if "file_ids" in msg:
+                msg_dict["file_ids"] = msg["file_ids"]
+            formatted_messages.append(msg_dict)
+
         kwargs = {
-            "messages": messages,
+            "messages": formatted_messages,
             "model": model,
-            "max_completion_tokens": max_tokens,
+            "max_tokens": max_tokens,
             "temperature": temperature,
             "stream": stream,
         }
@@ -325,12 +318,21 @@ class OpenAIInterface(BaseLLMInterface):
         # Check model capabilities and filter unsupported parameters
         kwargs = self._check_model_capabilities(**kwargs)
 
-        # Configure tools if provided
-        if tools:
+        # Configure tools if provided and not using structured output
+        if tools and not response_format:
             # Convert tools to OpenAI's format
             openai_tools = self._format_tools_for_provider(tools)
             kwargs["tools"] = openai_tools
             kwargs["tool_choice"] = "auto"  # Let OpenAI decide when to use tools
+
+        # Add structured output configuration if provided
+        if response_format:
+            # Handle both response_format and functions configuration
+            if "response_format" in response_format:
+                kwargs["response_format"] = response_format["response_format"]
+            if "functions" in response_format:
+                kwargs["functions"] = response_format["functions"]
+                kwargs["function_call"] = response_format["function_call"]
 
         return await self.client.chat.completions.create(**kwargs)
 
@@ -388,17 +390,12 @@ class OpenAIInterface(BaseLLMInterface):
         """Process input using OpenAI's API with tool support."""
         try:
             # Get prompt-level tools and messages through _prepare_request
-            messages, model_name, temperature, max_tokens, prompt_tools = await self._prepare_request(prompt, variables)
+            messages, model_name, temperature, max_tokens, prompt_tools, response_format = await self._prepare_request(
+                prompt, variables
+            )
 
-            # Process runtime tools if provided
-            runtime_tools = self._process_tools(tools) if tools else []
-
-            # Merge tools, giving precedence to runtime tools
-            final_tools = prompt_tools + runtime_tools
-
-            # Cache all tools for execution
-            for tool in final_tools:
-                self.available_tools[tool.name] = tool
+            # Process and merge tools
+            final_tools = await self._prepare_tools(prompt_tools, tools)
 
             # Create chat completion
             response = await self._create_chat_completion(
@@ -407,11 +404,13 @@ class OpenAIInterface(BaseLLMInterface):
                 max_tokens=max_tokens,
                 temperature=temperature,
                 stream=False,
-                tools=final_tools,
+                tools=final_tools if not response_format else None,  # Don't use tools if using response format
+                response_format=response_format,
             )
 
             if not isinstance(response, ChatCompletion):
                 raise ValueError("Expected ChatCompletion response for non-streaming request")
+            logger.debug(f"Raw OpenAIResponse: {response}")
             return await self._handle_response(response)
         except Exception as e:
             return self._handle_error(e)
@@ -450,17 +449,12 @@ class OpenAIInterface(BaseLLMInterface):
         """Stream responses from OpenAI's API one token at a time with tool support."""
         try:
             # Get prompt-level tools and messages
-            messages, model_name, temperature, max_tokens, prompt_tools = await self._prepare_request(prompt, variables)
+            messages, model_name, temperature, max_tokens, prompt_tools, response_format = await self._prepare_request(
+                prompt, variables
+            )
 
-            # Process runtime tools
-            runtime_tools = self._process_tools(tools) if tools else []
-
-            # Merge tools
-            final_tools = prompt_tools + runtime_tools
-
-            # Cache tools
-            for tool in final_tools:
-                self.available_tools[tool.name] = tool
+            # Process and merge tools
+            final_tools = await self._prepare_tools(prompt_tools, tools)
 
             stream = await self._create_chat_completion(
                 messages=messages,
@@ -469,6 +463,7 @@ class OpenAIInterface(BaseLLMInterface):
                 temperature=temperature,
                 stream=True,
                 tools=final_tools,
+                response_format=response_format,
             )
 
             if not isinstance(stream, AsyncIterator):
@@ -538,89 +533,90 @@ class OpenAIInterface(BaseLLMInterface):
 
         # Add attachments if provided
         if attachments:
-            # Get attachments by type
-            image_attachments = [att for att in attachments if isinstance(att, ImageAttachment)]
-            file_attachments = [att for att in attachments if isinstance(att, FileAttachment)]
-
-            # Handle file attachments
-            if file_attachments:
-                for file_att in file_attachments:
-                    # If no file_id, try to upload the file
-                    if not file_att.file_id and isinstance(file_att.content, str):
-                        try:
-                            # Decode base64 content
-                            file_content = base64.b64decode(file_att.content)
-                            # Upload the file
-                            file_obj = await self.upload_file(file_content)
-                            # Update the attachment with the file ID
-                            file_att.file_id = file_obj.id
-                        except Exception as e:
-                            logger.error(f"Failed to upload file: {str(e)}")
-                            continue
-
-                    # Create a separate message for each file attachment with file_id
-                    if file_att.file_id:
-                        file_message: Dict[str, Any] = {
-                            "role": "user",
-                            "content": f"Processing file: {file_att.file_name}",
-                            "file_ids": [file_att.file_id],
-                        }
-                        messages.append(file_message)
-
-            # Handle image attachments in the last user message
-            if image_attachments:
-                # Find or create the last user message
-                last_user_msg_idx = -1
-                for i in range(len(messages) - 1, -1, -1):
-                    if messages[i]["role"] == "user":
-                        last_user_msg_idx = i
-                        break
-
-                if last_user_msg_idx == -1:
-                    user_message = {"role": "user", "content": ""}
-                    messages.append(user_message)
-                    last_user_msg_idx = len(messages) - 1
-
-                # Update the last user message with images
-                msg = messages[last_user_msg_idx]
-                content = msg["content"]
-                if not isinstance(content, str):
-                    content = str(content)
-
-                # Create the updated message with images
-                updated_message: Dict[str, Any] = {"role": "user", "content": [{"type": "text", "text": content}]}
-
-                # Add image content
-                for img in image_attachments:
-                    if isinstance(img.content, bytes):
-                        # Convert bytes to base64
-                        img_content = base64.b64encode(img.content).decode("utf-8")
-                    else:
-                        img_content = str(img.content)
-
-                    updated_message["content"].append(
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/{img.media_type.value};base64,{img_content}",
-                                "detail": "auto",
-                            },
-                        }
-                    )
-
-                messages[last_user_msg_idx] = updated_message
+            messages = await self._handle_attachments(messages, attachments)
 
         return cast(List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]], messages)
 
+    async def _handle_attachments(
+        self, messages: List[Dict[str, Any]], attachments: List[BaseAttachment]
+    ) -> List[Dict[str, Any]]:
+        """Handle OpenAI-specific attachment formatting."""
+        # Get attachments by type
+        image_attachments = [att for att in attachments if isinstance(att, ImageAttachment)]
+        file_attachments = [att for att in attachments if isinstance(att, FileAttachment)]
+
+        # Handle file attachments
+        if file_attachments:
+            for file_att in file_attachments:
+                # If no file_id, try to upload the file
+                if not file_att.file_id and isinstance(file_att.content, str):
+                    try:
+                        # Decode base64 content
+                        file_content = base64.b64decode(file_att.content)
+                        # Upload the file
+                        file_obj = await self.upload_file(file_content)
+                        # Update the attachment with the file ID
+                        file_att.file_id = file_obj.id
+                    except Exception as e:
+                        logger.error(f"Failed to upload file: {str(e)}")
+                        continue
+
+                # Create a separate message for each file attachment with file_id
+                if file_att.file_id:
+                    file_message: Dict[str, Any] = {
+                        "role": "user",
+                        "content": f"Processing file: {file_att.file_name}",
+                        "file_ids": [file_att.file_id],
+                    }
+                    messages.append(file_message)
+
+        # Handle image attachments in the last user message
+        if image_attachments:
+            # Find or create the last user message
+            last_user_msg_idx = -1
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i]["role"] == "user":
+                    last_user_msg_idx = i
+                    break
+
+            if last_user_msg_idx == -1:
+                user_message = {"role": "user", "content": ""}
+                messages.append(user_message)
+                last_user_msg_idx = len(messages) - 1
+
+            # Update the last user message with images
+            msg = messages[last_user_msg_idx]
+            content = msg["content"]
+            if not isinstance(content, str):
+                content = str(content)
+
+            # Create the updated message with images
+            updated_message: Dict[str, Any] = {"role": "user", "content": [{"type": "text", "text": content}]}
+
+            # Add image content
+            for img in image_attachments:
+                if isinstance(img.content, bytes):
+                    # Convert bytes to base64
+                    img_content = base64.b64encode(img.content).decode("utf-8")
+                else:
+                    img_content = str(img.content)
+
+                updated_message["content"].append(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:image/{img.media_type.value};base64,{img_content}",
+                            "detail": "auto",
+                        },
+                    }
+                )
+
+            messages[last_user_msg_idx] = updated_message
+
+        return messages
+
     async def _handle_tool_call(self, message: ChatCompletionMessage) -> str:
-        """Handle OpenAI's function calling response.
-
-        Args:
-            message: The message containing tool calls
-
-        Returns:
-            Formatted response incorporating tool results
-        """
+        """Handle OpenAI's function calling response."""
         if not message.tool_calls:
             return message.content or ""
 
@@ -671,9 +667,15 @@ class OpenAIInterface(BaseLLMInterface):
             if not message:
                 return self._handle_error(ValueError("No response choices available"))
 
-            # Handle tool calls if present
-            if message.tool_calls:
-                content = await self._handle_tool_call(message)
+            # Extract content from function call, tool calls, or regular message
+            content = ""
+            if hasattr(message, "function_call") and message.function_call:
+                # For structured output using function calling
+                content = message.function_call.arguments
+            elif message.tool_calls:
+                # For regular tool calls
+                if message.tool_calls[0].function:
+                    content = message.tool_calls[0].function.arguments
             else:
                 content = message.content or ""
 

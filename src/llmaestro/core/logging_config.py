@@ -40,6 +40,11 @@ def configure_logging(
         file_handler.setFormatter(formatter)
         root_logger.addHandler(file_handler)
 
+    # Set OpenAI's base client logger to WARNING and ensure it won't be propagated to root
+    openai_logger = logging.getLogger("openai._base_client")
+    openai_logger.setLevel(logging.WARNING)
+    openai_logger.propagate = False
+
     # Get logger for the module
     logger = logging.getLogger(module_name if module_name else __name__)
     logger.setLevel(level)

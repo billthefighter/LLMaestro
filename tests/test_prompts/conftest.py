@@ -3,9 +3,9 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType, VersionedPrompt
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from llmaestro.prompts.types import PromptMetadata, VersionInfo
 from llmaestro.prompts.memory import MemoryPrompt
-
+from llmaestro.llm.responses import ResponseFormat
 
 @pytest.fixture
 def version_info() -> VersionInfo:

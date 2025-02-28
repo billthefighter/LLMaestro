@@ -11,20 +11,25 @@ from typing import Any, Dict, List, Optional, Set, Union, AsyncIterator, Type, C
 from pydantic import BaseModel, Field, ConfigDict
 
 from llmaestro.core.conversations import ConversationContext
-from llmaestro.core.models import LLMResponse
+from llmaestro.core.models import LLMResponse, TokenUsage
 from llmaestro.llm.credentials import APIKey
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.llm.enums import MediaType
-from llmaestro.prompts.types import ResponseFormat
+from llmaestro.llm.responses import ResponseFormat
 from .tokenizers import BaseTokenizer
 from llmaestro.llm.models import LLMState  # Direct import instead of TYPE_CHECKING
 from llmaestro.prompts.tools import ToolParams
+from llmaestro.core.models import ContextMetrics
+from llmaestro.core.attachments import BaseAttachment
+from llmaestro.llm.responses import StructuredOutputConfig
 
 logger = logging.getLogger(__name__)
 
-# Add type variables for better type hinting
+# Type aliases
 ToolInputType = Union[Callable[..., Any], Type[BaseModel], ToolParams]
 ProcessedToolType = ToolParams
+
+# Add type variables for better type hinting
 T = TypeVar("T")
 
 
@@ -134,22 +139,176 @@ class BaseLLMInterface(BaseModel, ABC):
     )
 
     def __init__(self, **data):
-        logger.debug("Initializing BaseLLMInterface")
-        logger.debug(f"Base init data: {data}")
+        """Initialize the interface with logging and error handling."""
+        logger.debug(f"Initializing {self.__class__.__name__}")
+        logger.debug(f"Init data: {data}")
         try:
             super().__init__(**data)
-            logger.debug("BaseLLMInterface initialized successfully")
+            self._post_super_init(**data)  # Template method for subclasses
+            logger.debug(f"{self.__class__.__name__} initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize BaseLLMInterface: {str(e)}", exc_info=True)
+            logger.error(f"Failed to initialize {self.__class__.__name__}: {str(e)}", exc_info=True)
             raise
 
-    def model_post_init(self, __context: Any) -> None:
-        """Initialize the interface after Pydantic model validation."""
-        logger.debug("Running BaseLLMInterface post-init")
+    def _post_super_init(self, **data):
+        """Template method for subclass-specific initialization."""
+        pass
+
+    def _create_response_metadata(
+        self, is_streaming: bool = False, is_partial: bool = False, **additional_metadata
+    ) -> Dict[str, Any]:
+        """Create standardized response metadata with extension point."""
+        base_metadata = {
+            "model": self.state.profile.name if self.state else "unknown",
+            "is_streaming": is_streaming,
+            "is_partial": is_partial,
+        }
+        return {**base_metadata, **additional_metadata}
+
+    def _calculate_context_metrics(self) -> ContextMetrics:
+        """Calculate standardized context window metrics."""
         if not self.state:
-            logger.warning("No state provided in base post-init")
-            return
-        logger.debug("BaseLLMInterface post-init completed")
+            return ContextMetrics(
+                max_context_tokens=0, current_context_tokens=0, available_tokens=0, context_utilization=0.0
+            )
+
+        max_tokens = self.state.runtime_config.max_context_tokens
+        current_tokens = self.context.total_tokens.total_tokens if self.context and self.context.total_tokens else 0
+        available = max(0, max_tokens - current_tokens)
+        utilization = float(current_tokens) / float(max_tokens) if max_tokens > 0 else 0.0
+
+        return ContextMetrics(
+            max_context_tokens=max_tokens,
+            current_context_tokens=current_tokens,
+            available_tokens=available,
+            context_utilization=utilization,
+        )
+
+    def _handle_error(self, e: Exception, context: str = "") -> LLMResponse:
+        """Standardized error handling for LLM operations."""
+        error_message = f"Error {context}: {str(e)}"
+        logger.error(error_message, exc_info=True)
+        return LLMResponse(
+            content="",
+            success=False,
+            error=str(e),
+            metadata={"error_type": type(e).__name__},
+            token_usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        )
+
+    def _process_tools(self, tools: Optional[List[Union[ToolInputType, ProcessedToolType]]]) -> List[ProcessedToolType]:
+        """Process tools into standardized format and update cache."""
+        if not tools:
+            return []
+
+        processed_tools = []
+        for tool in tools:
+            if isinstance(tool, ProcessedToolType):
+                # For existing ToolParams, keep as is
+                processed_tools.append(tool)
+            elif isinstance(tool, type) and issubclass(tool, BaseModel):
+                # For Pydantic models, create a ToolParams with the model as the function
+                schema = tool.model_json_schema()
+                tool_params = ToolParams(
+                    name=tool.__name__, description=tool.__doc__ or "", parameters=schema, return_type=tool, source=tool
+                )
+                processed_tools.append(tool_params)
+            elif callable(tool):
+                # For callables, create a ToolParams with the function
+                tool_params = ToolParams.from_function(tool)
+                processed_tools.append(tool_params)
+            else:
+                raise ValueError(f"Unsupported tool type: {type(tool)}")
+
+        return processed_tools
+
+    async def _prepare_tools(
+        self,
+        prompt_tools: Optional[List[ProcessedToolType]] = None,
+        runtime_tools: Optional[List[ToolInputType]] = None,
+    ) -> List[ProcessedToolType]:
+        """Prepare and merge tools from different sources.
+
+        Args:
+            prompt_tools: Optional list of already processed tools from the prompt
+            runtime_tools: Optional list of unprocessed tools from runtime
+
+        Returns:
+            List of processed tools, with runtime tools taking precedence
+        """
+        # Process prompt-level tools (already processed, just need to be merged)
+        processed_prompt_tools = prompt_tools or []
+
+        # Process runtime tools
+        processed_runtime_tools = self._process_tools(runtime_tools) if runtime_tools else []
+
+        # Merge tools, giving precedence to runtime tools
+        final_tools = processed_prompt_tools + processed_runtime_tools
+
+        # Cache all tools
+        for tool in final_tools:
+            self.available_tools[tool.name] = tool
+
+        return final_tools
+
+    async def _format_messages(
+        self, input_data: Any, system_prompt: Optional[str] = None, attachments: Optional[List[BaseAttachment]] = None
+    ) -> List[Dict[str, Any]]:
+        """Base message formatting with extension points."""
+        messages: List[Dict[str, Any]] = []
+
+        # Handle system prompt
+        if system_prompt:
+            system_message = self._create_system_message(system_prompt)
+            messages.append(system_message)
+
+        # Handle input data
+        if isinstance(input_data, str):
+            user_message = self._create_user_message(input_data)
+            messages.append(user_message)
+        elif isinstance(input_data, dict):
+            messages.append(input_data)
+        elif isinstance(input_data, list):
+            messages.extend(input_data)
+
+        # Handle attachments through template method
+        if attachments:
+            messages = await self._handle_attachments(messages, attachments)
+
+        return messages
+
+    def _create_system_message(self, content: str) -> Dict[str, Any]:
+        """Create a system message."""
+        return {"role": "system", "content": content}
+
+    def _create_user_message(self, content: str) -> Dict[str, Any]:
+        """Create a user message."""
+        return {"role": "user", "content": content}
+
+    async def _handle_attachments(
+        self, messages: List[Dict[str, Any]], attachments: List[BaseAttachment]
+    ) -> List[Dict[str, Any]]:
+        """Template method for handling attachments."""
+        return messages  # Base implementation does nothing
+
+    def _check_model_capabilities(self, **kwargs: Any) -> Dict[str, Any]:
+        """Check if the model supports specific capabilities and filter parameters accordingly."""
+        if not self.state or not getattr(self.state.profile, "capabilities", None):
+            return kwargs
+
+        filtered_kwargs = kwargs.copy()
+        capabilities = self.state.profile.capabilities
+
+        # Check temperature support
+        if not getattr(capabilities, "supports_temperature", False):
+            filtered_kwargs.pop("temperature", None)
+
+        # Add more capability checks here as needed
+        # Example:
+        # if not getattr(capabilities, 'supports_streaming', False):
+        #     filtered_kwargs.pop('stream', None)
+
+        return filtered_kwargs
 
     def count_tokens(self, messages: List[Dict[str, Any]]) -> int:
         """Basic token counting."""
@@ -162,55 +321,6 @@ class BaseLLMInterface(BaseModel, ABC):
         if not self.credentials and not self.ignore_missing_credentials:
             raise ValueError(f"API key is required for provider {self.state.model_family if self.state else 'unknown'}")
 
-    def _format_messages(self, input_data: Any) -> List[Dict[str, Any]]:
-        """Format input data into messages."""
-        messages: List[Dict[str, Any]] = []
-
-        if isinstance(input_data, str):
-            messages.append({"role": "user", "content": input_data})
-        elif isinstance(input_data, dict):
-            messages.append(input_data)
-        elif isinstance(input_data, list):
-            messages.extend(input_data)
-
-        # Add images if provided
-        if self.images:
-            # Find or create user message
-            last_user_msg: Optional[Dict[str, Any]] = None
-            for msg in reversed(messages):
-                if msg["role"] == "user":
-                    last_user_msg = msg
-                    break
-            if not last_user_msg:
-                last_user_msg = {"role": "user", "content": ""}
-                messages.append(last_user_msg)
-
-            # Add images to user message
-            image_content: List[Dict[str, Any]] = []
-            if isinstance(last_user_msg["content"], str):
-                image_content.append({"type": "text", "text": last_user_msg["content"]})
-
-            # Add image attachments
-            for img in self.images:
-                if isinstance(img.content, bytes):
-                    img_content = base64.b64encode(img.content).decode("utf-8")
-                else:
-                    img_content = str(img.content)
-
-                image_content.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/{img.media_type.value};base64,{img_content}",
-                            "detail": "auto",
-                        },
-                    }
-                )
-
-            last_user_msg["content"] = image_content
-
-        return messages
-
     @property
     @abstractmethod
     def model_family(self) -> str:
@@ -221,64 +331,6 @@ class BaseLLMInterface(BaseModel, ABC):
     async def initialize(self) -> None:
         """Initialize async components of the interface."""
         pass
-
-    def _process_tools(self, tools: Optional[List[ToolInputType]]) -> List[ProcessedToolType]:
-        """Process tools into standardized format and update cache.
-
-        This method handles the conversion of various tool types into ToolParams
-        and manages the tool cache. Tools are processed once and cached for reuse.
-
-        Args:
-            tools: List of tools to process. Can be:
-                - Functions (converted using ToolParams.from_function)
-                - Pydantic models (converted using ToolParams.from_pydantic)
-                - ToolParams objects (used as-is)
-
-        Returns:
-            List of processed ToolParams objects
-
-        Example:
-            ```python
-            # Process different tool types
-            tools = [
-                my_function,  # Function
-                MyPydanticModel,  # Pydantic model
-                existing_tool_params  # ToolParams
-            ]
-            processed = self._process_tools(tools)
-            ```
-        """
-        if not tools:
-            return []
-
-        processed_tools = []
-        for tool in tools:
-            # Get tool name for caching
-            tool_name = None
-            if isinstance(tool, ToolParams):
-                tool_name = tool.name
-            elif isinstance(tool, type) and issubclass(tool, BaseModel):
-                tool_name = tool.__name__
-            elif callable(tool):
-                tool_name = tool.__name__
-            else:
-                raise ValueError(f"Unsupported tool type: {type(tool)}")
-
-            # Process and cache new tool
-            processed_tool = None
-            if isinstance(tool, ToolParams):
-                processed_tool = self._use_tool(tool)
-            elif isinstance(tool, type) and issubclass(tool, BaseModel):
-                processed_tool = self._use_tool(ToolParams.from_pydantic(tool))
-            elif callable(tool):
-                processed_tool = self._use_tool(ToolParams.from_function(tool))
-
-            if processed_tool:
-                # Update cache and add to result list
-                self.available_tools[tool_name] = processed_tool
-                processed_tools.append(processed_tool)
-
-        return processed_tools
 
     def clear_tool_cache(self) -> None:
         """Clear the cached processed tools."""
@@ -426,14 +478,24 @@ class BaseLLMInterface(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def configure_structured_output(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def configure_structured_output(self, config: StructuredOutputConfig) -> Dict[str, Any]:
         """Configure structured output settings for this interface.
 
+        This method configures how the interface should handle structured output requests.
+        The configuration can specify either a Pydantic model or a JSON schema (mutually exclusive),
+        along with format-specific settings.
+
         Args:
-            config: Configuration from ResponseFormat.get_structured_output_config()
+            config: Configuration specifying how to handle structured output, including:
+                   - format: The requested output format (JSON, YAML, etc.)
+                   - requires_schema: Whether schema validation is required
+                   - schema: Optional JSON schema for validation
+                   - pydantic_model: Optional Pydantic model for validation
+                   - response_format_override: Optional provider-specific format settings
 
         Returns:
-            Dict of interface-specific configuration to be used in API calls
+            Dict of provider-specific configuration to be used in API calls.
+            The exact structure depends on the provider's requirements.
         """
         pass
 
@@ -453,28 +515,6 @@ class BaseLLMInterface(BaseModel, ABC):
             Parsed response object (may be a Pydantic model or dict)
         """
         pass
-
-    def _use_tool(self, tool_params: ToolParams) -> ToolParams:
-        """Validate and normalize tool parameters.
-
-        This base implementation ensures tools meet minimum requirements.
-        Providers typically won't need to override this unless they have
-        specific validation needs.
-
-        Args:
-            tool_params: The tool parameters to process
-
-        Returns:
-            Validated and normalized tool parameters
-
-        Raises:
-            ValueError: If tool parameters are invalid
-        """
-        if not tool_params.name:
-            raise ValueError("Tool must have a name")
-        if not tool_params.parameters:
-            raise ValueError("Tool must have parameters schema")
-        return tool_params
 
     @abstractmethod
     def _format_tools_for_provider(self, tools: List[ProcessedToolType]) -> Any:
@@ -526,43 +566,3 @@ class BaseLLMInterface(BaseModel, ABC):
             return f"Tool '{tool.name}' executed successfully.\n" f"Result: {result}\n" f"Type: {type(result).__name__}"
         except Exception as e:
             return f"Tool '{tool.name}' execution failed.\nError: {str(e)}"
-
-    def _check_model_capabilities(self, **kwargs: Any) -> Dict[str, Any]:
-        """Check if the model supports specific capabilities and filter parameters accordingly.
-
-        This method checks the model's capabilities (stored in state.profile.capabilities)
-        and removes any unsupported parameters from the kwargs.
-
-        Args:
-            **kwargs: Parameters to check against model capabilities
-
-        Returns:
-            Dict of filtered parameters that are supported by the model
-
-        Example:
-            ```python
-            kwargs = {
-                "temperature": 0.7,
-                "max_tokens": 100,
-                "stream": True
-            }
-            filtered = self._check_model_capabilities(**kwargs)
-            # If model doesn't support temperature, it will be removed
-            ```
-        """
-        if not self.state or not getattr(self.state.profile, "capabilities", None):
-            return kwargs
-
-        filtered_kwargs = kwargs.copy()
-        capabilities = self.state.profile.capabilities
-
-        # Check temperature support
-        if not getattr(capabilities, "supports_temperature", False):
-            filtered_kwargs.pop("temperature", None)
-
-        # Add more capability checks here as needed
-        # Example:
-        # if not getattr(capabilities, 'supports_streaming', False):
-        #     filtered_kwargs.pop('stream', None)
-
-        return filtered_kwargs

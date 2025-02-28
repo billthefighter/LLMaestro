@@ -5,11 +5,16 @@ import pytest
 from typing import List, Optional
 from pydantic import BaseModel
 from llmaestro.prompts.memory import MemoryPrompt
-from llmaestro.prompts.types import ResponseFormat, PromptMetadata
+from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormatType
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse
-
+from llmaestro.llm.responses import ResponseFormat
+from unittest.mock import AsyncMock, MagicMock
+from openai.types.chat import ChatCompletion, ChatCompletionMessage
+from openai.types.completion_usage import CompletionUsage
+from openai import AsyncOpenAI
+from llmaestro.default_library.defined_providers.openai.interface import OpenAIInterface
 
 class Person(BaseModel):
     """Sample person model for testing structured output."""
@@ -58,8 +63,13 @@ def nested_prompt() -> MemoryPrompt:
         description="Extract team information with nested person objects",
         system_prompt="""You are an expert at extracting structured information about teams and their members.
 Extract the requested information accurately and return it in the specified JSON format.
-Make sure to include all required fields and validate against the provided schema.""",
-        user_prompt="Please create a profile for a fictional team with a title, list of team members (at least 2), and team size.",
+Make sure to include all required fields and validate against the provided schema.
+
+Important requirements:
+1. The team_size field must exactly match the number of people in the people list
+2. The people list must contain at least 2 team members
+3. Each person must have a name, age, and at least one hobby""",
+        user_prompt="Please create a profile for a fictional team with a title, list of team members (at least 2), and team size. Remember that the team_size must match the exact number of people in the list.",
         metadata=PromptMetadata(
             type="team_extraction",
             tags=["structured", "team", "test"]
@@ -73,6 +83,44 @@ Make sure to include all required fields and validate against the provided schem
     )
 
 
+@pytest.fixture
+def schema():
+    """Test schema fixture."""
+    return {
+        "type": "object",
+        "properties": {
+            "color": {"type": "string", "enum": ["red", "blue", "green"]},
+            "count": {"type": "integer", "minimum": 1},
+            "tags": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["color", "count", "tags"]
+    }
+
+@pytest.fixture
+def test_prompt(schema):
+    """Test prompt fixture."""
+    return MemoryPrompt(
+        name="schema_test",
+        description="Test direct schema validation",
+        system_prompt="You are a helpful assistant that provides structured data.",
+        user_prompt="Please provide a color (red, blue, or green), a count (positive integer), and some tags.",
+        metadata=PromptMetadata(
+            type="schema_test",
+            tags=["structured", "schema", "test"]
+        ),
+        expected_response=ResponseFormat(
+            format=ResponseFormatType.JSON_SCHEMA,
+            response_schema=json.dumps(schema),
+            convert_to_json_schema=False
+        )
+    )
+
+@pytest.fixture
+def mock_chat_completion():
+    """Mock ChatCompletion fixture."""
+    #TODO: Implement mock chat completion
+    pass
+
 @pytest.mark.asyncio
 @pytest.mark.integration
 async def test_simple_structured_output(test_settings, llm_registry: LLMRegistry, person_prompt: MemoryPrompt):
@@ -81,7 +129,7 @@ async def test_simple_structured_output(test_settings, llm_registry: LLMRegistry
         pytest.skip("Skipping test that requires LLM API tokens")
 
     # Arrange
-    model_name = llm_registry.get_registered_models()[0]
+    model_name = "gpt-4o-mini-2024-07-18"  # Specify GPT-4 mini model
     llm_instance = await llm_registry.create_instance(model_name)
 
     # Act
@@ -116,7 +164,7 @@ async def test_nested_structured_output(test_settings, llm_registry: LLMRegistry
         pytest.skip("Skipping test that requires LLM API tokens")
 
     # Arrange
-    model_name = llm_registry.get_registered_models()[0]
+    model_name = "gpt-4o-mini-2024-07-18"  # Specify GPT-4 mini model
     llm_instance = await llm_registry.create_instance(model_name)
 
     # Act
@@ -153,42 +201,56 @@ async def test_nested_structured_output(test_settings, llm_registry: LLMRegistry
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_direct_schema_output(test_settings, llm_registry: LLMRegistry):
-    """Test structured output with direct JSON schema (without Pydantic model)."""
+async def test_direct_schema_output_mocked(test_settings, llm_registry: LLMRegistry, test_prompt, mock_chat_completion):
+    """Test structured output with direct JSON schema using mocked responses."""
+    # Arrange
+    model_name = "gpt-4o-mini-2024-07-18"  # Specify GPT-4 mini model
+    llm_instance = await llm_registry.create_instance(model_name)
+
+    # Mock the chat completion call
+    interface = llm_instance.interface
+    if isinstance(interface, OpenAIInterface):
+        interface.client.chat.completions.create = AsyncMock(return_value=mock_chat_completion)
+
+    # Act
+    response = await llm_instance.interface.process(test_prompt)
+
+    # Assert
+    assert isinstance(response, LLMResponse)
+    assert response.success is True
+    assert isinstance(response.content, str)
+
+    # Parse and validate the response
+    parsed_data = json.loads(response.content)
+
+    # Debug print the exact response
+    print("\nMocked Response Content:")
+    print(response.content)
+    print("\n")
+
+    # Validate the structured data
+    assert isinstance(parsed_data, dict)
+    assert "color" in parsed_data
+    assert parsed_data["color"] in ["red", "blue", "green"]
+    assert "count" in parsed_data
+    assert isinstance(parsed_data["count"], int)
+    assert parsed_data["count"] >= 1
+    assert "tags" in parsed_data
+    assert isinstance(parsed_data["tags"], list)
+    assert all(isinstance(tag, str) for tag in parsed_data["tags"])
+
+@pytest.mark.real_tokens
+async def test_direct_schema_output_real(test_settings, llm_registry: LLMRegistry, test_prompt):
+    """Test structured output with direct JSON schema using real API tokens."""
     if not test_settings.use_real_tokens:
         pytest.skip("Skipping test that requires LLM API tokens")
 
     # Arrange
-    schema = {
-        "type": "object",
-        "properties": {
-            "color": {"type": "string", "enum": ["red", "blue", "green"]},
-            "count": {"type": "integer", "minimum": 1},
-            "tags": {"type": "array", "items": {"type": "string"}}
-        },
-        "required": ["color", "count", "tags"]
-    }
-
-    prompt = MemoryPrompt(
-        name="schema_test",
-        description="Test direct schema validation",
-        system_prompt="You are a helpful assistant that provides structured data.",
-        user_prompt="Please provide a color (red, blue, or green), a count (positive integer), and some tags.",
-        metadata=PromptMetadata(
-            type="schema_test",
-            expected_response=ResponseFormat(
-                format=ResponseFormatType.JSON_SCHEMA,
-                response_schema=json.dumps(schema),
-                convert_to_json_schema=False
-            ),
-            tags=["structured", "schema", "test"]
-        )
-    )
+    model_name = "gpt-4o-mini-2024-07-18"  # Specify GPT-4 mini model
+    llm_instance = await llm_registry.create_instance(model_name)
 
     # Act
-    model_name = llm_registry.get_registered_models()[0]
-    llm_instance = await llm_registry.create_instance(model_name)
-    response = await llm_instance.interface.process(prompt)
+    response = await llm_instance.interface.process(test_prompt)
 
     # Assert
     assert isinstance(response, LLMResponse)
@@ -196,7 +258,7 @@ async def test_direct_schema_output(test_settings, llm_registry: LLMRegistry):
     assert isinstance(response.content, str)
 
     # Debug print the exact response
-    print("\nDirect Schema Response Content:")
+    print("\nReal API Response Content:")
     print(response.content)
     print("\n")
 

@@ -9,7 +9,8 @@ from uuid import uuid4
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.base import BasePrompt
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat
+from llmaestro.prompts.types import PromptMetadata
+from llmaestro.llm.responses import ResponseFormat
 from pydantic import BaseModel, ConfigDict, Field
 from llmaestro.llm.responses import ValidationResult
 

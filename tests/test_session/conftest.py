@@ -10,7 +10,9 @@ from llmaestro.core.storage import Artifact, FileSystemArtifactStorage
 from llmaestro.prompts.base import BasePrompt, FileAttachment
 from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.llm.models import LLMProfile, LLMCapabilities
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from llmaestro.prompts.types import PromptMetadata, VersionInfo
+from llmaestro.llm.responses import ResponseFormat
+from llmaestro.llm.responses import LLMResponse
 from llmaestro.llm.rate_limiter import RateLimitConfig
 
 @pytest.fixture

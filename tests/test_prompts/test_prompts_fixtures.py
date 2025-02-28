@@ -5,9 +5,9 @@ from datetime import datetime
 from typing import Dict, List
 
 from llmaestro.prompts.base import BasePrompt, PromptVariable, VersionedPrompt
-from llmaestro.prompts.types import PromptMetadata, ResponseFormat, VersionInfo
+from llmaestro.prompts.types import PromptMetadata, VersionInfo
 from llmaestro.prompts.memory import MemoryPrompt
-
+from llmaestro.llm.responses import ResponseFormat
 
 def test_version_info_fixture(version_info: VersionInfo):
     """Test that version_info fixture instantiates without error."""

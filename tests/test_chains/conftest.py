@@ -24,11 +24,10 @@ from llmaestro.prompts.loader import PromptLoader
 from llmaestro.prompts.types import (
     PromptMetadata,
     VersionInfo,
-    ResponseFormat,
 )
 from llmaestro.llm.interfaces.base import ConversationContext
-from llmaestro.core.models import LLMResponse
-
+from llmaestro.llm.responses import LLMResponse
+from llmaestro.llm.responses import ResponseFormat
 
 class ChangeType(str, Enum):
     """Change type for version info."""

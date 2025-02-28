@@ -30,6 +30,10 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+# Set OpenAI's base client logger to WARNING to suppress verbose request logging
+openai_logger = logging.getLogger("openai._base_client")
+openai_logger.setLevel(logging.WARNING)
+
 class TestConfig(BaseModel):
     """Test configuration for fixtures."""
     use_real_tokens: bool = False

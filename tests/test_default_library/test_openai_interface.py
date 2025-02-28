@@ -28,13 +28,12 @@ from llmaestro.default_library.defined_providers.openai.interface import OpenAII
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
 from llmaestro.prompts.types import (
     PromptMetadata,
-    ResponseFormat,
 )
 from llmaestro.llm.enums import MediaType
 from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.core.attachments import FileAttachment
 from llmaestro.llm.responses import ResponseFormatType
-
+from llmaestro.llm.responses import ResponseFormat
 # Create a concrete test prompt class
 @pytest.fixture
 def test_prompt() -> BasePrompt:

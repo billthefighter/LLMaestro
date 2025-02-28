@@ -25,6 +25,50 @@ class ResponseFormatType(str, Enum):
     XML = "xml"
 
 
+class StructuredOutputConfig(BaseModel):
+    """Configuration for structured output between ResponseFormat and LLM interfaces."""
+
+    format: ResponseFormatType = Field(..., description="The format type requested for the response")
+    requires_schema: bool = Field(..., description="Whether this format type requires a schema")
+    schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="JSON schema for validation, if provided directly. Mutually exclusive with pydantic_model.",
+    )
+    pydantic_model: Optional[Type[BaseModel]] = Field(
+        default=None,
+        description="Pydantic model class for validation and schema generation. Mutually exclusive with schema.",
+    )
+    model_name: Optional[str] = Field(
+        default=None, description="Name of the Pydantic model, if using model-based validation"
+    )
+    response_format_override: Optional[Dict[str, Any]] = Field(
+        default=None, description="Format-specific configuration to override default behavior"
+    )
+
+    @property
+    def has_schema(self) -> bool:
+        """Whether this config has a schema available (either direct or via model)."""
+        return bool(self.schema or self.pydantic_model)
+
+    def model_post_init(self, __context: Any) -> None:
+        """Validate mutual exclusivity of schema sources."""
+        if self.schema is not None and self.pydantic_model is not None:
+            raise ValueError("Cannot specify both schema and pydantic_model - they are mutually exclusive")
+
+        if self.model_name and not self.pydantic_model:
+            raise ValueError("model_name can only be specified when using pydantic_model")
+
+    @property
+    def effective_schema(self) -> Optional[Dict[str, Any]]:
+        """Get the effective schema, whether from direct schema or Pydantic model."""
+        if self.pydantic_model:
+            return self.pydantic_model.model_json_schema()
+        return self.schema
+
+    class Config:
+        arbitrary_types_allowed = True
+
+
 class ValidationResult(BaseModel):
     """Result of response validation."""
 
@@ -78,35 +122,30 @@ class ResponseFormat(BaseModel):
             pydantic_model=model,
         )
 
-    def get_structured_output_config(self) -> Dict[str, Any]:
+    def get_structured_output_config(self) -> StructuredOutputConfig:
         """Get configuration for structured output based on format type and schema.
 
         This method is used by LLM interfaces to configure their structured output
         settings based on the response format requirements.
 
         Returns:
-            Dict containing configuration for structured output, which may include:
-            - schema: The JSON schema if using schema validation
-            - response_format: Format-specific configuration for the LLM
-            - model_info: Information about the Pydantic model if using direct model parsing
+            StructuredOutputConfig containing all necessary configuration for the LLM interface
         """
-        config: Dict[str, Any] = {
-            "format": self.format.value,
-            "requires_schema": self.requires_schema,
-        }
+        config = StructuredOutputConfig(
+            format=self.format,
+            requires_schema=self.requires_schema,
+        )
 
         if self.pydantic_model:
-            config["model_info"] = {
-                "model_name": self.pydantic_model.__name__,
-                "model_class": self.pydantic_model,
-            }
+            config.pydantic_model = self.pydantic_model
+            config.model_name = self.pydantic_model.__name__
 
         if self.response_schema:
-            config["schema"] = json.loads(self.response_schema)
+            config.schema = json.loads(self.response_schema)
 
         # Add format-specific configuration
         if self.format == ResponseFormatType.JSON_SCHEMA:
-            config["response_format"] = {"type": "json_object"}
+            config.response_format_override = {"type": "json_object"}
 
         return config
 

@@ -6,7 +6,7 @@ import base64
 from typing import Dict, List, Set, Type, Union, Optional
 
 from llmaestro.prompts.base import BasePrompt, PromptMetadata, FileAttachment, PromptVariable, SerializableType
-from llmaestro.prompts.types import VersionInfo, ResponseFormat
+from llmaestro.prompts.types import VersionInfo
 from llmaestro.llm.enums import MediaType
 from llmaestro.llm.models import LLMProfile
 from llmaestro.llm.llm_registry import LLMRegistry
