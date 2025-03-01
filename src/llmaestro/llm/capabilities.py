@@ -81,6 +81,7 @@ class LLMCapabilities(BaseModel):
     supports_tools: bool = False
     supports_parallel_requests: bool = True
     supports_temperature: bool = False
+    supports_direct_pydantic_parse: bool = False
 
     # Advanced Features
     supports_frequency_penalty: bool = False
@@ -110,6 +111,7 @@ class LLMCapabilities(BaseModel):
         "supports_presence_penalty",
         "supports_stop_sequences",
         "supports_message_role",
+        "supports_direct_pydantic_parse",
     }
 
     @classmethod

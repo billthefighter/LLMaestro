@@ -26,7 +26,18 @@ from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.core.orchestrator import Orchestrator
 from llmaestro.core.conversations import get_detailed_conversation_dump, ConversationGraph, ConversationContext
 from llmaestro.prompts.base import BasePrompt
+from llmaestro.core.logging_config import configure_logging
 
+# Configure root logger first
+logger = configure_logging(level=logging.DEBUG, module_name="pdf_tax_processor")
+
+# Configure OpenAI interface logger specifically
+openai_logger = logging.getLogger("interface")
+openai_logger.setLevel(logging.DEBUG)
+
+# Configure httpx logger for API calls
+httpx_logger = logging.getLogger("httpx")
+httpx_logger.setLevel(logging.DEBUG)
 
 class TaxableItem(BaseModel):
     """Represents a single taxable item from a receipt."""
@@ -298,6 +309,7 @@ class PDFTaxProcessor:
                 if isinstance(response_node.content, LLMResponse) and response_node.content.success:
                     try:
                         self.logger.debug(f"Raw response content: {response_node.content.content}")
+                        # When using OpenAI's parse endpoint, content will already be JSON
                         items_data = json.loads(response_node.content.content)
                         items = TaxableItems.model_validate(items_data).items
                         all_items.extend(items)
@@ -387,7 +399,21 @@ IMPORTANT: Return ONLY the raw JSON without any markdown formatting or code bloc
 
         # Clean up temp directory
         if self.temp_dir.exists():
-            self.temp_dir.rmdir()
+            # Remove all files and directories in the temp directory
+            for temp_file in self.temp_dir.rglob('*'):
+                try:
+                    if temp_file.is_file():
+                        temp_file.unlink()
+                    elif temp_file.is_dir():
+                        temp_file.rmdir()
+                except Exception as e:
+                    self.logger.error(f"Failed to remove {temp_file}: {e}")
+
+            # Now remove the temp directory itself
+            try:
+                self.temp_dir.rmdir()
+            except Exception as e:
+                self.logger.error(f"Failed to remove temp directory {self.temp_dir}: {e}")
 
         # Write results
         self._write_to_csv(all_items)
@@ -412,20 +438,13 @@ IMPORTANT: Return ONLY the raw JSON without any markdown formatting or code bloc
 
 async def main():
     """Example usage of the PDF tax processor."""
-    # Set up logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    logger = logging.getLogger(__name__)
-
     # Set up directories
     input_dir = "tax_receipts"
     output_file = "tax_items.csv"
 
     # Initialize LLM registry with credentials
     llm_registry = LLMRegistry()
-    model_name = "chatgpt-4o-latest"  # or appropriate model that supports image analysis
+    model_name = "gpt-4o-mini-2024-07-18"  # Use the model we know works with beta parsing
 
     # Here you would register your model and credentials
     # await llm_registry.register_model(state=your_state, interface_class=your_interface, credentials=your_credentials)
@@ -433,6 +452,7 @@ async def main():
     # Create processor and run
     try:
         processor = PDFTaxProcessor(input_dir, output_file, llm_registry, model_name)
+        await processor.initialize()  # Make sure to call initialize
         await processor.process_pdfs()
     except ImportError as e:
         logger.error(f"Missing required dependency: {e}")

@@ -38,7 +38,6 @@ class StructuredOutputConfig(BaseModel):
     """
 
     format: ResponseFormatType = Field(..., description="The format type requested for the response")
-    requires_schema: bool = Field(..., description="Whether this format type requires a schema")
     schema: Optional[Dict[str, Any]] = Field(
         default=None,
         description="JSON schema for validation, if provided directly. Mutually exclusive with pydantic_model.",
@@ -49,9 +48,6 @@ class StructuredOutputConfig(BaseModel):
     )
     model_name: Optional[str] = Field(
         default=None, description="Name of the Pydantic model, if using model-based validation"
-    )
-    response_format_override: Optional[Dict[str, Any]] = Field(
-        default=None, description="Format-specific configuration to override default behavior"
     )
 
     @property
@@ -188,7 +184,6 @@ class ResponseFormat(BaseModel):
         """Get configuration for structured output based on format type and schema."""
         config = StructuredOutputConfig(
             format=self.format,
-            requires_schema=self.requires_schema,
         )
 
         if self.pydantic_model and not self.convert_to_json_schema:

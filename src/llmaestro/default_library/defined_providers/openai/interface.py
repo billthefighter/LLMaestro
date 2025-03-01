@@ -4,6 +4,8 @@ import logging
 from typing import Any, Dict, List, Optional, Union, AsyncIterator, TYPE_CHECKING, cast, overload, BinaryIO
 import base64
 import json
+import asyncio
+import httpx
 
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletion, ChatCompletionMessage
@@ -33,7 +35,19 @@ class OpenAIInterface(BaseLLMInterface):
 
     def __init__(self, **data):
         super().__init__(**data)
-        self.client = AsyncOpenAI(api_key=self.credentials.key if self.credentials else None)
+        # Initialize OpenAI client with timeouts
+        timeout_config = (
+            httpx.Timeout(
+                connect=self.socket_timeout,
+                read=self.request_timeout,
+                write=self.request_timeout,
+                pool=self.socket_timeout,
+            )
+            if self.socket_timeout and self.request_timeout
+            else None
+        )
+
+        self.client = AsyncOpenAI(api_key=self.credentials.key if self.credentials else None, timeout=timeout_config)
 
     def _post_super_init(self, **data):
         """Initialize OpenAI-specific components."""
@@ -90,7 +104,7 @@ class OpenAIInterface(BaseLLMInterface):
         float,
         int,
         List[ProcessedToolType],
-        Optional[Dict[str, Any]],
+        Optional[StructuredOutputConfig],
     ]:
         """Prepare common request parameters for both streaming and non-streaming calls.
 
@@ -152,42 +166,9 @@ class OpenAIInterface(BaseLLMInterface):
         # Configure structured output if specified in prompt
         response_format = None
         if prompt.expected_response:
-            response_format = self.configure_structured_output(prompt.expected_response.get_structured_output_config())
+            response_format = prompt.expected_response.get_structured_output_config()
 
         return messages, model_name, temperature, max_tokens, processed_tools, response_format
-
-    def configure_structured_output(self, config: StructuredOutputConfig) -> Dict[str, Any]:
-        """Configure structured output settings for OpenAI.
-
-        Args:
-            config: Configuration from ResponseFormat.get_structured_output_config()
-
-        Returns:
-            Dict of OpenAI-specific configuration
-        """
-        output_config: Dict[str, Any] = {}
-
-        # For Pydantic models, we'll handle this differently in _create_chat_completion
-        if config.pydantic_model:
-            logger.debug(f"Using Pydantic model directly: {config.model_name}")
-            # Return the model directly without wrapping in response_format
-            # This will be handled by beta.chat.completions.parse
-            output_config["pydantic_model"] = config.pydantic_model
-            return output_config
-
-        # For JSON schema, use the OpenAI json_schema format
-        if hasattr(config, "json_schema") and config.json_schema:
-            logger.debug("Using JSON schema mode")
-            output_config["response_format"] = {
-                "type": "json_schema",
-                "schema": config.json_schema,
-            }
-            return output_config
-
-        # For simple JSON mode
-        logger.debug("Using simple JSON mode")
-        output_config["response_format"] = {"type": "json_object"}
-        return output_config
 
     async def parse_structured_response(
         self,
@@ -302,29 +283,55 @@ class OpenAIInterface(BaseLLMInterface):
         temperature: float,
         max_tokens: int,
         tools: Optional[List[ProcessedToolType]] = None,
-        response_format: Optional[Dict[str, Any]] = None,
+        response_format: Optional[StructuredOutputConfig] = None,
         **kwargs: Any,
     ) -> ChatCompletion:
         """Create a chat completion with OpenAI.
 
-        Args:
-            messages: List of messages for the conversation
-            model: Model to use for completion
-            temperature: Temperature for sampling
-            max_tokens: Maximum tokens to generate
-            tools: Optional list of tools to use
-            response_format: Optional response format configuration
-            **kwargs: Additional keyword arguments
+        This method supports two paths for structured output:
+        1. Direct Pydantic Parsing (Experimental):
+           - Uses OpenAI's beta.chat.completions.parse endpoint
+           - Designed for direct Pydantic model validation
+           - Only available for models that support direct Pydantic parsing
+           - Requires the model to have supports_direct_pydantic_parse=True
 
-        Returns:
-            ChatCompletion response from OpenAI
+        2. Standard JSON Object (Stable):
+           - Uses standard chat completions with type: "json_object"
+           - Includes schema validation in system prompt
+           - Works consistently across all models
+           - Recommended for production use when direct parsing is not available
+
+        Raises:
+            TimeoutError: If the request exceeds the configured timeout
+            Exception: For other API errors
         """
         logger.debug(f"Creating chat completion with model: {model}")
         logger.debug(f"Response format configuration: {response_format}")
         logger.debug(f"Number of messages: {len(messages)}")
-        logger.debug(f"First message content: {messages[0] if messages else 'No messages'}")
 
-        base_kwargs = {"model": model, "temperature": temperature, "max_tokens": max_tokens, **kwargs}
+        # Log first message content without attachments
+        if messages:
+            first_msg = messages[0]
+            content_preview = (
+                first_msg.get("content", "") if isinstance(first_msg.get("content"), str) else "<structured_content>"
+            )
+            if len(content_preview) > 200:
+                content_preview = content_preview[:200] + "..."
+            logger.debug(f"First message preview: {content_preview}")
+
+        # Set up base kwargs including messages
+        base_kwargs = {
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            **kwargs,
+        }
+
+        # Log kwargs without the full messages
+        debug_kwargs = {**base_kwargs}
+        debug_kwargs["messages"] = f"<{len(messages)} messages>"
+        logger.debug(f"Base configuration: {debug_kwargs}")
 
         # Handle tools if provided
         if tools:
@@ -335,29 +342,72 @@ class OpenAIInterface(BaseLLMInterface):
 
         # Handle response format configuration
         if response_format:
-            pydantic_model = response_format.get("pydantic_model")
+            pydantic_model = response_format.pydantic_model
             logger.debug(f"Pydantic model from response_format: {pydantic_model}")
+            logger.debug(f"Full response_format dict: {response_format}")
 
-            if pydantic_model is not None:
-                # If it's a Pydantic model, use beta.chat.completions.parse
+            # Check if model supports direct Pydantic parsing
+            supports_direct_parsing = self.state and self.state.profile.capabilities.supports_direct_pydantic_parse
+            logger.debug(f"Model supports direct Pydantic parsing: {supports_direct_parsing}")
+
+            if pydantic_model is not None and supports_direct_parsing:
                 try:
-                    logger.debug(f"Using beta endpoint with Pydantic model: {pydantic_model}")
-                    return await self.client.beta.chat.completions.parse(
-                        messages=messages, response_format=pydantic_model, **base_kwargs
-                    )
-                except Exception as e:
-                    logger.warning(f"Beta endpoint failed: {e}, falling back to JSON mode")
-                    base_kwargs["response_format"] = {"type": "json_object"}
-            else:
-                # For regular JSON format or schema, use the configured response_format
-                rf = response_format.get("response_format", {"type": "json_object"})
-                logger.debug(f"Using standard response format: {rf}")
-                base_kwargs["response_format"] = rf
+                    logger.debug(f"Using direct Pydantic parsing with model: {pydantic_model}")
+                    # Remove response_format from base_kwargs to avoid conflicts
+                    base_kwargs.pop("response_format", None)
+                    # Log final kwargs without the full messages
+                    debug_kwargs = {k: v if k != "messages" else f"<{len(v)} messages>" for k, v in base_kwargs.items()}
+                    logger.debug(f"Final parse endpoint configuration: {debug_kwargs}")
+                    logger.debug(f"Calling parse with response_format={pydantic_model}")
+                    final_kwargs = {**base_kwargs, "response_format": pydantic_model}
+                    final_debug_kwargs = {
+                        k: v if k != "messages" else f"<{len(v)} messages>" for k, v in final_kwargs.items()
+                    }
+                    logger.debug(f"Final kwargs: {final_debug_kwargs}")
 
-        # Add messages last to avoid duplication
-        base_kwargs["messages"] = messages
-        logger.debug(f"Final request kwargs: {base_kwargs}")
-        return await self.client.chat.completions.create(**base_kwargs)
+                    # Call parse endpoint with timeout
+                    return await self._handle_timeout(
+                        self.client.beta.chat.completions.parse(**final_kwargs),
+                        self.request_timeout,
+                        "OpenAI parse endpoint request timed out",
+                    )
+                except TimeoutError:
+                    raise
+                except Exception as e:
+                    logger.error(f"Direct Pydantic parsing failed: {e}")
+                    logger.warning("Falling back to standard JSON object format")
+                    # Fall through to standard format
+
+            # Standard JSON object format (stable)
+            base_kwargs["response_format"] = {"type": "json_object"}
+            if response_format.effective_schema:
+                # Add schema validation in the system prompt
+                schema_str = json.dumps(response_format.effective_schema, indent=2)
+                system_msg = next((m for m in messages if m["role"] == "system"), None)
+                if system_msg:
+                    system_msg[
+                        "content"
+                    ] = f"{system_msg['content']}\n\nValidate the response against this JSON schema:\n```json\n{schema_str}\n```"
+                else:
+                    messages.insert(
+                        0,
+                        {
+                            "role": "system",
+                            "content": f"Validate the response against this JSON schema:\n```json\n{schema_str}\n```",
+                        },
+                    )
+                base_kwargs["messages"] = messages
+
+        # Log final kwargs without the full messages
+        debug_kwargs = {k: v if k != "messages" else f"<{len(v)} messages>" for k, v in base_kwargs.items()}
+        logger.debug(f"Final request configuration: {debug_kwargs}")
+
+        # Call create endpoint with timeout
+        return await self._handle_timeout(
+            self.client.chat.completions.create(**base_kwargs),
+            self.request_timeout,
+            "OpenAI chat completion request timed out",
+        )
 
     def _create_response_metadata(self, is_streaming: bool = False, is_partial: bool = False) -> Dict[str, Any]:
         """Create common metadata for LLMResponse."""
@@ -781,3 +831,11 @@ class OpenAIInterface(BaseLLMInterface):
             available_tokens=available,
             context_utilization=utilization,
         )
+
+    async def _handle_timeout(self, coro, timeout, error_message):
+        """Handle a coroutine with a timeout."""
+        try:
+            return await asyncio.wait_for(coro, timeout)
+        except asyncio.TimeoutError:
+            logger.error(error_message)
+            raise

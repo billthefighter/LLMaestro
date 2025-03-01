@@ -324,9 +324,10 @@ async def main():
     parser.add_argument('--provider', default='openai', help='Provider name (e.g., openai, anthropic)')
     parser.add_argument('--input-dir', default='tax_receipts', help='Directory containing PDF files to process')
     parser.add_argument('--output-file', default='tax_items.csv', help='Output CSV file path')
-    parser.add_argument('--model-name', default='chatgpt-4o-latest', help='Name of the LLM model to use')
+    parser.add_argument('--model-name', default='gpt-4o-mini-2024-07-18', help='Name of the LLM model to use')
     parser.add_argument('--port', type=int, default=8765, help='Port for visualization server')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    parser.add_argument('--allow-model-failover', action='store_true', help='Allow model failover')
 
     args = parser.parse_args()
 
@@ -374,14 +375,17 @@ async def main():
             # Model selection logic
             if args.model_name not in available_models:
                 logger.warning(f"Requested model '{args.model_name}' not found in available models.")
-                # Try to find a non-vision model
-                for model in available_models:
-                    if not model.endswith('vision-preview'):
-                        args.model_name = model
-                        logger.info(f"Using '{model}' instead.")
-                        break
+                if getattr(args, 'allow_model_failover', False):
+                    # Only try to find alternative model if failover is explicitly allowed
+                    for model in available_models:
+                        if not model.endswith('vision-preview'):
+                            args.model_name = model
+                            logger.info(f"Using '{model}' instead.")
+                            break
+                    else:
+                        raise ValueError("No suitable non-vision models available in the registry")
                 else:
-                    raise ValueError("No suitable non-vision models available in the registry")
+                    raise ValueError(f"Requested model '{args.model_name}' not found in available models and failover is not enabled")
 
             # Create and run processor with visualization
             processor = VisualizedPDFTaxProcessor(

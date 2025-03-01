@@ -40,14 +40,44 @@ class LLMRegistry(BaseModel):
             state: Model state to register
             credentials: Credentials for the model
             interface_class: Interface implementation class
+
+        Raises:
+            ValueError: If credentials are missing or state is invalid
         """
+        logger.debug(f"Attempting to register model {state.model_name}")
+
         if not credentials:
+            logger.error(f"No credentials provided for model {state.model_name}")
             raise ValueError(f"No credentials provided for model {state.model_name}")
+
+        # Validate state before registration
+        if not state.profile or not state.provider or not state.runtime_config:
+            logger.error(f"Invalid LLMState for model {state.model_name}: missing required fields")
+            raise ValueError(f"Invalid LLMState for model {state.model_name}: missing required fields")
+
+        try:
+            # Validate that the state is properly configured
+            if not state.profile.name:
+                logger.error("Model state missing name in profile")
+                raise ValueError("Model state missing name in profile")
+            if not state.profile.capabilities:
+                logger.error("Model state missing capabilities in profile")
+                raise ValueError("Model state missing capabilities in profile")
+            if not state.provider.family:
+                logger.error("Model state missing provider family")
+                raise ValueError("Model state missing provider family")
+        except Exception as e:
+            logger.error(f"Invalid model state for {state.model_name}: {str(e)}")
+            raise ValueError(f"Invalid model state for {state.model_name}: {str(e)}")
+
+        logger.debug(f"Model {state.model_name} passed validation, registering...")
 
         with self.lock:
             self.model_states[state.model_name] = state
             self.interface_classes[state.model_name] = interface_class
             self.credentials[state.model_name] = credentials
+
+        logger.debug(f"Successfully registered model {state.model_name}")
 
     async def create_instance(self, model_name: str) -> LLMInstance:
         """Create a new instance of a registered model.

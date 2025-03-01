@@ -115,9 +115,10 @@ class LLMDefaultFactory(BaseModel):
                     for model_name, llm_state in models.items():
                         try:
                             # Pass the interface class directly without instantiating
-                            instance = await registry.register_model(
+                            await registry.register_model(
                                 state=llm_state, credentials=credentials, interface_class=interface_class
                             )
+                            # Only add to registered models after successful registration
                             registered_models.append(model_name)
                             logger.info(
                                 f"Successfully registered model {model_name} "
@@ -130,7 +131,9 @@ class LLMDefaultFactory(BaseModel):
                             logger.error(warning)
                             continue
 
-                    registered_providers.add(provider_name)
+                    # Only add provider if at least one model was registered successfully
+                    if any(model in registered_models for model in models.keys()):
+                        registered_providers.add(provider_name)
 
                 except Exception as e:
                     warning = f"Failed to process provider {provider_name}: {str(e)}"
@@ -247,14 +250,47 @@ class LLMDefaultFactory(BaseModel):
 
         # Try different ways to find model definitions
         for name, obj in vars(models_module).items():
+            # Skip non-model related classes
+            if name in (
+                "datetime",
+                "Dict",
+                "Callable",
+                "LLMState",
+                "LLMProfile",
+                "LLMMetadata",
+                "LLMCapabilities",
+                "VisionCapabilities",
+            ):
+                continue
+
             # Case 1: Direct dictionary of LLMStates
             if isinstance(obj, dict) and all(isinstance(v, LLMState) for v in obj.values()):
-                models.update(obj)
+                # Validate each state before adding
+                for model_name, state in obj.items():
+                    try:
+                        # Ensure the state is valid
+                        if not state.profile or not state.provider or not state.runtime_config:
+                            logger.warning(f"Invalid LLMState for model {model_name}: missing required fields")
+                            continue
+                        models[model_name] = state
+                    except Exception as e:
+                        logger.warning(f"Failed to validate model {model_name}: {str(e)}")
+                        continue
+
             # Case 2: Direct LLMState instance
             elif isinstance(obj, LLMState):
-                models[obj.profile.name] = obj
+                try:
+                    # Ensure the state is valid
+                    if not obj.profile or not obj.provider or not obj.runtime_config:
+                        logger.warning(f"Invalid LLMState instance {name}: missing required fields")
+                        continue
+                    models[obj.profile.name] = obj
+                except Exception as e:
+                    logger.warning(f"Failed to validate LLMState instance {name}: {str(e)}")
+                    continue
+
             # Case 3: Class with MODELS dictionary or factory methods
-            elif isinstance(obj, type):
+            elif isinstance(obj, type) and name not in ("BaseModel", "datetime"):
                 # Try to instantiate the class and get models
                 try:
                     instance = obj()
@@ -268,6 +304,12 @@ class LLMDefaultFactory(BaseModel):
                                     if callable(factory_method):
                                         state = factory_method()
                                         if isinstance(state, LLMState):
+                                            # Ensure the state is valid
+                                            if not state.profile or not state.provider or not state.runtime_config:
+                                                logger.warning(
+                                                    f"Invalid LLMState for model {model_name}: missing required fields"
+                                                )
+                                                continue
                                             models[model_name] = state
                                 except Exception as e:
                                     logger.warning(f"Failed to create model {model_name}: {str(e)}")

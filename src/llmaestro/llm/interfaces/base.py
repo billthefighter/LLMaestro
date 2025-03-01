@@ -6,7 +6,8 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, AsyncIterator, Type, Callable, TypeVar
+from typing import Any, Dict, List, Optional, Set, Union, AsyncIterator, Type, Callable, TypeVar, Awaitable
+import asyncio
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -21,7 +22,6 @@ from llmaestro.llm.models import LLMState  # Direct import instead of TYPE_CHECK
 from llmaestro.prompts.tools import ToolParams
 from llmaestro.core.models import ContextMetrics
 from llmaestro.core.attachments import BaseAttachment
-from llmaestro.llm.responses import StructuredOutputConfig
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,15 @@ class BaseLLMInterface(BaseModel, ABC):
        - Shared across all requests using this interface
        - Available to all prompts
 
+    Timeout Configuration:
+    -------------------
+    Timeouts can be configured at three levels:
+    1. Request Timeout: Maximum time for a single request (default: 30s)
+    2. Total Timeout: Maximum time for all retries (default: 90s)
+    3. Socket Timeout: Maximum time for socket operations (default: 10s)
+
+    All timeouts are in seconds and can be disabled by setting to None.
+
     Tool Processing Flow:
     ------------------
     1. Tools are processed through _process_tools() into standardized ToolParams
@@ -126,6 +135,15 @@ class BaseLLMInterface(BaseModel, ABC):
     images: List[ImageInput] = Field(default_factory=list, description="List of images to include in messages")
     available_tools: Dict[str, ProcessedToolType] = Field(
         default_factory=dict, description="Cache of processed tool parameters, keyed by tool name"
+    )
+
+    # Timeout configuration
+    request_timeout: Optional[float] = Field(
+        default=30.0, description="Maximum time in seconds for a single request", ge=0
+    )
+    total_timeout: Optional[float] = Field(default=90.0, description="Maximum time in seconds for all retries", ge=0)
+    socket_timeout: Optional[float] = Field(
+        default=10.0, description="Maximum time in seconds for socket operations", ge=0
     )
 
     model_config = ConfigDict(
@@ -478,33 +496,6 @@ class BaseLLMInterface(BaseModel, ABC):
         pass
 
     @abstractmethod
-    def configure_structured_output(self, config: StructuredOutputConfig) -> Dict[str, Any]:
-        """Configure structured output settings for this interface.
-
-        This method configures how the interface should handle structured output requests.
-        The configuration can specify either a Pydantic model or a JSON schema (mutually exclusive),
-        along with format-specific settings.
-
-        When a Pydantic model is provided, implementations should handle it in one of two ways:
-        1. If config.pydantic_model is set, use the model directly for validation/schema generation
-        2. If config.schema is set, use the pre-converted JSON schema
-
-        Args:
-            config: Configuration specifying how to handle structured output, including:
-                   - format: The requested output format (JSON, YAML, etc.)
-                   - requires_schema: Whether schema validation is required
-                   - schema: Optional JSON schema for validation (mutually exclusive with pydantic_model)
-                   - pydantic_model: Optional Pydantic model for direct use (mutually exclusive with schema)
-                   - model_name: Name of the Pydantic model if using pydantic_model
-                   - response_format_override: Optional provider-specific format settings
-
-        Returns:
-            Dict of provider-specific configuration to be used in API calls.
-            The exact structure depends on the provider's requirements.
-        """
-        pass
-
-    @abstractmethod
     async def parse_structured_response(
         self,
         response: str,
@@ -571,3 +562,26 @@ class BaseLLMInterface(BaseModel, ABC):
             return f"Tool '{tool.name}' executed successfully.\n" f"Result: {result}\n" f"Type: {type(result).__name__}"
         except Exception as e:
             return f"Tool '{tool.name}' execution failed.\nError: {str(e)}"
+
+    async def _handle_timeout(self, coro: Awaitable[T], timeout: Optional[float], error_msg: str) -> T:
+        """Handle timeouts for async operations.
+
+        Args:
+            coro: Coroutine to execute with timeout
+            timeout: Timeout in seconds (None for no timeout)
+            error_msg: Error message to use if timeout occurs
+
+        Returns:
+            Result of the coroutine
+
+        Raises:
+            TimeoutError: If the operation times out
+        """
+        if timeout is None:
+            return await coro
+
+        try:
+            return await asyncio.wait_for(coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.error(f"Operation timed out after {timeout}s: {error_msg}")
+            raise TimeoutError(error_msg)
