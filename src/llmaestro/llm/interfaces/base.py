@@ -225,11 +225,8 @@ class BaseLLMInterface(BaseModel, ABC):
                 # For existing ToolParams, keep as is
                 processed_tools.append(tool)
             elif isinstance(tool, type) and issubclass(tool, BaseModel):
-                # For Pydantic models, create a ToolParams with the model as the function
-                schema = tool.model_json_schema()
-                tool_params = ToolParams(
-                    name=tool.__name__, description=tool.__doc__ or "", parameters=schema, return_type=tool, source=tool
-                )
+                # For Pydantic models, use the from_pydantic method
+                tool_params = ToolParams.from_pydantic(tool)
                 processed_tools.append(tool_params)
             elif callable(tool):
                 # For callables, create a ToolParams with the function
@@ -277,8 +274,20 @@ class BaseLLMInterface(BaseModel, ABC):
 
         # Handle system prompt
         if system_prompt:
-            system_message = self._create_system_message(system_prompt)
-            messages.append(system_message)
+            # Check if system prompts are supported
+            supports_system_prompt = self._check_capability("supports_system_prompt")
+            if supports_system_prompt:
+                system_message = self._create_system_message(system_prompt)
+                messages.append(system_message)
+            else:
+                # Convert system prompt to user message if system prompts not supported
+                logger.warning(
+                    f"System prompts are not supported by model "
+                    f"'{self.state.profile.name if self.state else 'unknown'}'. "
+                    "Converting system prompt to user message."
+                )
+                user_message = self._create_user_message(f"System instruction: {system_prompt}")
+                messages.append(user_message)
 
         # Handle input data
         if isinstance(input_data, str):
@@ -291,7 +300,20 @@ class BaseLLMInterface(BaseModel, ABC):
 
         # Handle attachments through template method
         if attachments:
-            messages = await self._handle_attachments(messages, attachments)
+            # Check if vision is supported when attachments are present
+            if any(attachment.media_type.is_image() for attachment in attachments) and not self._check_capability(
+                "supports_vision"
+            ):
+                logger.warning(
+                    f"Vision capabilities are not supported by model "
+                    f"'{self.state.profile.name if self.state else 'unknown'}'. "
+                    "Image attachments will be ignored."
+                )
+                # Filter out image attachments
+                attachments = [attachment for attachment in attachments if not attachment.media_type.is_image()]
+
+            if attachments:  # Only process if we still have attachments after filtering
+                messages = await self._handle_attachments(messages, attachments)
 
         return messages
 
@@ -309,22 +331,92 @@ class BaseLLMInterface(BaseModel, ABC):
         """Template method for handling attachments."""
         return messages  # Base implementation does nothing
 
+    def _check_capability(self, capability_name: str, raise_error: bool = False) -> bool:
+        """Check if a specific capability is supported by the model.
+
+        Args:
+            capability_name: Name of the capability to check (e.g., 'supports_streaming')
+            raise_error: Whether to raise an error if the capability is not supported
+
+        Returns:
+            True if the capability is supported, False otherwise
+
+        Raises:
+            ValueError: If raise_error is True and the capability is not supported
+        """
+        if not self.state or not getattr(self.state.profile, "capabilities", None):
+            # If we don't have state or capabilities, assume not supported
+            if raise_error:
+                raise ValueError(f"Capability '{capability_name}' is not supported by this model")
+            return False
+
+        capabilities = self.state.profile.capabilities
+        is_supported = getattr(capabilities, capability_name, False)
+
+        if not is_supported and raise_error:
+            model_name = self.state.profile.name if self.state else "unknown"
+            raise ValueError(f"Capability '{capability_name}' is not supported by model '{model_name}'")
+
+        return is_supported
+
     def _check_model_capabilities(self, **kwargs: Any) -> Dict[str, Any]:
-        """Check if the model supports specific capabilities and filter parameters accordingly."""
+        """Check if the model supports specific capabilities and filter parameters accordingly.
+
+        This method examines the provided kwargs against the model's capabilities and removes
+        parameters that are not supported by the model.
+
+        Args:
+            **kwargs: Parameters to check against model capabilities
+
+        Returns:
+            Filtered parameters with unsupported options removed
+        """
         if not self.state or not getattr(self.state.profile, "capabilities", None):
             return kwargs
 
         filtered_kwargs = kwargs.copy()
         capabilities = self.state.profile.capabilities
 
-        # Check temperature support
-        if not getattr(capabilities, "supports_temperature", False):
-            filtered_kwargs.pop("temperature", None)
+        # Map parameters to capability flags
+        capability_param_map = {
+            "temperature": "supports_temperature",
+            "stream": "supports_streaming",
+            "tools": "supports_tools",
+            "functions": "supports_function_calling",
+            "function_call": "supports_function_calling",
+            "response_format": "supports_json_mode",
+            "frequency_penalty": "supports_frequency_penalty",
+            "presence_penalty": "supports_presence_penalty",
+            "stop": "supports_stop_sequences",
+        }
 
-        # Add more capability checks here as needed
-        # Example:
-        # if not getattr(capabilities, 'supports_streaming', False):
-        #     filtered_kwargs.pop('stream', None)
+        # Check each parameter against capabilities
+        for param, capability in capability_param_map.items():
+            if param in filtered_kwargs and not getattr(capabilities, capability, False):
+                logger.warning(
+                    f"Parameter '{param}' is not supported by model '{self.state.profile.name}' "
+                    f"(missing capability: {capability}). Parameter will be ignored."
+                )
+                filtered_kwargs.pop(param, None)
+
+        # Special handling for system messages
+        if not getattr(capabilities, "supports_system_prompt", True) and "messages" in filtered_kwargs:
+            messages = filtered_kwargs["messages"]
+            if isinstance(messages, list) and any(msg.get("role") == "system" for msg in messages):
+                logger.warning(
+                    f"System messages are not supported by model '{self.state.profile.name}'. "
+                    "System messages will be converted to user messages."
+                )
+                # Convert system messages to user messages
+                new_messages = []
+                for msg in messages:
+                    if msg.get("role") == "system":
+                        new_messages.append(
+                            {"role": "user", "content": f"System instruction: {msg.get('content', '')}"}
+                        )
+                    else:
+                        new_messages.append(msg)
+                filtered_kwargs["messages"] = new_messages
 
         return filtered_kwargs
 
@@ -375,47 +467,57 @@ class BaseLLMInterface(BaseModel, ABC):
         """Process input using the LLM with optional tool support.
 
         Implementation Requirements:
-        1. Process tools in order of precedence:
+        1. Check capabilities before using features:
+           - Use self._check_capability('supports_tools') before processing tools
+           - Use self._check_capability('supports_streaming') before enabling streaming
+           - Use self._check_capability('supports_json_mode') before using structured output
+        2. Process tools in order of precedence:
            - Runtime tools (from method argument)
            - Prompt-level tools (from BasePrompt.tools)
            - Interface-level tools (from available_tools)
-        2. Use _process_tools() to standardize tool format
-        3. Use _format_tools_for_provider() for API-specific formatting
-        4. Use _handle_tool_execution() for consistent tool execution
-        5. Handle both sync and async tool execution
-        6. Validate tool inputs against parameter schemas
+        3. Use _process_tools() to standardize tool format
+        4. Use _format_tools_for_provider() for API-specific formatting
+        5. Use _handle_tool_execution() for consistent tool execution
+        6. Handle both sync and async tool execution
+        7. Validate tool inputs against parameter schemas
 
         Example Implementation:
             ```python
             async def process(self, prompt, variables=None, tools=None):
-                # Process tools in order of precedence
+                # Check capabilities
+                supports_tools = self._check_capability('supports_tools')
+
+                # Process tools if supported
                 final_tools = []
+                if supports_tools:
+                    # 1. Interface-level tools (lowest precedence)
+                    final_tools.extend(self.available_tools.values())
 
-                # 1. Interface-level tools (lowest precedence)
-                final_tools.extend(self.available_tools.values())
+                    # 2. Prompt-level tools (medium precedence)
+                    if isinstance(prompt, BasePrompt) and prompt.tools:
+                        prompt_tools = self._process_tools(prompt.tools)
+                        final_tools.extend(prompt_tools)
 
-                # 2. Prompt-level tools (medium precedence)
-                if isinstance(prompt, BasePrompt) and prompt.tools:
-                    prompt_tools = self._process_tools(prompt.tools)
-                    final_tools.extend(prompt_tools)
+                    # 3. Runtime tools (highest precedence)
+                    if tools:
+                        runtime_tools = self._process_tools(tools)
+                        final_tools.extend(runtime_tools)
 
-                # 3. Runtime tools (highest precedence)
-                if tools:
-                    runtime_tools = self._process_tools(tools)
-                    final_tools.extend(runtime_tools)
+                    # Format for provider and make API call
+                    api_tools = self._format_tools_for_provider(final_tools)
+                    response = await self._make_api_call(prompt, api_tools)
 
-                # Format for provider and make API call
-                api_tools = self._format_tools_for_provider(final_tools)
-                response = await self._make_api_call(prompt, api_tools)
-
-                # Handle tool calls in response
-                if response.tool_calls:
-                    for call in response.tool_calls:
-                        result = await self._handle_tool_execution(
-                            self.available_tools[call.name],
-                            call.arguments
-                        )
-                        # Process tool result...
+                    # Handle tool calls in response
+                    if response.tool_calls:
+                        for call in response.tool_calls:
+                            result = await self._handle_tool_execution(
+                                self.available_tools[call.name],
+                                call.arguments
+                            )
+                            # Process tool result...
+                else:
+                    # Make API call without tools
+                    response = await self._make_api_call(prompt)
 
                 return LLMResponse(...)
             ```
@@ -440,6 +542,9 @@ class BaseLLMInterface(BaseModel, ABC):
                   Can be functions, Pydantic models, or ToolParams objects.
 
         Implementation Requirements:
+            - Check capabilities before using features:
+              - Use self._check_capability('supports_tools') before processing tools
+              - Use self._check_capability('supports_parallel_requests') before batching
             - Must use _process_tools() to convert tools into standardized format
             - Must handle tool invocation responses from the LLM
             - Must validate tool inputs against parameter schemas
@@ -467,6 +572,9 @@ class BaseLLMInterface(BaseModel, ABC):
                   Can be functions, Pydantic models, or ToolParams objects.
 
         Implementation Requirements:
+            - Check capabilities before using features:
+              - Use self._check_capability('supports_streaming', raise_error=True) to verify streaming support
+              - Use self._check_capability('supports_tools') before processing tools
             - Must use _process_tools() to convert tools into standardized format
             - Must handle tool invocation responses from the LLM
             - Must validate tool inputs against parameter schemas
@@ -486,13 +594,36 @@ class BaseLLMInterface(BaseModel, ABC):
     @property
     @abstractmethod
     def supports_structured_output(self) -> bool:
-        """Whether this interface supports native structured output."""
+        """Whether this interface supports native structured output.
+
+        Implementation should check capabilities:
+        - Check if the model supports JSON mode: self._check_capability('supports_json_mode')
+        - Check if the model supports direct Pydantic parsing: self._check_capability('supports_direct_pydantic_parse')
+
+        Example implementation:
+        ```python
+        @property
+        def supports_structured_output(self) -> bool:
+            return self._check_capability('supports_json_mode')
+        ```
+        """
         pass
 
     @property
     @abstractmethod
     def supports_json_schema(self) -> bool:
-        """Whether this interface supports JSON schema validation."""
+        """Whether this interface supports JSON schema validation.
+
+        Implementation should check capabilities:
+        - Check if the model supports JSON schema: self._check_capability('supports_json_mode')
+
+        Example implementation:
+        ```python
+        @property
+        def supports_json_schema(self) -> bool:
+            return self._check_capability('supports_json_mode')
+        ```
+        """
         pass
 
     @abstractmethod
@@ -506,6 +637,13 @@ class BaseLLMInterface(BaseModel, ABC):
         Args:
             response: The raw response string from the LLM
             expected_format: The expected response format
+
+        Implementation Requirements:
+            - Check capabilities before using features:
+              - Use self._check_capability('supports_json_mode') before using JSON mode
+              - Use self._check_capability('supports_direct_pydantic_parse') before using direct Pydantic parsing
+            - Fall back to manual parsing if native capabilities are not available
+            - Validate the parsed response against the expected format
 
         Returns:
             Parsed response object (may be a Pydantic model or dict)
@@ -584,4 +722,4 @@ class BaseLLMInterface(BaseModel, ABC):
             return await asyncio.wait_for(coro, timeout=timeout)
         except asyncio.TimeoutError:
             logger.error(f"Operation timed out after {timeout}s: {error_msg}")
-            raise TimeoutError(error_msg)
+            raise TimeoutError(error_msg) from None

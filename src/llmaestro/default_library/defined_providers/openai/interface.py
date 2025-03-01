@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.llm.interfaces.base import BaseLLMInterface, ToolInputType, ProcessedToolType
-from llmaestro.core.attachments import BaseAttachment, ImageAttachment, AttachmentConverter, FileAttachment
+from llmaestro.core.attachments import BaseAttachment, AttachmentConverter, FileAttachment
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.prompts.types import PromptMetadata
@@ -64,12 +64,12 @@ class OpenAIInterface(BaseLLMInterface):
     @property
     def supports_structured_output(self) -> bool:
         """Whether this interface supports native structured output."""
-        return True
+        return self._check_capability("supports_json_mode")
 
     @property
     def supports_json_schema(self) -> bool:
         """Whether this interface supports JSON schema validation."""
-        return True
+        return self._check_capability("supports_json_mode")
 
     async def initialize(self) -> None:
         """Initialize async components of the interface."""
@@ -185,6 +185,16 @@ class OpenAIInterface(BaseLLMInterface):
             Parsed response object (may be a Pydantic model or dict)
         """
         try:
+            # Check capabilities
+            supports_json_mode = self._check_capability("supports_json_mode")
+            supports_direct_parsing = self._check_capability("supports_direct_pydantic_parse")
+
+            if not supports_json_mode:
+                logger.warning(
+                    f"Model '{self.state.profile.name if self.state else 'unknown'}' does not support JSON mode. "
+                    "Falling back to manual parsing."
+                )
+
             # Log the raw response for debugging
             logger.debug(f"Raw response before parsing: {response}")
 
@@ -237,7 +247,11 @@ class OpenAIInterface(BaseLLMInterface):
                     parsed_data = response
 
                 # If we have a Pydantic model, validate against it
-                if expected_format.pydantic_model:
+                if expected_format.pydantic_model and supports_direct_parsing:
+                    return expected_format.pydantic_model.model_validate(parsed_data)
+                elif expected_format.pydantic_model:
+                    # Fall back to JSON validation if direct parsing is not supported
+                    logger.debug("Direct Pydantic parsing not supported, using JSON validation")
                     return expected_format.pydantic_model.model_validate(parsed_data)
 
                 return parsed_data
@@ -312,11 +326,14 @@ class OpenAIInterface(BaseLLMInterface):
         # Log first message content without attachments
         if messages:
             first_msg = messages[0]
-            content_preview = (
-                first_msg.get("content", "") if isinstance(first_msg.get("content"), str) else "<structured_content>"
-            )
-            if len(content_preview) > 200:
-                content_preview = content_preview[:200] + "..."
+            content_preview = "<structured_content>"
+            msg_content = first_msg.get("content")
+
+            if isinstance(msg_content, str):
+                content_preview = msg_content
+                if content_preview and len(content_preview) > 200:
+                    content_preview = content_preview[:200] + "..."
+
             logger.debug(f"First message preview: {content_preview}")
 
         # Set up base kwargs including messages
@@ -347,7 +364,7 @@ class OpenAIInterface(BaseLLMInterface):
             logger.debug(f"Full response_format dict: {response_format}")
 
             # Check if model supports direct Pydantic parsing
-            supports_direct_parsing = self.state and self.state.profile.capabilities.supports_direct_pydantic_parse
+            supports_direct_parsing = self._check_capability("supports_direct_pydantic_parse")
             logger.debug(f"Model supports direct Pydantic parsing: {supports_direct_parsing}")
 
             if pydantic_model is not None and supports_direct_parsing:
@@ -385,9 +402,10 @@ class OpenAIInterface(BaseLLMInterface):
                 schema_str = json.dumps(response_format.effective_schema, indent=2)
                 system_msg = next((m for m in messages if m["role"] == "system"), None)
                 if system_msg:
-                    system_msg[
-                        "content"
-                    ] = f"{system_msg['content']}\n\nValidate the response against this JSON schema:\n```json\n{schema_str}\n```"
+                    system_msg["content"] = (
+                        f"{system_msg['content']}\n\n"
+                        f"Validate the response against this JSON schema:\n```json\n{schema_str}\n```"
+                    )
                 else:
                     messages.insert(
                         0,
@@ -440,10 +458,8 @@ class OpenAIInterface(BaseLLMInterface):
                 processed_tools.append(tool)
             elif isinstance(tool, type) and issubclass(tool, BaseModel):
                 # For Pydantic models, create a ToolParams with the model as the function
-                schema = tool.model_json_schema()
-                tool_params = ToolParams(
-                    name=tool.__name__, description=tool.__doc__ or "", parameters=schema, return_type=tool, source=tool
-                )
+                # Use from_pydantic method instead of direct constructor to avoid type errors
+                tool_params = ToolParams.from_pydantic(tool)
                 processed_tools.append(tool_params)
             elif callable(tool):
                 # For callables, create a ToolParams with the function
@@ -467,8 +483,13 @@ class OpenAIInterface(BaseLLMInterface):
                 prompt, variables
             )
 
-            # Process and merge tools
-            final_tools = await self._prepare_tools(prompt_tools, tools)
+            # Check if tools are supported
+            supports_tools = self._check_capability("supports_tools")
+
+            # Process and merge tools only if supported
+            final_tools = None
+            if supports_tools and (prompt_tools or tools):
+                final_tools = await self._prepare_tools(prompt_tools, tools)
 
             # Create chat completion
             response = await self._create_chat_completion(
@@ -476,7 +497,9 @@ class OpenAIInterface(BaseLLMInterface):
                 model=model_name,
                 temperature=temperature,
                 max_tokens=max_tokens,
-                tools=final_tools if not response_format else None,  # Don't use tools if using response format
+                tools=final_tools
+                if supports_tools and not response_format
+                else None,  # Don't use tools if using response format
                 response_format=response_format,
             )
 
@@ -509,6 +532,17 @@ class OpenAIInterface(BaseLLMInterface):
         tools: Optional[List[ToolInputType]] = None,
     ) -> List[LLMResponse]:
         """Process multiple prompts in a batch with tool support."""
+        # Check if parallel requests are supported
+        supports_parallel = self._check_capability("supports_parallel_requests")
+        if not supports_parallel:
+            logger.warning(
+                f"Model '{self.state.profile.name if self.state else 'unknown'}' "
+                f"does not support parallel requests. Processing sequentially."
+            )
+
+        # Check if tools are supported
+        supports_tools = self._check_capability("supports_tools")
+
         # Ensure variables list matches prompts length if provided
         if variables is not None and len(variables) != len(prompts):
             raise ValueError("Number of variable sets must match number of prompts")
@@ -530,8 +564,10 @@ class OpenAIInterface(BaseLLMInterface):
                     response_format,
                 ) = await self._prepare_request(prompt, prompt_vars)
 
-                # Process and merge tools
-                final_tools = await self._prepare_tools(prompt_tools, tools)
+                # Process and merge tools only if supported
+                final_tools = None
+                if supports_tools and (prompt_tools or tools):
+                    final_tools = await self._prepare_tools(prompt_tools, tools)
 
                 # Create chat completion
                 response = await self._create_chat_completion(
@@ -539,7 +575,9 @@ class OpenAIInterface(BaseLLMInterface):
                     model=model_name,
                     temperature=temperature,
                     max_tokens=max_tokens,
-                    tools=final_tools if not response_format else None,  # Don't use tools if using response format
+                    tools=final_tools
+                    if supports_tools and not response_format
+                    else None,  # Don't use tools if using response format
                     response_format=response_format,
                 )
 
@@ -562,41 +600,67 @@ class OpenAIInterface(BaseLLMInterface):
     ) -> AsyncIterator[LLMResponse]:
         """Stream responses from OpenAI's API one token at a time with tool support."""
         try:
+            # Verify streaming support
+            self._check_capability("supports_streaming", raise_error=True)
+
+            # Check if tools are supported
+            supports_tools = self._check_capability("supports_tools")
+
             # Get prompt-level tools and messages
             messages, model_name, temperature, max_tokens, prompt_tools, response_format = await self._prepare_request(
                 prompt, variables
             )
 
-            # Process and merge tools
-            final_tools = await self._prepare_tools(prompt_tools, tools)
+            # Process and merge tools only if supported
+            final_tools = None
+            if supports_tools and (prompt_tools or tools):
+                final_tools = await self._prepare_tools(prompt_tools, tools)
 
-            stream = await self._create_chat_completion(
-                messages=messages,
-                model=model_name,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                tools=final_tools,
-                response_format=response_format,
-            )
+            # Create chat completion with stream=True
+            kwargs = {
+                "messages": messages,
+                "model": model_name,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "tools": final_tools if supports_tools else None,
+                "response_format": response_format,
+                "stream": True,  # Enable streaming
+            }
 
-            if not isinstance(stream, AsyncIterator):
-                raise ValueError("Expected AsyncIterator response for streaming request")
+            # Make the API call
+            stream = await self.client.chat.completions.create(**kwargs)
 
             async for chunk in stream:
                 try:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        content = chunk.choices[0].delta.content
-                        yield LLMResponse(
-                            content=content,
-                            success=True,
-                            token_usage=TokenUsage(
-                                completion_tokens=1,
-                                prompt_tokens=0,
-                                total_tokens=1,
-                            ),
-                            context_metrics=self._calculate_context_metrics(),
-                            metadata=self._create_response_metadata(is_streaming=True, is_partial=True),
-                        )
+                    if chunk.choices and chunk.choices[0].delta and hasattr(chunk.choices[0].delta, "content"):
+                        delta = chunk.choices[0].delta
+                        # Handle different content types
+                        content = ""
+                        if delta.content is None:
+                            pass  # No content in this chunk
+                        elif isinstance(delta.content, str):
+                            content = delta.content
+                        elif isinstance(delta.content, list):
+                            # Extract text from content parts
+                            for part in delta.content:
+                                if isinstance(part, dict) and part.get("type") == "text":
+                                    content += part.get("text", "")
+                        else:
+                            # Fallback for unknown content types
+                            content = str(delta.content)
+
+                        if content:  # Only yield if there's content
+                            yield LLMResponse(
+                                content=content,
+                                success=True,
+                                token_usage=TokenUsage(
+                                    completion_tokens=1,
+                                    prompt_tokens=0,
+                                    total_tokens=1,
+                                ),
+                                context_metrics=self._calculate_context_metrics(),
+                                metadata=self._create_response_metadata(is_streaming=True, is_partial=True),
+                            )
                 except Exception as e:
                     yield self._handle_error(e)
         except Exception as e:
@@ -630,24 +694,10 @@ class OpenAIInterface(BaseLLMInterface):
         self, input_data: Any, system_prompt: Optional[str] = None, attachments: Optional[List[BaseAttachment]] = None
     ) -> List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]]:
         """Format input data and optional system prompt into messages."""
-        messages: List[Dict[str, Any]] = []
+        # Use the base class implementation which already has capability checking
+        messages = await super()._format_messages(input_data, system_prompt, attachments)
 
-        if system_prompt:
-            system_message: Dict[str, Any] = {"role": "system", "content": system_prompt}
-            messages.append(system_message)
-
-        if isinstance(input_data, str):
-            user_message: Dict[str, Any] = {"role": "user", "content": input_data}
-            messages.append(user_message)
-        elif isinstance(input_data, dict):
-            messages.append(input_data)
-        elif isinstance(input_data, list):
-            messages.extend(input_data)
-
-        # Add attachments if provided
-        if attachments:
-            messages = await self._handle_attachments(messages, attachments)
-
+        # Cast to the specific OpenAI type
         return cast(List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]], messages)
 
     async def _handle_attachments(
@@ -655,12 +705,20 @@ class OpenAIInterface(BaseLLMInterface):
     ) -> List[Dict[str, Any]]:
         """Handle OpenAI-specific attachment formatting."""
         # Get attachments by type
-        image_attachments = [att for att in attachments if isinstance(att, ImageAttachment)]
-        file_attachments = [att for att in attachments if isinstance(att, FileAttachment)]
+        image_attachments = [att for att in attachments if att.media_type.is_image()]
+        file_attachments = [att for att in attachments if not att.media_type.is_image()]
 
         # Handle file attachments
         if file_attachments:
-            for file_att in file_attachments:
+            for att in file_attachments:
+                # Cast to FileAttachment if possible
+                file_att = cast(FileAttachment, att) if isinstance(att, FileAttachment) else None
+
+                # Skip if not a FileAttachment
+                if not file_att:
+                    logger.warning(f"Skipping non-FileAttachment: {att}")
+                    continue
+
                 # If no file_id, try to upload the file
                 if not file_att.file_id and isinstance(file_att.content, str):
                     try:
@@ -699,12 +757,21 @@ class OpenAIInterface(BaseLLMInterface):
 
             # Update the last user message with images
             msg = messages[last_user_msg_idx]
-            content = msg["content"]
-            if not isinstance(content, str):
-                content = str(content)
+            content = msg.get("content", "")
+
+            # Handle different content types
+            text_content = ""
+            if isinstance(content, list):
+                # Extract text from content parts
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_content += item.get("text", "")
+            elif content is not None:
+                # Convert to string
+                text_content = str(content)
 
             # Create the updated message with images
-            updated_message: Dict[str, Any] = {"role": "user", "content": [{"type": "text", "text": content}]}
+            updated_message: Dict[str, Any] = {"role": "user", "content": [{"type": "text", "text": text_content}]}
 
             # Add image content
             for img in image_attachments:
@@ -790,7 +857,26 @@ class OpenAIInterface(BaseLLMInterface):
                 if message.tool_calls[0].function:
                     content = message.tool_calls[0].function.arguments
             else:
-                content = message.content or ""
+                # Handle different content types
+                message_content = message.content
+                if message_content is None:
+                    content = ""
+                elif isinstance(message_content, str):
+                    content = message_content
+                elif hasattr(message_content, "__iter__") and not isinstance(message_content, str):
+                    # Extract text from content parts that are iterable (list-like)
+                    text_parts = []
+                    try:
+                        for part in message_content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text_parts.append(part.get("text", ""))
+                        content = "".join(text_parts)
+                    except TypeError:
+                        # Fallback if iteration fails
+                        content = str(message_content)
+                else:
+                    # Fallback for unknown content types
+                    content = str(message_content)
 
             # Create token usage info
             usage = response.usage or TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
