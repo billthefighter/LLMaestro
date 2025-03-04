@@ -194,10 +194,6 @@ class ResponseFormat(BaseModel):
             # Use the JSON schema if provided
             config.schema = convert_to_schema(self.response_schema)
 
-        # Add format-specific configuration
-        if self.format == ResponseFormatType.JSON_SCHEMA:
-            config.response_format_override = {"type": "json_object"}
-
         return config
 
     def get_required_fields(self) -> List[str]:

@@ -39,6 +39,29 @@ class InvoiceData(BaseModel):
         pattern=r"^[0-9]+[.,][0-9]{2}\s*(?:€|euro)?$"
     )
 
+class InvoiceDataNoPattern(BaseModel):
+    """Pydantic model for invoice data extraction without pattern validators.
+
+    This model is used for direct Pydantic integration with OpenAI, which doesn't support pattern validators.
+    """
+
+    total: str = Field(
+        ...,
+        description="The total amount before VAT in euro"
+    )
+    vat_percentage: str = Field(
+        ...,
+        description="The VAT percentage"
+    )
+    vat_total: str = Field(
+        ...,
+        description="The total VAT amount in euro"
+    )
+    gross_total: str = Field(
+        ...,
+        description="The gross amount including VAT in euro"
+    )
+
 @pytest.fixture
 def sample_invoice_path() -> Path:
     """Get the path to the sample invoice PDF."""
@@ -220,7 +243,7 @@ Do not wrap the response in ```json``` or any other markdown.""",
         ),
         attachments=[invoice_png_attachment],
         expected_response=ResponseFormat.from_pydantic_model(
-            model=InvoiceData,
+            model=InvoiceDataNoPattern,  # Use the model without pattern validators
             convert_to_json_schema=False,  # Important: Pass the model directly
             format_type=ResponseFormatType.JSON_SCHEMA
         )
@@ -394,7 +417,7 @@ async def test_invoice_pydantic_extraction(test_settings, llm_registry: LLMRegis
 
         # Verify that the log message about using Pydantic model directly appears
         assert any(
-            "Using Pydantic model directly: InvoiceData" in record.message
+            "Using Pydantic model directly: InvoiceDataNoPattern" in record.message
             for record in caplog.records
         ), "Expected log message about using Pydantic model directly was not found"
 
@@ -404,15 +427,54 @@ async def test_invoice_pydantic_extraction(test_settings, llm_registry: LLMRegis
     assert isinstance(response.content, str)
 
     # Parse and validate the response as a Pydantic model
-    data = InvoiceData.model_validate_json(response.content)
-    assert isinstance(data, InvoiceData)
+    data = InvoiceDataNoPattern.model_validate_json(response.content)
+    assert isinstance(data, InvoiceDataNoPattern)
 
     # Verify the extracted values using normalized comparison
-    # Note: We test against the actual values shown in the invoice, not calculated values.
-    # There can be small discrepancies in VAT calculations due to rounding
-    # (e.g. 381.12 * 19% = 72.74, but invoice shows 72.41)
-    # We use a wider tolerance for VAT total since the model may calculate instead of extract
     assert abs(normalize_amount(data.total) - 381.12) < 0.01
     assert abs(normalize_percentage(data.vat_percentage) - 19.0) < 0.01
     assert abs(normalize_amount(data.vat_total) - 72.41) < 0.35  # Wider tolerance for VAT amount
     assert abs(normalize_amount(data.gross_total) - 453.52) < 0.01
+
+@pytest.mark.asyncio
+@pytest.mark.integration
+async def test_pattern_validator_warning(test_settings, llm_registry: LLMRegistry, invoice_png_attachment: FileAttachment, caplog):
+    """Test that pattern validators in Pydantic models trigger a warning and fallback to JSON."""
+    # Set logging level to DEBUG to capture debug messages
+    caplog.set_level("DEBUG")
+
+    # Create a prompt with the original InvoiceData model that has pattern validators
+    prompt = MemoryPrompt(
+        name="invoice_pattern_validator_test",
+        description="Test pattern validator warning",
+        system_prompt="Extract invoice data",
+        user_prompt="Please extract the invoice data",
+        attachments=[invoice_png_attachment],
+        expected_response=ResponseFormat.from_pydantic_model(
+            model=InvoiceData,  # Use model WITH pattern validators
+            convert_to_json_schema=False,
+            format_type=ResponseFormatType.JSON_SCHEMA
+        )
+    )
+
+    if not test_settings.use_real_tokens:
+        # Skip the actual test in mock mode
+        pytest.skip("Skipping pattern validator test in mock mode")
+    else:
+        model_name = "gpt-4o-mini-2024-07-18"
+        llm_instance = await llm_registry.create_instance(model_name)
+
+        # Process the prompt
+        await llm_instance.interface.process(prompt)
+
+        # Verify that our warning about pattern validators appears in the logs
+        assert any(
+            f"Pydantic model 'InvoiceData' contains pattern validators which are not supported" in record.message
+            for record in caplog.records
+        ), "Expected warning about pattern validators was not found"
+
+        # Verify that we're falling back to standard JSON
+        assert any(
+            "Falling back to standard JSON object format" in record.message
+            for record in caplog.records
+        ), "Expected fallback message was not found"

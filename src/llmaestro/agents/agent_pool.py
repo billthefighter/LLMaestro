@@ -96,12 +96,14 @@ class AgentPool:
         self,
         llm_registry: LLMRegistry,
         max_agents: int = 10,
+        default_model_name: Optional[str] = None,
     ):
         """Initialize the agent pool.
 
         Args:
             llm_registry: LLM registry instance for managing models and credentials
             max_agents: Maximum number of concurrent agents
+            default_model_name: Optional default model name to use when no specific capabilities are required
         """
         self._llm_registry = llm_registry
         self._max_agents = max_agents
@@ -109,6 +111,7 @@ class AgentPool:
         self.executor = ThreadPoolExecutor(max_workers=max_agents)
         self.prompts: Dict[str, asyncio.Task[Any]] = {}
         self.loop = asyncio.get_event_loop()
+        self.default_model_name = default_model_name
 
     async def get_agent(
         self, required_capabilities: Optional[Set[str]] = None, description: Optional[str] = None
@@ -147,8 +150,12 @@ class AgentPool:
             if not model_name:
                 raise ValueError(f"No models found supporting required capabilities: {required_capabilities}")
         else:
-            # If no capabilities required, use first available model
-            model_name = next(iter(model_states.keys()))
+            # If default_model_name is set and available in registry, use it
+            if self.default_model_name and self.default_model_name in model_states:
+                model_name = self.default_model_name
+            else:
+                # Otherwise use first available model
+                model_name = next(iter(model_states.keys()))
 
         # Create a new agent if we haven't reached the limit
         if len(self._active_agents) < self._max_agents:
@@ -210,7 +217,7 @@ class AgentPool:
             LLMCapabilities.validate_capability_flags(required_capabilities)
 
         # Get or create an agent
-        agent = await self.get_agent(agent_type)
+        agent = await self.get_agent(required_capabilities)
 
         # Verify agent has required capabilities
         if required_capabilities:

@@ -1,7 +1,7 @@
 """OpenAI interface implementation."""
 
 import logging
-from typing import Any, Dict, List, Optional, Union, AsyncIterator, TYPE_CHECKING, cast, overload, BinaryIO
+from typing import Any, Dict, List, Optional, Union, AsyncIterator, TYPE_CHECKING, cast, overload, BinaryIO, Type
 import base64
 import json
 import asyncio
@@ -290,6 +290,31 @@ class OpenAIInterface(BaseLLMInterface):
             for tool in tools
         ]
 
+    def _has_pattern_validators(self, model: Type[BaseModel]) -> bool:
+        """Check if a Pydantic model has pattern validators which are not supported by OpenAI.
+
+        Args:
+            model: The Pydantic model to check
+
+        Returns:
+            bool: True if the model has pattern validators, False otherwise
+        """
+        try:
+            # Get the model schema
+            schema = model.model_json_schema()
+
+            # Check if any properties have pattern validators
+            if "properties" in schema:
+                for prop_name, prop_schema in schema["properties"].items():
+                    if "pattern" in prop_schema:
+                        logger.debug(f"Found pattern validator in property '{prop_name}': {prop_schema['pattern']}")
+                        return True
+
+            return False
+        except Exception as e:
+            logger.warning(f"Error checking for pattern validators: {e}")
+            return False  # Assume no pattern validators if we can't check
+
     async def _create_chat_completion(
         self,
         messages: List[Union[ChatCompletionSystemMessageParam, ChatCompletionUserMessageParam]],
@@ -368,32 +393,43 @@ class OpenAIInterface(BaseLLMInterface):
             logger.debug(f"Model supports direct Pydantic parsing: {supports_direct_parsing}")
 
             if pydantic_model is not None and supports_direct_parsing:
-                try:
-                    logger.debug(f"Using direct Pydantic parsing with model: {pydantic_model}")
-                    # Remove response_format from base_kwargs to avoid conflicts
-                    base_kwargs.pop("response_format", None)
-                    # Log final kwargs without the full messages
-                    debug_kwargs = {k: v if k != "messages" else f"<{len(v)} messages>" for k, v in base_kwargs.items()}
-                    logger.debug(f"Final parse endpoint configuration: {debug_kwargs}")
-                    logger.debug(f"Calling parse with response_format={pydantic_model}")
-                    final_kwargs = {**base_kwargs, "response_format": pydantic_model}
-                    final_debug_kwargs = {
-                        k: v if k != "messages" else f"<{len(v)} messages>" for k, v in final_kwargs.items()
-                    }
-                    logger.debug(f"Final kwargs: {final_debug_kwargs}")
-
-                    # Call parse endpoint with timeout
-                    return await self._handle_timeout(
-                        self.client.beta.chat.completions.parse(**final_kwargs),
-                        self.request_timeout,
-                        "OpenAI parse endpoint request timed out",
+                # Check for pattern validators which are not supported by OpenAI
+                has_patterns = self._has_pattern_validators(pydantic_model)
+                if has_patterns:
+                    logger.warning(
+                        f"Pydantic model '{pydantic_model.__name__}' contains pattern validators which are not supported "
+                        f"by OpenAI's direct Pydantic integration. Falling back to standard JSON object format."
                     )
-                except TimeoutError:
-                    raise
-                except Exception as e:
-                    logger.error(f"Direct Pydantic parsing failed: {e}")
-                    logger.warning("Falling back to standard JSON object format")
-                    # Fall through to standard format
+                else:
+                    try:
+                        logger.debug(f"Using direct Pydantic parsing with model: {pydantic_model}")
+                        logger.info(f"Using Pydantic model directly: {pydantic_model.__name__}")
+                        # Remove response_format from base_kwargs to avoid conflicts
+                        base_kwargs.pop("response_format", None)
+                        # Log final kwargs without the full messages
+                        debug_kwargs = {
+                            k: v if k != "messages" else f"<{len(v)} messages>" for k, v in base_kwargs.items()
+                        }
+                        logger.debug(f"Final parse endpoint configuration: {debug_kwargs}")
+                        logger.debug(f"Calling parse with response_format={pydantic_model}")
+                        final_kwargs = {**base_kwargs, "response_format": pydantic_model}
+                        final_debug_kwargs = {
+                            k: v if k != "messages" else f"<{len(v)} messages>" for k, v in final_kwargs.items()
+                        }
+                        logger.debug(f"Final kwargs: {final_debug_kwargs}")
+
+                        # Call parse endpoint with timeout
+                        return await self._handle_timeout(
+                            self.client.beta.chat.completions.parse(**final_kwargs),
+                            self.request_timeout,
+                            "OpenAI parse endpoint request timed out",
+                        )
+                    except TimeoutError:
+                        raise
+                    except Exception as e:
+                        logger.error(f"Direct Pydantic parsing failed: {e}")
+                        logger.warning("Falling back to standard JSON object format")
+                        # Fall through to standard format
 
             # Standard JSON object format (stable)
             base_kwargs["response_format"] = {"type": "json_object"}
@@ -762,10 +798,17 @@ class OpenAIInterface(BaseLLMInterface):
             # Handle different content types
             text_content = ""
             if isinstance(content, list):
-                # Extract text from content parts
-                for item in content:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        text_content += item.get("text", "")
+                # Extract text from content parts that are in a list
+                text_parts = []
+                if content:  # Check if not empty
+                    try:
+                        for part in content:
+                            if isinstance(part, dict) and part.get("type") == "text":
+                                text_parts.append(part.get("text", ""))
+                        text_content = "".join(text_parts) if text_parts else str(content)
+                    except TypeError:
+                        # Fallback if iteration fails
+                        text_content = str(content)
             elif content is not None:
                 # Convert to string
                 text_content = str(content)
@@ -863,19 +906,22 @@ class OpenAIInterface(BaseLLMInterface):
                     content = ""
                 elif isinstance(message_content, str):
                     content = message_content
-                elif hasattr(message_content, "__iter__") and not isinstance(message_content, str):
-                    # Extract text from content parts that are iterable (list-like)
+                elif isinstance(message_content, list):
+                    # Extract text from content parts that are in a list
                     text_parts = []
-                    try:
-                        for part in message_content:
-                            if isinstance(part, dict) and part.get("type") == "text":
-                                text_parts.append(part.get("text", ""))
-                        content = "".join(text_parts)
-                    except TypeError:
-                        # Fallback if iteration fails
+                    if message_content:  # Check if not empty
+                        try:
+                            for part in message_content:
+                                if isinstance(part, dict) and part.get("type") == "text":
+                                    text_parts.append(part.get("text", ""))
+                            content = "".join(text_parts) if text_parts else str(message_content)
+                        except TypeError:
+                            # Fallback if iteration fails
+                            content = str(message_content)
+                    else:
                         content = str(message_content)
                 else:
-                    # Fallback for unknown content types
+                    # Handle any other type
                     content = str(message_content)
 
             # Create token usage info

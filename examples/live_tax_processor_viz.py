@@ -85,21 +85,95 @@ class LiveTaxProcessorVisualizer:
 
         # Add nodes
         for node_id, node in conversation.nodes.items():
+            # Determine node status
+            status = node.metadata.get("execution", {}).get("status", "unknown")
+
+            # Create node content snippet
+            content_snippet = ""
+            if isinstance(node.content, LLMResponse):
+                content_snippet = node.content.content[:50] + "..." if len(node.content.content) > 50 else node.content.content
+                content = node.content.content
+            elif hasattr(node.content, "user_prompt"):
+                content_snippet = node.content.user_prompt[:50] + "..." if len(node.content.user_prompt) > 50 else node.content.user_prompt
+                content = node.content.user_prompt
+            else:
+                content = str(node.content)
+                content_snippet = content[:50] + "..." if len(content) > 50 else content
+
+            # Format created time
+            created_time = node.created_at.strftime("%H:%M:%S")
+
+            # Estimate token count (rough estimate: ~4 chars per token)
+            estimated_tokens = len(content) // 4
+
+            # Determine node color based on type and status
+            if node.node_type == "prompt":
+                bg_color = "#E3F2FD"
+                border_color = "#1976D2"
+            elif node.node_type == "response":
+                bg_color = "#E8F5E9"
+                border_color = "#43A047"
+            elif status == "processing" or status == "running":
+                bg_color = "#FFF9C4"
+                border_color = "#FBC02D"
+            elif status == "error":
+                bg_color = "#FFEBEE"
+                border_color = "#E53935"
+            else:
+                bg_color = "#F5F5F5"
+                border_color = "#9E9E9E"
+
             node_data = {
                 "id": node_id,
                 "type": node.node_type,
-                "label": f"{node.node_type.title()}\n{node.created_at.strftime('%H:%M:%S')}",
-                "status": node.metadata.get("execution", {}).get("status", "unknown")
+                "label": f"{node.node_type.title()}\n{content_snippet}\n{created_time}",
+                "status": status,
+                "content": content,
+                "tokens": estimated_tokens,
+                # Add style properties directly in node data
+                "style": {
+                    "background-color": bg_color,
+                    "border-color": border_color,
+                    "border-width": "2px",
+                    "width": "200px",
+                    "height": "75px",
+                    "font-size": "12px",
+                    "text-wrap": "wrap",
+                    "text-valign": "center",
+                    "text-halign": "center"
+                }
             }
             nodes.append({"data": node_data})
 
         # Add edges
         for edge in conversation.edges:
+            # Create a unique edge ID
+            edge_id = f"{edge.source_id}-{edge.target_id}"
+
+            # Log the edge being processed
+            self.logger.debug(f"Processing edge: {edge_id} from {edge.source_id} to {edge.target_id}")
+
+            # Ensure source and target nodes exist
+            if edge.source_id not in conversation.nodes:
+                self.logger.warning(f"Source node {edge.source_id} not found for edge {edge_id}")
+                continue
+
+            if edge.target_id not in conversation.nodes:
+                self.logger.warning(f"Target node {edge.target_id} not found for edge {edge_id}")
+                continue
+
             edge_data = {
-                "id": f"{edge.source_id}-{edge.target_id}",
+                "id": edge_id,
                 "source": edge.source_id,
                 "target": edge.target_id,
-                "label": edge.edge_type
+                "label": edge.edge_type,
+                "style": {
+                    "width": "2px",
+                    "line-color": "#757575",
+                    "target-arrow-color": "#757575",
+                    "curve-style": "bezier",
+                    "target-arrow-shape": "triangle"
+                }
             }
             edges.append({"data": edge_data})
 
@@ -120,19 +194,43 @@ class LiveTaxProcessorVisualizer:
         graph_data = self._conversation_to_cytoscape(conversation)
         self.logger.debug(f"Broadcasting update for conversation {conversation_id}")
         self.logger.debug(f"Graph data: {len(graph_data['nodes'])} nodes, {len(graph_data['edges'])} edges")
-        self.logger.debug(f"Node types: {[node['data']['type'] for node in graph_data['nodes']]}")
 
-        config = self.renderer.get_config(
-            elements=graph_data,
-            additional_styles=self.custom_styles,
-            layout={"name": "dagre", "rankDir": "LR", "spacingFactor": 1.2}
-        )
-
-        update = {
+        # Create complete visualization config
+        visualization_data = {
             "type": "graph_update",
             "conversation_id": conversation_id,
             "timestamp": datetime.now().isoformat(),
-            "data": graph_data
+            "data": {
+                "elements": graph_data,
+                "conversations": {conversation_id: True},  # Add conversations field for the template
+                "style": [
+                    {
+                        "selector": "node",
+                        "style": {
+                            "label": "data(label)",
+                            "text-wrap": "wrap",
+                            "text-max-width": "180px"
+                        }
+                    },
+                    {
+                        "selector": "edge",
+                        "style": {
+                            "label": "data(label)",
+                            "curve-style": "bezier",
+                            "target-arrow-shape": "triangle"
+                        }
+                    }
+                ],
+                "layout": {
+                    "name": "dagre",
+                    "rankDir": "LR",
+                    "spacingFactor": 1.2,
+                    "rankSep": 200,
+                    "nodeSep": 100,
+                    "edgeSep": 50,
+                    "animate": True
+                }
+            }
         }
 
         # Broadcast to all clients
@@ -141,7 +239,7 @@ class LiveTaxProcessorVisualizer:
             self.logger.debug(f"Broadcasting to {len(websockets_clients)} clients")
             try:
                 await asyncio.gather(
-                    *[client.send(json.dumps(update)) for client in websockets_clients]
+                    *[client.send(json.dumps(visualization_data)) for client in websockets_clients]
                 )
                 self.logger.debug("Broadcast completed successfully")
             except Exception as e:
@@ -155,10 +253,19 @@ class LiveTaxProcessorVisualizer:
         self.logger.info(f"New client connected from {websocket.remote_address}. Total clients: {len(self.connected_clients)}")
 
         try:
+            # Send initial data for all active conversations
+            for conversation_id in self.active_conversations:
+                await self._broadcast_update(conversation_id)
+
+            # Handle incoming messages
             async for message in websocket:
                 self.logger.debug(f"Received message from client: {message}")
                 # Handle incoming messages if needed
-                pass
+                try:
+                    data = json.loads(message)
+                    self.logger.info(f"Received message from client: {data}")
+                except json.JSONDecodeError:
+                    self.logger.warning(f"Received invalid JSON from client: {message}")
         except websockets.exceptions.ConnectionClosed:
             self.logger.info(f"Client connection closed from {websocket.remote_address}")
         except Exception as e:
@@ -191,6 +298,11 @@ class LiveTaxProcessorVisualizer:
         """Start tracking a conversation for visualization."""
         self.logger.info(f"Starting to track conversation {conversation.id}")
         self.logger.debug(f"Initial conversation state: {len(conversation.nodes)} nodes, {len(conversation.edges)} edges")
+
+        # Calculate token usage
+        token_usage = conversation.total_tokens
+        self.logger.info(f"Initial token usage: {token_usage.total_tokens} tokens ({token_usage.prompt_tokens} prompt, {token_usage.completion_tokens} completion)")
+
         self.active_conversations[conversation.id] = conversation
         asyncio.create_task(self._broadcast_update(conversation.id))
 
@@ -198,6 +310,11 @@ class LiveTaxProcessorVisualizer:
         """Update the state of a tracked conversation."""
         self.logger.info(f"Updating conversation {conversation_id}")
         self.logger.debug(f"Updated conversation state: {len(conversation.nodes)} nodes, {len(conversation.edges)} edges")
+
+        # Calculate token usage
+        token_usage = conversation.total_tokens
+        self.logger.info(f"Current token usage: {token_usage.total_tokens} tokens ({token_usage.prompt_tokens} prompt, {token_usage.completion_tokens} completion)")
+
         self.active_conversations[conversation_id] = conversation
         asyncio.create_task(self._broadcast_update(conversation_id))
 
@@ -343,11 +460,19 @@ async def main():
     await visualizer.start()
 
     # Print instructions for the user
-    print("\nVisualization server is running!")
+    print("\n" + "="*80)
+    print("Visualization server is running!")
+    print("="*80)
     print(f"\nTo view the visualization:")
     print("1. Open examples/templates/tax_processor_viz.html in your web browser")
     print("2. You should see 'Connected' status in the top-left corner")
     print("\nThe visualization will show the conversation graph in real-time as PDFs are processed.")
+    print("\nVisualization features:")
+    print("- Node colors indicate type (blue=prompt, green=response, yellow=processing, red=error)")
+    print("- Hover over nodes to see more details")
+    print("- The top bar shows statistics including token count estimates")
+    print("- The graph layout updates automatically as new nodes are added")
+    print("="*80)
 
     # Wait for user confirmation
     while True:
@@ -400,7 +525,20 @@ async def main():
             print(f"Input directory: {args.input_dir}")
             print(f"Output file: {args.output_file}")
             print(f"Provider: {args.provider}")
-            print(f"Model: {args.model_name}")
+            print(f"Requested model: {args.model_name}")
+
+            # Initialize the processor
+            await processor.initialize()
+
+            # Verify the actual model being used
+            if processor.llm and processor.llm.state:
+                actual_model = processor.llm.state.profile.name
+                if actual_model != args.model_name:
+                    print(f"WARNING: Using model '{actual_model}' instead of requested '{args.model_name}'")
+                else:
+                    print(f"Using model: {args.model_name}")
+            else:
+                print(f"Using model: {args.model_name}")
 
             await processor.process_pdfs()
 

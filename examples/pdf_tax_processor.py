@@ -142,7 +142,7 @@ class PDFTaxProcessor:
         self.llm_registry = llm_registry
         self.model_name = model_name
         self.llm = None
-        self.agent_pool = AgentPool(llm_registry=llm_registry)
+        self.agent_pool = AgentPool(llm_registry=llm_registry, default_model_name=model_name)
         self.orchestrator = Orchestrator(agent_pool=self.agent_pool)
 
         # Set up logging
@@ -159,6 +159,13 @@ class PDFTaxProcessor:
         """Initialize the processor components."""
         # Create LLM instance
         self.llm = await self.llm_registry.create_instance(self.model_name)
+
+        # Check if the model supports vision capabilities
+        if not self.llm.state.profile.capabilities.supports_vision:
+            self.logger.warning(
+                f"Model '{self.model_name}' does not support vision capabilities. "
+                f"PDF processing may not work correctly as image attachments will be ignored."
+            )
 
     def _convert_pdf_to_png(self, pdf_path: Path) -> List[Path]:
         """Convert a PDF file to PNG images.

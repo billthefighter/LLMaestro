@@ -7,6 +7,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.26.0/cytoscape.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -84,13 +85,47 @@
             border-radius: 4px;
             margin-right: 8px;
         }
+        .controls {
+            display: flex;
+            justify-content: flex-end;
+            margin-top: 10px;
+        }
+        .control-button {
+            background-color: #1976D2;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.2s;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .control-button:hover {
+            background-color: #1565C0;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            transform: translateY(-2px);
+        }
+        .control-button i {
+            font-size: 18px;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <div class="status-bar">
-            Connection Status: <span id="connection-status">Connecting...</span>
-            <span id="status-indicator" class="status-indicator"></span>
+            Connection Status:<span id="connection-status">Disconnected</span>
+            <span id="status-indicator" class="status-indicator status-disconnected"></span>
+
+            <div style="margin-left: auto;">
+                <button id="fit-view-button" class="control-button">
+                    <i class="fas fa-expand"></i> Fit to View
+                </button>
+            </div>
         </div>
         <div class="stats">
             <div class="stat-item">
@@ -104,6 +139,10 @@
             <div class="stat-item">
                 <div class="stat-label">Processing Time</div>
                 <div id="processing-time" class="stat-value">0:00</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Estimated Tokens</div>
+                <div id="token-count" class="stat-value">0</div>
             </div>
         </div>
     </div>
@@ -212,11 +251,24 @@
         const conversationCount = document.getElementById('conversation-count');
         const nodeCount = document.getElementById('node-count');
         const processingTime = document.getElementById('processing-time');
+        const tokenCount = document.getElementById('token-count');
+        const fitViewButton = document.getElementById('fit-view-button');
+
+        // Add event listener for the fit view button
+        fitViewButton.addEventListener('click', () => {
+            console.log('Fit to View button clicked');
+            cy.fit();
+            console.log('View fitted to all nodes');
+        });
+
+        // Add a console log to verify the button is found
+        console.log('Fit View Button found:', fitViewButton !== null);
 
         let startTime = null;
         let ws = null;
         let reconnectAttempts = 0;
         const maxReconnectAttempts = 5;
+        let shouldPreserveViewport = true;
 
         function updateStats(graphData) {
             if (!startTime) startTime = new Date();
@@ -233,6 +285,10 @@
             const minutes = Math.floor(elapsed / 60);
             const seconds = elapsed % 60;
             processingTime.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+            // Update token count
+            const tokenCount = graphData.nodes.reduce((total, node) => total + node.data.tokens, 0);
+            this.tokenCount.textContent = tokenCount.toString();
         }
 
         function connect() {
@@ -246,59 +302,125 @@
             };
 
             ws.onmessage = (event) => {
+                console.log('Received message from server');
                 const update = JSON.parse(event.data);
+                console.log('Update data:', update);
+
                 if (update.type === 'graph_update') {
-                    // Process nodes and edges from the update
-                    const elements = update.data.nodes.map(node => ({
-                        group: 'nodes',
-                        data: {
-                            ...node.data,
-                            id: node.id,
-                            label: node.label,
-                            type: node.type
-                        },
-                        style: {
-                            ...node.data.style,
-                            'text-wrap': 'wrap',
-                            'text-max-width': '180px',
-                            'font-size': '14px'
-                        }
-                    })).concat(update.data.edges.map(edge => ({
-                        group: 'edges',
-                        data: {
-                            ...edge.data,
-                            id: edge.id,
-                            source: edge.source,
-                            target: edge.target,
-                            label: edge.label
-                        },
-                        style: edge.data.style || {}
-                    })));
+                    // Store current viewport state if preserving viewport
+                    let pan, zoom;
+                    if (shouldPreserveViewport && cy.nodes().length > 0) {
+                        pan = cy.pan();
+                        zoom = cy.zoom();
+                        console.log('Preserving viewport:', { pan, zoom });
+                    }
 
-                    // Update existing elements and add new ones
-                    elements.forEach(element => {
-                        const existing = cy.getElementById(element.data.id);
-                        if (existing.length) {
-                            // Update existing element
-                            existing.data(element.data);
-                            existing.style(element.style);
+                    // Process elements from the update
+                    const elements = update.data.elements;
+
+                    if (elements && elements.nodes && elements.edges) {
+                        console.log(`Processing update with ${elements.nodes.length} nodes and ${elements.edges.length} edges`);
+
+                        // Add new nodes
+                        elements.nodes.forEach(node => {
+                            if (!cy.getElementById(node.data.id).length) {
+                                cy.add({
+                                    group: 'nodes',
+                                    data: node.data,
+                                    position: node.position
+                                });
+                                console.log(`Added node: ${node.data.id}`);
+                            } else {
+                                // Update existing node
+                                cy.getElementById(node.data.id).data(node.data);
+                            }
+                        });
+
+                        // Add new edges
+                        elements.edges.forEach(edge => {
+                            // Check if source and target nodes exist
+                            const sourceExists = cy.getElementById(edge.data.source).length > 0;
+                            const targetExists = cy.getElementById(edge.data.target).length > 0;
+
+                            if (sourceExists && targetExists && !cy.getElementById(edge.data.id).length) {
+                                cy.add({
+                                    group: 'edges',
+                                    data: edge.data
+                                });
+                                console.log(`Added edge: ${edge.data.id} (${edge.data.source} -> ${edge.data.target})`);
+                            }
+                        });
+
+                        // Update statistics
+                        const conversationCount = Object.keys(update.data.conversations || {}).length || 1;
+                        const nodeCount = elements.nodes.length;
+
+                        console.log(`Updating statistics: ${conversationCount} conversations, ${nodeCount} nodes`);
+
+                        // Calculate estimated token count (rough estimate: ~4 chars per token)
+                        let totalTokens = 0;
+                        elements.nodes.forEach(node => {
+                            if (node.data.content) {
+                                // Estimate tokens: ~4 characters per token as a rough estimate
+                                const estimatedTokens = Math.ceil(node.data.content.length / 4);
+                                totalTokens += estimatedTokens;
+                            }
+                        });
+
+                        // Calculate processing time
+                        const now = new Date();
+                        if (!window.vizStartTime) {
+                            window.vizStartTime = now;
+                        }
+
+                        const elapsedSeconds = Math.floor((now - window.vizStartTime) / 1000);
+                        const minutes = Math.floor(elapsedSeconds / 60);
+                        const seconds = elapsedSeconds % 60;
+                        const formattedTime = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+                        // Update the UI
+                        document.getElementById('conversation-count').textContent = conversationCount.toString();
+                        document.getElementById('node-count').textContent = nodeCount.toString();
+                        document.getElementById('processing-time').textContent = formattedTime;
+                        document.getElementById('token-count').textContent = totalTokens.toString();
+
+                        // Apply layout but don't fit to view
+                        console.log('Applying layout');
+                        let layoutOptions;
+                        if (update.data.layout) {
+                            layoutOptions = update.data.layout;
                         } else {
-                            // Add new element
-                            cy.add(element);
+                            layoutOptions = {
+                                name: 'dagre',
+                                rankDir: 'LR',
+                                spacingFactor: 1.2,
+                                animate: true,
+                                animationDuration: 300,
+                                fit: false // Prevent auto-fitting
+                            };
                         }
-                    });
 
-                    // Update statistics
-                    updateStats(update.data);
+                        // Make sure fit is set to false
+                        layoutOptions.fit = false;
 
-                    // Re-run layout only if new elements were added
-                    cy.layout({
-                        name: 'dagre',
-                        rankDir: 'LR',
-                        spacingFactor: 1.2,
-                        animate: true,
-                        animationDuration: 300
-                    }).run();
+                        // Run the layout
+                        cy.layout(layoutOptions).run();
+
+                        // Restore viewport if needed
+                        if (shouldPreserveViewport && pan && zoom) {
+                            console.log('Restoring viewport:', { pan, zoom });
+                            cy.zoom(zoom);
+                            cy.pan(pan);
+                        } else if (cy.nodes().length > 0 && !shouldPreserveViewport) {
+                            // Only fit on first load or when explicitly requested
+                            console.log('First load or explicit fit requested, fitting view');
+                            cy.fit();
+                            // After first load, start preserving viewport
+                            shouldPreserveViewport = true;
+                        }
+                    } else {
+                        console.error('Invalid elements structure in update:', elements);
+                    }
                 }
             };
 
