@@ -3,7 +3,7 @@ from llmaestro.config.base import RateLimitConfig
 from llmaestro.llm.capabilities import ProviderCapabilities
 from llmaestro.llm.models import Provider
 
-OPENAI_PROVIDER = Provider(
+PROVIDER = Provider(
     family="openai",
     description="OpenAI API Provider",
     api_base="https://api.openai.com/v1",

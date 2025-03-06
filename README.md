@@ -4,6 +4,81 @@ A system for programmatically interacting with LLMs, with support for conversati
 
 It's like LiteLLM and LangChain, but worse!
 
+## Quickstart
+
+```python
+import asyncio
+from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
+from llmaestro.agents.agent_pool import AgentPool
+from llmaestro.prompts.base import PromptVariable
+from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.tools import ToolParams, BasicFunctionGuard
+from llmaestro.prompts.types import SerializableType
+
+# Define a simple weather function
+def get_weather(location: str) -> str:
+    """Get current temperature for a given location."""
+    return f"The weather in {location} is currently sunny with a temperature of 72°F."
+
+async def main():
+    # Initialize the LLM factory and get the registry
+    factory = LLMDefaultFactory()
+    registry = await factory.DefaultLLMRegistryFactory()
+
+    # Create an agent pool with the default LLMs
+    agent_pool = AgentPool(llm_registry=registry)
+
+    # Create a prompt with a tool
+    weather_prompt = MemoryPrompt(
+        name="weather_query",
+        description="Query weather information using tools",
+        system_prompt="You are a helpful weather assistant. Use the provided tools to get weather information.",
+        user_prompt="What is the weather like in {location} today?",
+        variables=[
+            PromptVariable(name="location", description="The location to get weather for", expected_input_type=SerializableType.STRING)
+        ],
+        tools=[
+            ToolParams.from_function(get_weather)
+        ]
+    )
+
+    # Get user input for location
+    location = "San Francisco"
+
+    # Render the prompt with the location variable
+    system_prompt, user_prompt, _, tools = weather_prompt.render(location=location)
+
+    # Create a new prompt with the rendered content
+    formatted_prompt = MemoryPrompt(
+        name=weather_prompt.name,
+        description=weather_prompt.description,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        tools=tools
+    )
+
+    # Execute the prompt with the agent pool
+    response = await agent_pool.execute_prompt(
+        prompt=formatted_prompt
+    )
+
+    # Handle the response
+    print(f"Response: {response.content}")
+    print(f"Token usage: {response.token_usage}")
+
+    # If the LLM used the tool, the result will be in the metadata
+    if response.metadata and "tool_results" in response.metadata:
+        print("Tool results:")
+        for tool_result in response.metadata["tool_results"]:
+            print(f"  Tool: {tool_result.get('name', 'unknown')}")
+            print(f"  Result: {tool_result.get('result', 'N/A')}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+For a complete working example with API key handling and model selection, see [examples/weather_tool_example.py](examples/weather_tool_example.py). To run the example, you'll need to set the `OPENAI_API_KEY` environment variable with your OpenAI API key.
+
 At this point, it's been most robustly tested with openAI models, and the [default library](src/llmaestro/default_library/defined_providers/openai/provider.py) has the most models support - working on claude and google support.
 
 ## Model Status
@@ -172,6 +247,69 @@ class SafeFileGuard(BasicFunctionGuard):
             return any(kwargs["path"].startswith(p) for p in self.allowed_paths)
         return super().is_safe_to_run(**kwargs)
 ```
+
+The tools system is tightly integrated with the [prompt system](src/llmaestro/prompts/README.md), allowing LLMs to execute functions safely through prompts. This integration enables natural language interfaces to your code while maintaining type safety and security.
+
+### Tool-Prompt Integration
+
+Tools can be attached to prompts, allowing LLMs to decide when and how to call them:
+
+```python
+from llmaestro.prompts.base import PromptVariable
+from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.tools import ToolParams, BasicFunctionGuard
+from llmaestro.prompts.types import SerializableType
+
+# Define a function
+def get_weather(location: str) -> str:
+    """Get current temperature for a given location."""
+    return f"The weather in {location} is always sunny."
+
+# Create a prompt with the tool
+weather_prompt = MemoryPrompt(
+    name="weather_query",
+    description="Query weather information using tools",
+    system_prompt="You are a weather assistant.",
+    user_prompt="What is the weather like in {location} today?",
+    variables=[
+        PromptVariable(
+            name="location",
+            description="The location to get weather for",
+            expected_input_type=SerializableType.STRING
+        )
+    ],
+    tools=[
+        ToolParams.from_function(get_weather)
+    ]
+)
+
+# Render the prompt with variables
+location = "New York"
+system_prompt, user_prompt, _, tools = weather_prompt.render(location=location)
+
+# Create a new prompt with the rendered content
+formatted_prompt = MemoryPrompt(
+    name=weather_prompt.name,
+    description=weather_prompt.description,
+    system_prompt=system_prompt,
+    user_prompt=user_prompt,
+    tools=tools
+)
+
+# Execute the prompt with an LLM
+response = await agent.execute_prompt(prompt=formatted_prompt)
+```
+
+### Key Features of the Tools System
+
+- **Type Safety**: Automatic parameter validation based on type hints
+- **Security**: Function guards prevent unsafe operations
+- **Automatic Schema Generation**: JSON schemas are generated from Python type hints
+- **Pydantic Integration**: Seamless support for Pydantic models as tools
+- **Provider Compatibility**: Tools work with OpenAI, Anthropic, and other providers
+- **Custom Guards**: Create custom guards for specific security requirements
+
+See the [prompts/README.md](src/llmaestro/prompts/README.md) for more details on the prompt system and its integration with tools.
 
 ## Applications
 

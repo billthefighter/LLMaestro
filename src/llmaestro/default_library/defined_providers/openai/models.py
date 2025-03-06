@@ -4,7 +4,7 @@ from typing import Dict, Callable
 
 from llmaestro.llm.capabilities import LLMCapabilities, VisionCapabilities
 from llmaestro.llm.models import LLMState, LLMProfile, LLMMetadata, LLMRuntimeConfig
-from llmaestro.default_library.defined_providers.openai.provider import OPENAI_PROVIDER
+from llmaestro.default_library.defined_providers.openai.provider import PROVIDER
 
 
 class OpenAIModels:
@@ -50,7 +50,7 @@ class OpenAIModels:
                     min_api_version="2024-07-01",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=16384, temperature=0.7, max_context_tokens=128000, stream=True),
         )
 
@@ -104,7 +104,7 @@ class OpenAIModels:
                     cost_per_image=0.01,
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=16384, temperature=0.7, max_context_tokens=128000, stream=True),
         )
 
@@ -148,7 +148,7 @@ class OpenAIModels:
                     min_api_version="2024-12-17",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=100000, temperature=0.7, max_context_tokens=200000, stream=True),
         )
 
@@ -192,7 +192,7 @@ class OpenAIModels:
                     min_api_version="2025-01-31",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=100000, temperature=0.7, max_context_tokens=200000, stream=True),
         )
 
@@ -246,7 +246,7 @@ class OpenAIModels:
                     cost_per_image=0.002,
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=8192, stream=True),
         )
 
@@ -290,7 +290,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
@@ -334,7 +334,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
@@ -388,7 +388,7 @@ class OpenAIModels:
                     cost_per_image=0.002,
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=128000, stream=True),
         )
 
@@ -432,7 +432,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=8192, stream=True),
         )
 
@@ -486,7 +486,7 @@ class OpenAIModels:
                     cost_per_image=0.002,
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
@@ -540,7 +540,7 @@ class OpenAIModels:
                     cost_per_image=0.002,
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=128000, stream=True),
         )
 
@@ -594,7 +594,7 @@ class OpenAIModels:
                     cost_per_image=0.002,
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=128000, stream=True),
         )
 
@@ -638,7 +638,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
@@ -682,7 +682,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
@@ -726,7 +726,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
@@ -770,7 +770,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
@@ -814,7 +814,7 @@ class OpenAIModels:
                     min_api_version="2023-05-15",
                 ),
             ),
-            provider=OPENAI_PROVIDER,
+            provider=PROVIDER,
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
