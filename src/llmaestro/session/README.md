@@ -4,6 +4,41 @@
 
 The `Session` class provides a centralized, conversation-centric management system for LLM (Large Language Model) interactions, designed to streamline complex AI workflows through orchestrated conversations, parallel execution, and dependency management.
 
+## Session vs. Orchestrator: When to Use Each
+
+### Session
+The `Session` class is a high-level interface that:
+- Provides a complete, ready-to-use environment for LLM interactions
+- Manages the entire lifecycle of LLM conversations
+- Handles initialization of all required components (LLM registry, agent pool, storage, etc.)
+- Offers artifact storage and retrieval capabilities
+- Validates model capabilities against task requirements
+- Provides both synchronous and asynchronous APIs
+
+**Use Session when:**
+- You need a complete, self-contained system for LLM interactions
+- You want simplified setup with minimal configuration
+- You need artifact storage and retrieval
+- You're building end-user applications
+- You want a higher-level abstraction that manages all components
+
+### Orchestrator
+The `Orchestrator` class is a lower-level component that:
+- Focuses specifically on managing conversation execution
+- Handles the mechanics of prompt execution and dependencies
+- Provides fine-grained control over conversation flow
+- Manages parallel execution and dependencies between prompts
+- Requires an agent pool to be provided
+
+**Use Orchestrator when:**
+- You need direct control over conversation execution
+- You're building custom orchestration logic
+- You want to integrate with your own storage or agent management
+- You're extending the core functionality
+- You need fine-grained control over execution flow
+
+The Session internally uses an Orchestrator to manage conversations, providing a higher-level interface that handles initialization, storage, and other concerns.
+
 ## Key Features
 
 ### 1. Conversation Management
@@ -22,6 +57,11 @@ The `Session` class provides a centralized, conversation-centric management syst
 - Model capability validation
 - Dynamic interface creation
 - Automatic resource allocation
+
+### 4. Artifact Storage
+- Persistent storage of conversation artifacts
+- Structured metadata and retrieval
+- Support for various content types
 
 ## Session Creation
 
@@ -42,9 +82,9 @@ session = await Session.create_default(
 The factory method supports several customization options:
 - `api_key`: API key for the default provider
 - `storage_path`: Custom storage location
-- `config`: Custom configuration manager
 - `llm_registry`: Custom LLM registry
-- `prompt_loader`: Custom prompt loader
+- `default_model`: Specify a default model to use
+- `default_capabilities`: Set required capabilities
 - `session_id`: Custom session identifier
 
 Benefits of using `create_default`:
@@ -144,6 +184,11 @@ all_artifacts = session.list_artifacts()
 - Hierarchical history views
 - Efficient storage and retrieval
 
+### Model Validation
+- Capability-based model selection
+- Requirement validation against model capabilities
+- Automatic fallback strategies
+
 ## Best Practices
 1. Use `create_default` for session creation unless you need advanced customization
 2. Always provide API keys during session creation for seamless initialization
@@ -155,7 +200,6 @@ all_artifacts = session.list_artifacts()
 
 ## Error Handling
 - Comprehensive error tracking
-- Automatic retry strategies
 - Dependency failure management
 - Resource cleanup on errors
 

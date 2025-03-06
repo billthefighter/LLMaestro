@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ToolCallChain Visualization</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.21.1/cytoscape.min.js"></script>
+    <script src="https://unpkg.com/cytoscape-dagre@2.3.2/cytoscape-dagre.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        #header {
+            background-color: #333;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #title {
+            font-size: 20px;
+            font-weight: bold;
+        }
+        #controls {
+            display: flex;
+            gap: 10px;
+        }
+        #cy {
+            flex-grow: 1;
+            width: 100%;
+            background-color: #f5f5f5;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+            max-width: 300px;
+        }
+        .legend {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            padding: 10px;
+            font-size: 12px;
+            z-index: 100;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 3px;
+        }
+        button {
+            padding: 5px 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div id="title">LLMaestro ToolCallChain Visualization</div>
+        <div id="controls">
+            <button id="fit">Fit View</button>
+            <button id="horizontal">Horizontal Layout</button>
+            <button id="vertical">Vertical Layout</button>
+        </div>
+    </div>
+    <div id="cy"></div>
+    <div class="tooltip"></div>
+    <div class="legend">
+        <h3 style="margin-top: 0;">Legend</h3>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #4CAF50;"></div>
+            <div>Initial Prompt Node</div>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #2196F3;"></div>
+            <div>Conditional Node</div>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #FF9800;"></div>
+            <div>Tool Execution Node</div>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #9C27B0;"></div>
+            <div>Validation Node</div>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #757575;"></div>
+            <div>Edge (depends_on)</div>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color" style="background-color: #FF5722;"></div>
+            <div>Edge (conditional)</div>
+        </div>
+    </div>
+    <script>
+        // Define the elements for the ToolCallChain
+        const elements = {
+            nodes: [
+                {
+                    data: {
+                        id: 'initial_node',
+                        label: 'Initial Prompt',
+                        type: 'SEQUENTIAL',
+                        description: 'Initial prompt that may trigger tool calls',
+                        nodeType: 'prompt'
+                    }
+                },
+                {
+                    data: {
+                        id: 'tool_check',
+                        label: 'Tool Call Check',
+                        type: 'CONDITIONAL',
+                        description: 'Check if response contains tool calls',
+                        nodeType: 'conditional'
+                    }
+                },
+                {
+                    data: {
+                        id: 'tool_execution',
+                        label: 'Tool Execution Handler',
+                        type: 'SEQUENTIAL',
+                        description: 'Processes tool execution results',
+                        nodeType: 'tool'
+                    }
+                },
+                {
+                    data: {
+                        id: 'validation',
+                        label: 'Response Validation',
+                        type: 'VALIDATION',
+                        description: 'Validates the final response format',
+                        nodeType: 'validation'
+                    }
+                }
+            ],
+            edges: [
+                {
+                    data: {
+                        id: 'e1',
+                        source: 'initial_node',
+                        target: 'tool_check',
+                        label: 'depends_on',
+                        edgeType: 'dependency'
+                    }
+                },
+                {
+                    data: {
+                        id: 'e2',
+                        source: 'tool_check',
+                        target: 'tool_execution',
+                        label: 'has_tool_calls',
+                        edgeType: 'conditional'
+                    }
+                },
+                {
+                    data: {
+                        id: 'e3',
+                        source: 'tool_execution',
+                        target: 'tool_check',
+                        label: 'depends_on',
+                        edgeType: 'dependency'
+                    }
+                },
+                {
+                    data: {
+                        id: 'e4',
+                        source: 'tool_check',
+                        target: 'validation',
+                        label: 'no_tool_calls',
+                        edgeType: 'conditional'
+                    }
+                }
+            ]
+        };
+
+        // Initialize Cytoscape
+        const cy = cytoscape({
+            container: document.getElementById('cy'),
+            elements: elements,
+            style: [
+                {
+                    selector: 'node',
+                    style: {
+                        'label': 'data(label)',
+                        'text-valign': 'center',
+                        'text-halign': 'center',
+                        'text-wrap': 'wrap',
+                        'font-size': '14px',
+                        'width': '180px',
+                        'height': '60px',
+                        'shape': 'roundrectangle',
+                        'background-color': '#9E9E9E',
+                        'color': 'white',
+                        'border-width': '2px',
+                        'border-color': '#616161',
+                        'text-max-width': '160px'
+                    }
+                },
+                {
+                    selector: 'node[nodeType = "prompt"]',
+                    style: {
+                        'background-color': '#4CAF50',
+                        'border-color': '#2E7D32'
+                    }
+                },
+                {
+                    selector: 'node[nodeType = "conditional"]',
+                    style: {
+                        'background-color': '#2196F3',
+                        'border-color': '#0D47A1',
+                        'shape': 'diamond'
+                    }
+                },
+                {
+                    selector: 'node[nodeType = "tool"]',
+                    style: {
+                        'background-color': '#FF9800',
+                        'border-color': '#E65100'
+                    }
+                },
+                {
+                    selector: 'node[nodeType = "validation"]',
+                    style: {
+                        'background-color': '#9C27B0',
+                        'border-color': '#4A148C',
+                        'shape': 'hexagon'
+                    }
+                },
+                {
+                    selector: 'edge',
+                    style: {
+                        'label': 'data(label)',
+                        'curve-style': 'bezier',
+                        'target-arrow-shape': 'triangle',
+                        'line-color': '#757575',
+                        'target-arrow-color': '#757575',
+                        'width': 2,
+                        'font-size': '12px',
+                        'text-background-color': 'white',
+                        'text-background-opacity': 0.7,
+                        'text-background-padding': '2px'
+                    }
+                },
+                {
+                    selector: 'edge[edgeType = "conditional"]',
+                    style: {
+                        'line-color': '#FF5722',
+                        'target-arrow-color': '#FF5722',
+                        'line-style': 'dashed'
+                    }
+                }
+            ],
+            layout: {
+                name: 'dagre',
+                rankDir: 'LR',
+                nodeSep: 50,
+                rankSep: 100,
+                padding: 30
+            }
+        });
+
+        // Add tooltip functionality
+        const tooltip = document.querySelector('.tooltip');
+        cy.on('mouseover', 'node', function(e) {
+            const node = e.target;
+            const data = node.data();
+            tooltip.innerHTML = `
+                <strong>${data.label}</strong><br>
+                Type: ${data.type}<br>
+                Description: ${data.description}
+            `;
+            tooltip.style.display = 'block';
+            tooltip.style.left = (e.renderedPosition.x + 10) + 'px';
+            tooltip.style.top = (e.renderedPosition.y + 10) + 'px';
+        });
+        cy.on('mouseout', 'node', function() {
+            tooltip.style.display = 'none';
+        });
+
+        // Add button functionality
+        document.getElementById('fit').addEventListener('click', function() {
+            cy.fit();
+        });
+
+        document.getElementById('horizontal').addEventListener('click', function() {
+            cy.layout({
+                name: 'dagre',
+                rankDir: 'LR',
+                nodeSep: 50,
+                rankSep: 100,
+                padding: 30
+            }).run();
+        });
+
+        document.getElementById('vertical').addEventListener('click', function() {
+            cy.layout({
+                name: 'dagre',
+                rankDir: 'TB',
+                nodeSep: 50,
+                rankSep: 100,
+                padding: 30
+            }).run();
+        });
+
+        // Add flow animation
+        let animating = false;
+        function animateFlow() {
+            if (animating) return;
+
+            animating = true;
+
+            // Define the animation sequence
+            const sequence = [
+                { edge: 'e1', duration: 1000 },
+                { edge: 'e2', duration: 1000 },
+                { edge: 'e3', duration: 1000 },
+                { edge: 'e2', duration: 1000 },
+                { edge: 'e3', duration: 1000 },
+                { edge: 'e4', duration: 1000 }
+            ];
+
+            let currentStep = 0;
+
+            function animateStep() {
+                if (currentStep >= sequence.length) {
+                    animating = false;
+                    return;
+                }
+
+                const step = sequence[currentStep];
+                const edge = cy.getElementById(step.edge);
+
+                // Reset all edges
+                cy.edges().style({
+                    'width': 2,
+                    'line-color': function(ele) {
+                        return ele.data('edgeType') === 'conditional' ? '#FF5722' : '#757575';
+                    },
+                    'target-arrow-color': function(ele) {
+                        return ele.data('edgeType') === 'conditional' ? '#FF5722' : '#757575';
+                    }
+                });
+
+                // Highlight current edge
+                edge.style({
+                    'width': 5,
+                    'line-color': '#4CAF50',
+                    'target-arrow-color': '#4CAF50'
+                });
+
+                currentStep++;
+                setTimeout(animateStep, step.duration);
+            }
+
+            animateStep();
+        }
+
+        // Add double-click to animate
+        cy.on('dblclick', function() {
+            animateFlow();
+        });
+
+        // Add a note about double-click
+        const note = document.createElement('div');
+        note.style.position = 'absolute';
+        note.style.bottom = '20px';
+        note.style.left = '20px';
+        note.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+        note.style.padding = '10px';
+        note.style.borderRadius = '5px';
+        note.style.fontSize = '14px';
+        note.style.zIndex = '100';
+        note.innerHTML = 'Double-click anywhere to animate the flow';
+        document.body.appendChild(note);
+    </script>
+</body>
+</html>

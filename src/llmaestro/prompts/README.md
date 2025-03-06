@@ -1,248 +1,189 @@
-# LLM Prompts
+# LLMaestro Prompt System
 
-This directory contains the prompt templates used by the LLMaestro. Each prompt is defined in a structured format with metadata, versioning, and optional git tracking.
+The prompt system provides a structured way to create, manage, and execute prompts for LLM interactions. It includes support for versioning, template variables, structured outputs, and tool integration.
 
-## Directory Structure
+## Core Components
 
-```
-prompts/
-├── README.md
-├── schema.json     # JSON Schema for prompt validation
-└── tasks/          # Task-specific prompts
-    ├── pdf_analysis.yaml
-    ├── code_refactor.yaml
-    └── lint_fix.yaml
-```
+### [base.py](./base.py)
 
-## Storage Implementations
+Defines the core prompt classes and functionality:
 
-The system supports multiple storage backends through different implementations:
+- `BasePrompt`: Foundation for all prompts with:
+  - Template rendering with variable substitution
+  - Attachment handling for files and images
+  - Response format specification
+  - Tool integration
+  - Validation of templates and variables
 
-1. **FilePrompt**: Local file storage with YAML format
-   ```python
-   prompt = await loader.load_prompt("file", "prompts/tasks/my_prompt.yaml")
-   ```
+- `VersionedPrompt`: Extends BasePrompt with version control capabilities
 
-2. **GitRepoPrompt**: Full git repository integration (requires `gitpython`)
-   ```python
-   prompt = await loader.load_prompt("git", "repo_path:prompts/my_prompt.yaml@main")
-   ```
+### [types.py](./types.py)
 
-3. **S3Prompt**: AWS S3 storage (requires `boto3`)
-   ```python
-   prompt = await loader.load_prompt("s3", "bucket-name/path/to/prompt.json")
-   ```
+Defines data structures used throughout the prompt system:
 
-Each implementation can be extended with git tracking using the `GitMixin`:
+- `VersionInfo`: Tracks version metadata (number, timestamp, author, etc.)
+- `PromptMetadata`: Stores additional prompt information (type, tags, model requirements)
+
+### [mixins.py](./mixins.py)
+
+Provides reusable functionality for prompt classes:
+
+- `VersionMixin`: Adds version control capabilities with:
+  - Version history tracking
+  - Creation and update timestamps
+  - Author information
+
+### [tools.py](./tools.py)
+
+Implements function calling capabilities for prompts:
+
+- `FunctionGuard`: Abstract base class for safely executing functions
+- `BasicFunctionGuard`: Simple implementation of function safety checks
+- `ToolParams`: Represents a tool/function that can be used by an LLM with:
+  - Parameter schema generation
+  - Function execution handling
+  - Conversion utilities for different formats (OpenAI, etc.)
+
+### [loader.py](./loader.py)
+
+Provides mechanisms for loading and saving prompts:
+
+- `FilePrompt`: Implementation that loads from and saves to files
+- `PromptLoader`: Manages prompt loading from different storage backends
+- Additional implementations for S3 and Git repositories
+
+### [memory.py](./memory.py)
+
+Implements in-memory prompt storage:
+
+- `MemoryPrompt`: Non-persistent prompt implementation for testing and temporary use
+
+## Integration with ResponseFormat
+
+The prompt system integrates closely with the `ResponseFormat` class from `llmaestro.llm.responses` to enable structured output handling.
+
+### How ResponseFormat Works
+
+The `ResponseFormat` class defines the expected structure and validation rules for LLM responses:
 
 ```python
-class CustomPrompt(BasePrompt, GitMixin):
-    async def save(self) -> bool:
-        author, commit = self.get_git_info()
-        if author and commit:
-            self.update_git_metadata(author, commit)
-        # ... custom save logic ...
+from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
+from pydantic import BaseModel
+
+# Define a response model
+class WeatherResponse(BaseModel):
+    temperature: float
+    conditions: str
+    forecast: list[str]
+
+# Create a response format from the model
+response_format = ResponseFormat.from_pydantic_model(
+    model=WeatherResponse,
+    format_type=ResponseFormatType.JSON_SCHEMA
+)
 ```
 
-## Prompt Variables
+### Prompt and ResponseFormat Interaction
 
-The system supports type-safe variable handling for prompt templates:
+When a `BasePrompt` includes a `ResponseFormat`, it:
 
-1. **Variable Definition**:
-   ```yaml
-   variables:
-     - name: "user_name"
-       description: "Name of the user to address"
-       expected_input_type: "string"
-     - name: "items"
-       description: "List of items to process"
-       expected_input_type: "list"
-       string_conversion_template: "{value:,}"  # Join with commas
-   ```
+1. **Instructs the LLM**: The response format is included in the system prompt to guide the LLM's output
+2. **Validates Responses**: Responses are validated against the schema or Pydantic model
+3. **Handles Retries**: Failed validations can trigger retries with error feedback
+4. **Converts Formats**: Responses can be automatically converted to the appropriate format
 
-2. **Type-Safe Usage**:
-   ```python
-   # Get the strongly-typed model for variables
-   VariablesModel = prompt.get_variables_model()
+Example:
 
-   # Create and validate variables
-   vars = VariablesModel(
-       user_name="Alice",
-       items=["item1", "item2"]
-   )
+```python
+from llmaestro.prompts.base import BasePrompt
+from llmaestro.llm.responses import ResponseFormat
 
-   # Render with validated variables
-   system, user, _ = prompt.render(variables=vars)
-   ```
+# Create a prompt with structured output
+weather_prompt = BasePrompt(
+    name="Weather Forecast",
+    description="Get weather forecast for a location",
+    system_prompt="You are a weather assistant. Provide accurate weather information.",
+    user_prompt="What's the weather like in {location}?",
+    expected_response=ResponseFormat.from_pydantic_model(WeatherResponse)
+)
 
-3. **Supported Types**:
-   - `string`: Text values
-   - `integer`: Whole numbers
-   - `float`: Decimal numbers
-   - `boolean`: True/False values
-   - `list`: Arrays/sequences
-   - `dict`: Key-value mappings
-   - `schema`: JSON schema (as string or dict)
-
-4. **Custom Formatting**:
-   ```python
-   from typing import List
-
-   def format_items(items: List[str]) -> str:
-       return "• " + "\n• ".join(items)
-
-   prompt = BasePrompt(
-       variables=[
-           PromptVariable(
-               name="items",
-               expected_input_type="list",
-               string_conversion_template=format_items
-           )
-       ],
-       user_prompt="Process these items:\n{items}"
-   )
-   ```
-
-## Version Control
-
-Prompts now support sophisticated version control with:
-
-1. **Semantic Versioning**:
-   ```python
-   prompt.bump_version("minor", "Updated template structure")
-   prompt.bump_version_with_git("major", "Breaking change in response format")
-   ```
-
-2. **Version History**:
-   ```python
-   for version in prompt.version_history:
-       print(f"{version.number}: {version.description} by {version.author}")
-   ```
-
-3. **Git Integration**:
-   - Automatic git metadata tracking
-   - Commit hash association with versions
-   - Author attribution
-
-## Prompt Format
-
-Each prompt includes the following structure:
-
-```yaml
-name: "unique_prompt_name"
-description: "Brief description of what this prompt does"
-variables:
-  - name: "user_name"
-    description: "Name of the user to address"
-    expected_input_type: "string"
-  - name: "items"
-    description: "List of items to process"
-    expected_input_type: "list"
-metadata:
-  type: "task_type"  # e.g., pdf_analysis, code_refactor, lint_fix
-  model_requirements:
-    min_tokens: 1000
-    preferred_models: ["gpt-4", "claude-2"]
-  expected_response:
-    format: "json"  # or "text", "markdown", etc.
-    schema: |
-      {
-        "field1": "type and description",
-        "field2": ["array", "of", "items"]
-      }
-  tags: ["category1", "category2"]
-  is_active: true
-
-system_prompt: |
-  You are helping {user_name} with their task.
-  Follow these instructions carefully.
-
-user_prompt: |
-  Process these items for {user_name}:
-  {items}
-
-examples:
-  - input:
-      user_name: "Alice"
-      items: ["item1", "item2"]
-    expected_output: |
-      {
-        "processed": ["item1_result", "item2_result"]
-      }
+# The response will be validated against the WeatherResponse model
+response = await agent.execute(weather_prompt, location="New York")
 ```
+
+### Response Validation Flow
+
+1. LLM generates a response based on the prompt
+2. `ResponseFormat.validate_response()` checks if the response matches the expected format
+3. If valid, the response is returned (potentially converted to a Pydantic model)
+4. If invalid, the system can:
+   - Return the validation errors
+   - Automatically retry with error feedback
+   - Apply fallback strategies
 
 ## Usage Examples
 
-1. **Loading Prompts**:
-   ```python
-   loader = PromptLoader()
-   prompt = await loader.load_prompt("file", "prompts/my_prompt.yaml")
-   ```
+### Basic Prompt with Variables
 
-2. **Using Variables**:
-   ```python
-   # Get type information
-   var_types = prompt.get_variable_types()
-   required_vars = prompt.get_required_variables()
+```python
+from llmaestro.prompts.base import BasePrompt
 
-   # Get the variables model
-   VariablesModel = prompt.get_variables_model()
+prompt = BasePrompt(
+    name="Introduction",
+    description="Introduce a topic to the user",
+    system_prompt="You are a helpful assistant.",
+    user_prompt="Explain {topic} in simple terms."
+)
 
-   # Create type-safe variables
-   try:
-       vars = VariablesModel(
-           user_name="Alice",
-           items=["item1", "item2"]
-       )
-   except ValidationError as e:
-       print("Invalid variables:", e)
+# Render the prompt with variables
+system, user, examples, tools = prompt.render(topic="quantum computing")
+```
 
-   # Render the prompt
-   system, user, attachments = prompt.render(variables=vars)
-   ```
+### Prompt with Structured Output
 
-3. **Version Management**:
-   ```python
-   prompt.bump_version_with_git("minor", "Updated variable types")
-   ```
+```python
+from llmaestro.prompts.base import BasePrompt
+from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
+from pydantic import BaseModel
 
-4. **Example Management**:
-   ```python
-   # Add new example
-   prompt.add_example(
-       input_vars={"name": "Alice"},
-       expected_output='{"greeting": "Hello Alice!"}'
-   )
+class SummaryResponse(BaseModel):
+    main_points: list[str]
+    conclusion: str
 
-   # Validate examples
-   errors = prompt.validate_all_examples()
-   ```
+prompt = BasePrompt(
+    name="Article Summary",
+    description="Summarize an article",
+    system_prompt="You are a summarization assistant.",
+    user_prompt="Summarize the following article:\n{article}",
+    expected_response=ResponseFormat.from_pydantic_model(
+        SummaryResponse,
+        format_type=ResponseFormatType.JSON_SCHEMA
+    )
+)
+```
 
-## Best Practices
+### Prompt with Tool Integration
 
-1. **Variable Handling**:
-   - Define variables explicitly with types and descriptions
-   - Use the variables model for type safety
-   - Provide custom formatting when needed
-   - Document variable requirements in examples
+```python
+from llmaestro.prompts.base import BasePrompt
+from llmaestro.prompts.tools import ToolParams
 
-2. **Storage Selection**:
-   - Use `FilePrompt` for simple local storage
-   - Use `GitRepoPrompt` for version-controlled prompts
-   - Use `S3Prompt` for cloud-based deployments
+def search_database(query: str) -> list[dict]:
+    # Implementation
+    return [{"title": "Result 1", "content": "..."}]
 
-3. **Version Control**:
-   - Use `bump_version_with_git()` to maintain git metadata
-   - Document significant changes in version descriptions
-   - Use appropriate change types (major/minor/patch)
+prompt = BasePrompt(
+    name="Research Assistant",
+    description="Research assistant with database access",
+    system_prompt="You are a research assistant with database access.",
+    user_prompt="Research the following topic: {topic}",
+    tools=[ToolParams.from_function(search_database)]
+)
+```
 
-4. **Examples and Testing**:
-   - Include diverse examples covering edge cases
-   - Validate examples before saving
-   - Use the token estimation for context management
+## Integration Points
 
-5. **Error Handling**:
-   - Validate variables before rendering
-   - Handle type conversion errors gracefully
-   - Check for missing required variables
-   - Validate templates before rendering
+- **LLM Interfaces**: Prompts are executed through LLM interfaces
+- **Agent System**: Agents use prompts to interact with LLMs
+- **Orchestrator**: The orchestrator manages prompt execution and dependencies
+- **Storage**: Prompts can be stored and loaded from various backends

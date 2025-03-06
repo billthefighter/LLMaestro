@@ -3,8 +3,9 @@
 import asyncio
 from typing import Any, Dict, List, Optional, cast
 from uuid import uuid4
+from pydantic import Field
 
-from llmaestro.chains.chains import ChainEdge, ChainGraph, ChainNode, NodeType, RetryStrategy
+from llmaestro.chains.chains import ChainEdge, ChainGraph, ChainNode, NodeType, RetryStrategy, ChainStep, ChainMetadata
 from llmaestro.core.conversations import ConversationGraph
 from llmaestro.core.orchestrator import ExecutionMetadata, Orchestrator
 from llmaestro.prompts.base import BasePrompt
@@ -16,6 +17,7 @@ class ConversationChainNode(ChainNode):
     conversation_id: Optional[str] = None
     prompt_node_id: Optional[str] = None
     response_node_id: Optional[str] = None
+    prompt: Optional[BasePrompt] = Field(default=None)  # Use Field with default=None
 
     @classmethod
     async def create(
@@ -26,12 +28,19 @@ class ConversationChainNode(ChainNode):
         metadata: Optional[Dict[str, Any]] = None,
     ) -> "ConversationChainNode":
         """Create a new conversation chain node."""
+        # Create a ChainStep for the prompt
+        step = ChainStep(
+            prompt=prompt,
+            retry_strategy=retry_strategy or RetryStrategy(),
+        )
+
+        # Create the node
         return cls(
             id=str(uuid4()),
-            prompt=prompt,
+            step=step,
             node_type=node_type,
-            retry_strategy=retry_strategy or RetryStrategy(),
-            metadata=metadata or {},
+            metadata=ChainMetadata(**(metadata or {})),  # Convert dict to ChainMetadata
+            prompt=prompt,  # Store the prompt for later use
         )
 
 
@@ -84,16 +93,21 @@ class ConversationChain(ChainGraph):
         if not isinstance(node, ConversationChainNode):
             raise ValueError(f"Node {node_id} is not a ConversationChainNode")
 
-        # Get dependencies
-        dependencies = [
-            cast(ConversationChainNode, self.nodes[edge.source_id]).response_node_id
-            for edge in self.edges
-            if edge.target_id == node_id and edge.edge_type == "depends_on"
-        ]
+        # Get dependencies - ensure all are strings and not None
+        dependencies: List[str] = []
+        for edge in self.edges:
+            if edge.target_id == node_id and edge.edge_type == "depends_on":
+                source_node = cast(ConversationChainNode, self.nodes[edge.source_id])
+                if source_node.response_node_id is not None:
+                    dependencies.append(source_node.response_node_id)
+
+        # Ensure prompt is not None
+        if node.prompt is None:
+            raise ValueError(f"Node {node_id} has no prompt")
 
         # Execute in conversation
         response_id = await self.orchestrator.execute_prompt(
-            conversation_id=self.conversation.id, prompt=node.prompt, dependencies=dependencies
+            conversation=self.conversation, prompt=node.prompt, dependencies=dependencies if dependencies else None
         )
 
         # Update node with conversation references
@@ -139,5 +153,6 @@ class ConversationChain(ChainGraph):
             raise ValueError(f"Node {node_id} has not been executed")
 
         return self.orchestrator.get_execution_status(
-            conversation_id=self.conversation.id, node_id=node.response_node_id
+            conversation=self.conversation,  # Pass the conversation object
+            node_id=node.response_node_id,
         )
