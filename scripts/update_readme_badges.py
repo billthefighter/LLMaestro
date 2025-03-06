@@ -1,8 +1,18 @@
 """Script to update README.md with current model status badges."""
 import json
 import re
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Literal, Optional, Tuple
+
+
+class ModelFamily(str, Enum):
+    """Model family enumeration."""
+
+    CLAUDE = "claude"
+    GPT = "gpt"
+    GEMINI = "gemini"
+
 
 TestResult = Literal["success", "failure", "skip"]
 

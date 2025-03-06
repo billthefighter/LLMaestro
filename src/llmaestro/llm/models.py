@@ -83,8 +83,8 @@ class Provider(BaseModel):
             result = urlparse(self.api_base)
             if not all([result.scheme, result.netloc]):
                 raise ValueError("Invalid API base URL format")
-        except Exception as e:
-            raise ValueError(f"Invalid API base URL: {str(e)}")
+        except Exception as err:
+            raise ValueError(f"Invalid API base URL: {str(err)}") from err
 
 
 class LLMProfile(BaseModel):

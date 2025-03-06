@@ -141,7 +141,6 @@ class BaseGraph(BaseModel, Generic[NodeType, EdgeType]):
                 key=lambda x: x[1].created_at,
                 reverse=True,
             )
-            nodes_to_keep = sorted_nodes[:max_nodes]
             nodes_to_remove.update(node_id for node_id, _ in sorted_nodes[max_nodes:])
 
         # Remove edges connected to nodes being removed

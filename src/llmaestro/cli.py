@@ -11,6 +11,7 @@ from llmaestro.core.models import AgentConfig
 from llmaestro.llm.chains import ChainStep, SequentialChain
 from llmaestro.llm.interfaces import create_llm_interface
 from llmaestro.prompts.loader import PromptLoader
+from llmaestro.core.storage import FileSystemArtifactStorage
 
 
 def coro(f):
@@ -122,7 +123,7 @@ async def run(chain_name: str, input: tuple[str, ...], model: Optional[str], age
             return
 
     config_manager = get_config()
-    storage = StorageManager(config_manager.user_config.storage["path"])
+    storage = FileSystemArtifactStorage.create(Path(config_manager.user_config.storage["path"]))
     prompt_loader = PromptLoader()
 
     try:

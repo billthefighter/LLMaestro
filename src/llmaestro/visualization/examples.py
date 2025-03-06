@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional
 
-from ..llm.chains import (
+from llmaestro.core.models import LLMResponse
+from llmaestro.llm.chains import (
     ChainContext,
     ChainStep,
     ChordChain,
@@ -11,8 +12,9 @@ from ..llm.chains import (
     ReminderChain,
     SequentialChain,
 )
-from ..llm.interfaces import BaseLLMInterface, LLMResponse
-from ..llm.models import ModelFamily
+from llmaestro.llm.interfaces import BaseLLMInterface
+from llmaestro.llm.models import ModelFamily, TokenUsage
+from llmaestro.prompts.base import BasePrompt
 
 
 class MockLLMInterface(BaseLLMInterface):
@@ -27,8 +29,10 @@ class MockLLMInterface(BaseLLMInterface):
         return LLMResponse(
             content="Mock response",
             success=True,
-            provider="mock",
-            provider_metadata={"test": True},
+            token_usage=TokenUsage(prompt_tokens=10, completion_tokens=20, total_tokens=30),
+            model="mock-model",
+            model_params={},
+            finish_reason="stop",
         )
 
 

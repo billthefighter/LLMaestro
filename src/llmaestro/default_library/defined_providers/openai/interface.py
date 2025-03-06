@@ -397,8 +397,9 @@ class OpenAIInterface(BaseLLMInterface):
                 has_patterns = self._has_pattern_validators(pydantic_model)
                 if has_patterns:
                     logger.warning(
-                        f"Pydantic model '{pydantic_model.__name__}' contains pattern validators which are not supported "
-                        f"by OpenAI's direct Pydantic integration. Falling back to standard JSON object format."
+                        "Pydantic model '{}' contains pattern validators "
+                        "which are not supported by OpenAI's direct Pydantic integration. "
+                        "Falling back to standard JSON object format.".format(pydantic_model.__name__)
                     )
                 else:
                     try:

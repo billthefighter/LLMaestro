@@ -264,9 +264,9 @@ class ResponseFormat(BaseModel):
         return result
 
     def _parse_format(self, response: str) -> Any:
-        """Parse the response according to its format type."""
+        """Parse response according to format type."""
         try:
-            if self.format in {ResponseFormatType.JSON, ResponseFormatType.JSON_SCHEMA, ResponseFormatType.PYDANTIC}:
+            if self.format == ResponseFormatType.JSON or self.format == ResponseFormatType.JSON_SCHEMA:
                 return validate_json(response)
             elif self.format == ResponseFormatType.YAML:
                 return yaml.safe_load(response)
@@ -274,8 +274,8 @@ class ResponseFormat(BaseModel):
                 return ET.fromstring(response)
             else:
                 return response
-        except Exception as e:
-            raise ValueError(f"Failed to parse {self.format} response: {str(e)}")
+        except Exception as err:
+            raise ValueError(f"Failed to parse {self.format} response: {str(err)}") from err
 
     def generate_retry_prompt(self, validation_result: ValidationResult) -> Optional[str]:
         """Generate a prompt for retrying with invalid response."""

@@ -66,9 +66,9 @@ class LLMRegistry(BaseModel):
             if not state.provider.family:
                 logger.error("Model state missing provider family")
                 raise ValueError("Model state missing provider family")
-        except Exception as e:
-            logger.error(f"Invalid model state for {state.model_name}: {str(e)}")
-            raise ValueError(f"Invalid model state for {state.model_name}: {str(e)}")
+        except Exception as err:
+            logger.error(f"Invalid model state for {state.model_name}: {str(err)}")
+            raise ValueError(f"Invalid model state for {state.model_name}: {str(err)}") from err
 
         logger.debug(f"Model {state.model_name} passed validation, registering...")
 

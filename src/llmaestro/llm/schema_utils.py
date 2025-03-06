@@ -4,6 +4,7 @@ import json
 from typing import Any, Dict, Optional, Type, Union
 
 from pydantic import BaseModel
+import jsonschema
 
 
 def convert_to_schema(schema_input: Union[Dict[str, Any], Type[BaseModel], str]) -> Dict[str, Any]:
@@ -23,10 +24,13 @@ def convert_to_schema(schema_input: Union[Dict[str, Any], Type[BaseModel], str])
     elif isinstance(schema_input, str):
         try:
             return json.loads(schema_input)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON schema string: {e}")
+        except json.JSONDecodeError as err:
+            raise ValueError(f"Invalid JSON schema string: {err}") from err
     elif isinstance(schema_input, type) and issubclass(schema_input, BaseModel):
-        return schema_input.model_json_schema()
+        try:
+            return schema_input.model_json_schema()
+        except Exception as err:
+            raise ValueError(f"Failed to convert model to schema: {str(err)}") from err
     else:
         raise ValueError(f"Unsupported schema input type: {type(schema_input)}")
 
@@ -44,12 +48,15 @@ def schema_to_json(schema: Union[Dict[str, Any], Type[BaseModel], str]) -> str:
         # Validate it's proper JSON by parsing and re-stringifying
         try:
             return json.dumps(json.loads(schema))
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON schema string: {e}")
+        except json.JSONDecodeError as err:
+            raise ValueError(f"Invalid JSON schema string: {err}") from err
 
     if isinstance(schema, type) and issubclass(schema, BaseModel):
         # For Pydantic models, use model_json_schema to get complete schema including nested models
-        return json.dumps(schema.model_json_schema())
+        try:
+            return json.dumps(schema.model_json_schema())
+        except Exception as err:
+            raise ValueError(f"Failed to convert schema to JSON: {str(err)}") from err
 
     if isinstance(schema, dict):
         # Process dictionary schema, converting any nested Pydantic models
@@ -86,8 +93,8 @@ def validate_json(
     if isinstance(data, str):
         try:
             parsed_data = json.loads(data)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON data: {e}")
+        except json.JSONDecodeError as err:
+            raise ValueError(f"Invalid JSON data: {err}") from err
     else:
         parsed_data = data
 
@@ -97,13 +104,15 @@ def validate_json(
         if isinstance(schema_dict, dict) and schema_dict.get("type") == "object":
             # If schema is a Pydantic model, use its validation
             if isinstance(schema, type) and issubclass(schema, BaseModel):
-                return schema.model_validate(parsed_data).model_dump()
+                try:
+                    return schema.model_validate(parsed_data).model_dump()
+                except Exception as err:
+                    raise ValueError(f"Schema validation failed: {err}") from err
             # Otherwise use jsonschema validation
-            import jsonschema
-
             try:
-                jsonschema.validate(parsed_data, schema_dict)
-            except jsonschema.ValidationError as e:
-                raise ValueError(f"Schema validation failed: {e}")
+                validator = jsonschema.Draft7Validator(schema_dict)
+                validator.validate(parsed_data)
+            except jsonschema.ValidationError as err:
+                raise ValueError(f"Schema validation failed: {err}") from err
 
     return parsed_data

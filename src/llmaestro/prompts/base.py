@@ -14,6 +14,7 @@ from llmaestro.llm.schema_utils import schema_to_json
 
 from llmaestro.core.attachments import BaseAttachment, FileAttachment, ImageAttachment, AttachmentConverter
 from llmaestro.llm.responses import ResponseFormat
+import jsonschema
 
 
 # Type definitions for prompt variables
@@ -62,7 +63,7 @@ class PromptVariable(BaseModel):
             try:
                 return schema_to_json(value)
             except ValueError as e:
-                raise ValueError(f"Schema variable {self.name} contains invalid JSON: {e}")
+                raise ValueError(f"Schema variable {self.name} contains invalid JSON: {e}") from e
 
         if self.string_conversion_template is None:
             return str(value)
@@ -90,6 +91,9 @@ class BasePrompt(BaseModel):
     variables: List[PromptVariable] = Field(default_factory=list, description="List of variable definitions")
     expected_response: Optional[ResponseFormat] = Field(default=None, description="Expected response format")
     tools: List[ToolParams] = Field(default_factory=list, description="List of tools available to the prompt")
+    template_schema: Optional[Dict[str, Any]] = Field(
+        default=None, description="Optional schema for template validation"
+    )
 
     # Variables model for validation
     _variables_model: Optional[Type[BaseModel]] = None
@@ -105,7 +109,9 @@ class BasePrompt(BaseModel):
     def __str__(self) -> str:
         """Return a string representation of the prompt."""
         return (
-            f"{self.name}: {self.description} \nSystem Prompt: {self.system_prompt} \nUser Prompt: {self.user_prompt}"
+            f"{self.name}: {self.description}\n"
+            f"System Prompt: {self.system_prompt}\n"
+            f"User Prompt: {self.user_prompt}"
         )
 
     def _create_variables_model(self) -> None:
@@ -220,7 +226,7 @@ class BasePrompt(BaseModel):
                 validated_vars = self._variables_model(**variable_values)
                 var_dict = validated_vars.model_dump()
             except Exception as e:
-                raise ValueError(f"Invalid variable values: {e}")
+                raise ValueError(f"Invalid variable values: {e}") from e
         else:
             var_dict = variable_values
 
@@ -257,26 +263,26 @@ class BasePrompt(BaseModel):
 
         response_format = self.expected_response
         if response_format.format and response_format.response_schema:
-            return f"{system_prompt}\nPlease provide your response in {response_format.format.value} format using the following schema:\n{response_format.response_schema}"
+            return (
+                f"{system_prompt}\n"
+                f"Please provide your response in {response_format.format.value} format "
+                f"using the following schema:\n{response_format.response_schema}"
+            )
         elif response_format.format:
             return f"{system_prompt}\nPlease provide your response in {response_format.format.value} format."
         return system_prompt
 
     def _validate_template(self) -> None:
-        """Validate the template format and variables."""
-        # Check for balanced braces
-        for template in [self.system_prompt, self.user_prompt]:
-            open_count = template.count("{")
-            close_count = template.count("}")
-            if open_count != close_count:
-                raise ValueError(f"Unbalanced braces in template: {open_count} open, {close_count} close")
-
-        # Check for valid variable names
-        pattern = r"\{([^}]+)\}"
-        for match in re.finditer(pattern, self.system_prompt + self.user_prompt):
-            var_name = match.group(1)
-            if not var_name.isidentifier() and not any(c in var_name for c in ":.[]"):
-                raise ValueError(f"Invalid variable name in template: {var_name}")
+        """Validate the prompt templates."""
+        try:
+            # Check for required variables
+            required_vars = self._extract_template_vars()
+            defined_vars = {var.name for var in self.variables}
+            missing_vars = required_vars - defined_vars
+            if missing_vars:
+                raise ValueError(f"Template contains undefined variables: {missing_vars}")
+        except Exception as err:
+            raise ValueError(f"Template validation failed: {str(err)}") from err
 
     def _extract_template_vars(self) -> Set[str]:
         """Extract required variables from the prompt template."""
@@ -284,6 +290,14 @@ class BasePrompt(BaseModel):
         system_vars = set(re.findall(pattern, self.system_prompt))
         user_vars = set(re.findall(pattern, self.user_prompt))
         return system_vars.union(user_vars)
+
+    def _validate_variables(self, variables: Dict[str, Any]) -> None:
+        """Validate variables against the template schema."""
+        try:
+            if hasattr(self, "template_schema") and self.template_schema:
+                jsonschema.validate(variables, self.template_schema)
+        except jsonschema.ValidationError as err:
+            raise ValueError(f"Variable validation failed: {str(err)}") from err
 
     @abstractmethod
     async def save(self) -> bool:

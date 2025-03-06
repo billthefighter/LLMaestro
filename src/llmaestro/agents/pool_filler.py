@@ -99,7 +99,9 @@ class PoolFiller:
             # Create agents using round-robin model selection
             for i in range(count):
                 model = matching_models[i % len(matching_models)]
-                await pool.get_agent(required_capabilities=required_caps, description=f"{agent_type}_specialist")
+                await pool.get_agent(
+                    required_capabilities=required_caps, description=f"{agent_type}_specialist_{model}"
+                )
 
     def get_capability_summary(self) -> Dict[str, Dict[str, Any]]:
         """Get a summary of available capabilities and models.
