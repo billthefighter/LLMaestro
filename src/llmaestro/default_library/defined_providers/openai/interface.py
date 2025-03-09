@@ -22,7 +22,7 @@ from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.memory import MemoryPrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormatType, ResponseFormat, StructuredOutputConfig
-from llmaestro.prompts.tools import ToolParams
+from llmaestro.tools.core import ToolParams
 
 if TYPE_CHECKING:
     pass

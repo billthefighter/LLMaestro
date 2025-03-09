@@ -19,7 +19,7 @@ from llmaestro.llm.enums import MediaType
 from llmaestro.llm.responses import ResponseFormat
 from .tokenizers import BaseTokenizer
 from llmaestro.llm.models import LLMState  # Direct import instead of TYPE_CHECKING
-from llmaestro.prompts.tools import ToolParams
+from llmaestro.tools.core import ToolParams
 from llmaestro.core.models import ContextMetrics
 from llmaestro.core.attachments import BaseAttachment
 

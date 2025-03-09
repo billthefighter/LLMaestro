@@ -12,7 +12,7 @@ from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.prompts.base import PromptVariable
 from llmaestro.prompts.memory import MemoryPrompt
-from llmaestro.prompts.tools import ToolParams, BasicFunctionGuard
+from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.prompts.types import SerializableType
 
 # Define a simple weather function
@@ -222,7 +222,7 @@ results = await chain.execute(text="This is a sample text to summarize.")
 The tools system provides type-safe function execution with safety guards:
 
 ```python
-from llmaestro.prompts.tools import ToolParams, BasicFunctionGuard
+from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 
 # Define a function
 def calculate_area(length: float, width: float) -> float:
@@ -257,7 +257,7 @@ Tools can be attached to prompts, allowing LLMs to decide when and how to call t
 ```python
 from llmaestro.prompts.base import PromptVariable
 from llmaestro.prompts.memory import MemoryPrompt
-from llmaestro.prompts.tools import ToolParams, BasicFunctionGuard
+from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.prompts.types import SerializableType
 
 # Define a function

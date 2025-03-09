@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
 from llmaestro.llm.enums import MediaType
 from llmaestro.prompts.mixins import VersionMixin
 from llmaestro.prompts.types import PromptMetadata
-from llmaestro.prompts.tools import ToolParams
+from llmaestro.tools.core import ToolParams
 from pydantic import BaseModel, Field, create_model
 from llmaestro.llm.schema_utils import schema_to_json
 

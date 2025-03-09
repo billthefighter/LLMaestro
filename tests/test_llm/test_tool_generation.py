@@ -8,7 +8,7 @@ import json
 
 from llmaestro.llm.interfaces.base import ToolParams
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
-from llmaestro.prompts.tools import ToolParams, FunctionGuard, BasicFunctionGuard
+from llmaestro.tools.core import ToolParams, FunctionGuard, BasicFunctionGuard
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.memory import MemoryPrompt

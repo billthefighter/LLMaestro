@@ -166,7 +166,7 @@ prompt = BasePrompt(
 
 ```python
 from llmaestro.prompts.base import BasePrompt
-from llmaestro.prompts.tools import ToolParams
+from llmaestro.tools.core import ToolParams
 
 def search_database(query: str) -> list[dict]:
     # Implementation

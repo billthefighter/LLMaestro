@@ -23,7 +23,7 @@ from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
 from llmaestro.prompts.memory import MemoryPrompt
-from llmaestro.prompts.tools import ToolParams, BasicFunctionGuard
+from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.llm.credentials import APIKey
 from llmaestro.llm.llm_registry import LLMRegistry
 
