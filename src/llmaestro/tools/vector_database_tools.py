@@ -17,4 +17,4 @@ Benefits:
 - Allow for knowledge base creation and querying
 """
 
-# Placeholder for future implementation 
+# Placeholder for future implementation

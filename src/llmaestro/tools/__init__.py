@@ -12,20 +12,10 @@ The main entry points are:
 from llmaestro.tools.core import FunctionGuard, BasicFunctionGuard, ToolParams
 
 # Import registry
-from llmaestro.tools.registry import (
-    ToolRegistry,
-    get_registry,
-    create_tool_discovery_tool
-)
+from llmaestro.tools.registry import ToolRegistry, get_registry, create_tool_discovery_tool
 
 # Import all tools
-from llmaestro.tools.all_tools import (
-    get_all_tools,
-    get_tools_by_category,
-    get_tool,
-    get_categories,
-    register_all_tools
-)
+from llmaestro.tools.all_tools import get_all_tools, get_tools_by_category, get_tool, get_categories, register_all_tools
 
 # Import SQL tools
 from llmaestro.tools.sql_tools import (
@@ -33,32 +23,29 @@ from llmaestro.tools.sql_tools import (
     create_sql_read_write_tool,
     SQLQueryParams,
     SQLReadOnlyGuard,
-    SQLReadWriteGuard
+    SQLReadWriteGuard,
 )
 
 # Define what's available for import with "from llmaestro.tools import *"
 __all__ = [
     # Core components
-    'FunctionGuard',
-    'BasicFunctionGuard',
-    'ToolParams',
-    
+    "FunctionGuard",
+    "BasicFunctionGuard",
+    "ToolParams",
     # Registry
-    'ToolRegistry',
-    'get_registry',
-    'create_tool_discovery_tool',
-    
+    "ToolRegistry",
+    "get_registry",
+    "create_tool_discovery_tool",
     # All tools
-    'get_all_tools',
-    'get_tools_by_category',
-    'get_tool',
-    'get_categories',
-    'register_all_tools',
-    
+    "get_all_tools",
+    "get_tools_by_category",
+    "get_tool",
+    "get_categories",
+    "register_all_tools",
     # SQL tools
-    'create_sql_read_only_tool',
-    'create_sql_read_write_tool',
-    'SQLQueryParams',
-    'SQLReadOnlyGuard',
-    'SQLReadWriteGuard'
-] 
+    "create_sql_read_only_tool",
+    "create_sql_read_write_tool",
+    "SQLQueryParams",
+    "SQLReadOnlyGuard",
+    "SQLReadWriteGuard",
+]

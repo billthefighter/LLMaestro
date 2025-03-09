@@ -17,4 +17,4 @@ Benefits:
 - Allow for visual content analysis
 """
 
-# Placeholder for future implementation 
+# Placeholder for future implementation

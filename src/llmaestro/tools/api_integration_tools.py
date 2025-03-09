@@ -17,4 +17,4 @@ Benefits:
 - Allow LLMs to trigger actions in other systems
 """
 
-# Placeholder for future implementation 
+# Placeholder for future implementation

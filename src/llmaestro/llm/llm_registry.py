@@ -11,6 +11,56 @@ from .interfaces.base import BaseLLMInterface
 
 logger = logging.getLogger(__name__)
 
+# TODO: Consider implementing a singleton pattern for LLMRegistry
+#
+# A singleton pattern would make sense for LLMRegistry for these reasons:
+# 1. Consistency: Ensures all parts of the application work with the same set of registered models
+# 2. Simplified Access: Components can access the registry without needing it to be passed explicitly
+# 3. Resource Sharing: Models and their interfaces can be shared across the application
+# 4. Architectural Alignment: Would align with the ToolRegistry design, creating a consistent pattern
+#
+# Potential implementation approaches:
+#
+# 1. Keep the Pydantic model benefits but add singleton behavior:
+#    ```python
+#    class LLMRegistry(BaseModel):
+#        _instance = None
+#
+#        # Pydantic fields as before
+#        model_states: Dict[str, LLMState] = Field(default_factory=dict)
+#        # ...other fields...
+#
+#        model_config = ConfigDict(arbitrary_types_allowed=True)
+#
+#        @classmethod
+#        def get_instance(cls) -> 'LLMRegistry':
+#            if cls._instance is None:
+#                cls._instance = cls()
+#            return cls._instance
+#    ```
+#
+# 2. Or use a more traditional singleton approach similar to ToolRegistry:
+#    ```python
+#    class LLMRegistry:
+#        _instance = None
+#
+#        def __new__(cls):
+#            if cls._instance is None:
+#                cls._instance = super(LLMRegistry, cls).__new__(cls)
+#            return cls._instance
+#
+#        def __init__(self):
+#            if not hasattr(self, 'initialized'):
+#                self.model_states = {}
+#                self.interface_classes = {}
+#                self.credentials = {}
+#                self.lock = Lock()
+#                self.initialized = True
+#    ```
+#
+# The first approach would maintain compatibility with Pydantic validation while adding singleton behavior,
+# which might be preferable if using Pydantic features extensively.
+
 
 class LLMRegistry(BaseModel):
     """Registry for managing LLM models and their interfaces.

@@ -24,7 +24,7 @@ async def setup_database():
     """Set up a sample SQLite database for the example."""
     # Create an in-memory SQLite database
     engine = create_engine("sqlite:///:memory:")
-    
+
     # Create a sample table
     with engine.connect() as conn:
         conn.execute(text("""
@@ -35,7 +35,7 @@ async def setup_database():
             age INTEGER
         )
         """))
-        
+
         # Insert some sample data
         conn.execute(text("""
         INSERT INTO users (name, email, age) VALUES
@@ -43,9 +43,9 @@ async def setup_database():
         ('Bob', 'bob@example.com', 25),
         ('Charlie', 'charlie@example.com', 35)
         """))
-        
+
         conn.commit()
-    
+
     return engine
 
 
@@ -53,25 +53,25 @@ async def main():
     """Main function demonstrating the use of the all_tools module."""
     # Set up the database
     engine = await setup_database()
-    
+
     # Re-register all tools with our database engine
     register_all_tools(sql_engine=engine)
-    
+
     # Get all available tools
     all_tools = get_all_tools()
     print(f"Total tools available: {len(all_tools)}")
-    
+
     # Get all categories
     categories = get_categories()
     print(f"Available categories: {', '.join(categories)}")
-    
+
     # Get tools by category
     for category in categories:
         tools = get_tools_by_category(category)
         print(f"\nTools in category '{category}' ({len(tools)}):")
         for tool in tools:
             print(f"  - {tool.name}: {tool.description}")
-    
+
     # Get and use a specific tool
     read_only_sql = get_tool("execute_read_only_sql")
     if read_only_sql:
@@ -86,7 +86,7 @@ async def main():
                 print(f"  {row['name']} ({row['email']}), Age: {row['age']}")
         except Exception as e:
             print(f"Error executing query: {e}")
-    
+
     # Try to use a placeholder tool
     read_file = get_tool("read_file")
     if read_file:
@@ -99,4 +99,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

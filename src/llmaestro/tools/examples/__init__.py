@@ -7,4 +7,4 @@ Examples:
 """
 
 # This file is intentionally left mostly empty.
-# It exists to make the examples directory a proper package. 
+# It exists to make the examples directory a proper package.

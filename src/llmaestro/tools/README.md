@@ -44,7 +44,7 @@ async def example():
         query="SELECT * FROM users WHERE age > :min_age",
         params={"min_age": 25}
     )
-    
+
     # Execute a write query (only works with read_write_tool)
     rows_affected = await read_write_tool.execute(
         query="INSERT INTO users (name, email) VALUES (:name, :email)",
@@ -56,7 +56,7 @@ async def example():
 
 The SQL tools implement several safety measures:
 
-1. **Read-only guard**: 
+1. **Read-only guard**:
    - Only allows SELECT statements
    - Blocks any data modification operations
 
@@ -313,4 +313,4 @@ The core tool components provide the foundation for all tools in LLMaestro:
 - `BasicFunctionGuard`: Default implementation with basic safety checks
 - `ToolParams`: Parameters for a tool/function that can be used by an LLM
 
-These components ensure that tools are executed safely and can be properly integrated with LLMs. 
+These components ensure that tools are executed safely and can be properly integrated with LLMs.
