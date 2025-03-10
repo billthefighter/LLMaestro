@@ -20,14 +20,13 @@ from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 class ToolRegistry:
     """A registry for tools in LLMaestro.
 
-    This class serves as a singleton registry for tools in LLMaestro. It allows tools
-    to be registered and retrieved. The registry itself is also a tool that can be used
-    to retrieve all registered tools.
+    This class serves as a registry for tools in LLMaestro. It allows tools
+    to be registered and retrieved.
 
     Usage:
         ```python
-        # Get the registry instance
-        registry = ToolRegistry.get_instance()
+        # Create a registry instance
+        registry = ToolRegistry()
 
         # Register a tool
         @registry.register("my_tool")
@@ -48,22 +47,20 @@ class ToolRegistry:
         ```
     """
 
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(ToolRegistry, cls).__new__(cls)
-        return cls._instance
-
     def __init__(self):
-        # Initialize instance variables only once
-        if not hasattr(self, "_tools"):
-            self._tools: Dict[str, ToolParams] = {}
-            self._categories: Dict[str, List[str]] = {}
+        """Initialize a new tool registry."""
+        self._tools: Dict[str, ToolParams] = {}
+        self._categories: Dict[str, List[str]] = {}
 
     @classmethod
-    def get_instance(cls) -> "ToolRegistry":
-        """Get the singleton instance of the registry."""
+    def create(cls) -> "ToolRegistry":
+        """Create a new instance of the registry.
+
+        This replaces the previous get_instance singleton method.
+
+        Returns:
+            A new ToolRegistry instance.
+        """
         return cls()
 
     def register(self, name: Optional[str] = None, category: Optional[str] = None):
@@ -201,7 +198,7 @@ def create_tool_discovery_tool(registry: Optional[ToolRegistry] = None) -> ToolP
         A ToolParams object representing the tool discovery tool.
     """
     if registry is None:
-        registry = ToolRegistry.get_instance()
+        registry = ToolRegistry.create()
 
     # Create a function that calls the registry's list_available_tools method
     def list_tools(category: Optional[str] = None) -> Dict[str, Any]:
@@ -228,15 +225,18 @@ def create_tool_discovery_tool(registry: Optional[ToolRegistry] = None) -> ToolP
 
 
 # Register the tool discovery tool with the registry
-registry = ToolRegistry.get_instance()
+registry = ToolRegistry.create()
 registry.register_tool("list_available_tools", create_tool_discovery_tool())
 
 
-# Convenience function to get the registry instance
+# Convenience function to get a default registry instance
 def get_registry() -> ToolRegistry:
-    """Get the singleton instance of the tool registry.
+    """Get a default instance of the tool registry.
+
+    This function creates a new ToolRegistry instance each time it's called.
+    For applications that need a shared registry, store the returned instance.
 
     Returns:
-        The singleton instance of the tool registry.
+        A new ToolRegistry instance.
     """
-    return ToolRegistry.get_instance()
+    return ToolRegistry()

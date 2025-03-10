@@ -3,10 +3,12 @@
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+
+from llmaestro.core.persistence import PersistentModel
 
 
-class TokenUsage(BaseModel):
+class TokenUsage(PersistentModel):
     """Tracks token usage for a single LLM request."""
 
     prompt_tokens: int
@@ -17,7 +19,7 @@ class TokenUsage(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class ContextMetrics(BaseModel):
+class ContextMetrics(PersistentModel):
     """Tracks context window usage and limits."""
 
     max_context_tokens: int
@@ -28,7 +30,7 @@ class ContextMetrics(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class BaseResponse(BaseModel):
+class BaseResponse(PersistentModel):
     """Base class for all response types."""
 
     timestamp: datetime = Field(default_factory=datetime.now)

@@ -5,11 +5,12 @@ from pathlib import Path
 import base64
 from typing import Union, Optional, Dict, Any
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import Field, ConfigDict
 from llmaestro.llm.enums import MediaType
+from llmaestro.core.persistence import PersistentModel
 
 
-class BaseAttachment(BaseModel, ABC):
+class BaseAttachment(PersistentModel, ABC):
     """Base class for all file attachments."""
 
     content: Union[str, bytes] = Field(description="The file content, either as string or bytes")

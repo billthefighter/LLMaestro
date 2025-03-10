@@ -3,10 +3,11 @@ from datetime import datetime, timedelta
 from typing import List
 
 from llmaestro.prompts.types import VersionInfo
-from pydantic import BaseModel, Field
+from pydantic import Field
+from llmaestro.core.persistence import PersistentModel
 
 
-class VersionMixin(BaseModel):
+class VersionMixin(PersistentModel):
     """Mixin for version control functionality in prompts."""
 
     current_version: VersionInfo

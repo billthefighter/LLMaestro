@@ -11,6 +11,7 @@ from llmaestro.prompts.types import PromptMetadata
 from llmaestro.tools.core import ToolParams
 from pydantic import BaseModel, Field, create_model
 from llmaestro.llm.schema_utils import schema_to_json
+from llmaestro.core.persistence import PersistentModel
 
 from llmaestro.core.attachments import BaseAttachment, FileAttachment, ImageAttachment, AttachmentConverter
 from llmaestro.llm.responses import ResponseFormat
@@ -42,7 +43,7 @@ TYPE_MAPPING = {
 }
 
 
-class PromptVariable(BaseModel):
+class PromptVariable(PersistentModel):
     """Represents a variable in a prompt template."""
 
     name: str

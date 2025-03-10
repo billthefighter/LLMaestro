@@ -2,6 +2,8 @@
 
 This module provides a central registry of all tools available in LLMaestro.
 It imports and registers tools from all tool modules in the directory.
+This module maintains a default registry instance that can be used throughout
+the application.
 
 Usage:
     ```python
@@ -13,6 +15,10 @@ Usage:
     # Get tools by category
     sql_tools = get_tools_by_category("database")
     file_tools = get_tools_by_category("file_system")
+
+    # If you need a custom registry instance:
+    from llmaestro.tools.registry import ToolRegistry
+    custom_registry = ToolRegistry()
     ```
 """
 
@@ -20,15 +26,15 @@ from typing import Dict, List, Optional, Union, Callable
 
 from sqlalchemy import create_engine, Engine, Connection
 
-from llmaestro.tools.registry import get_registry
+from llmaestro.tools.registry import ToolRegistry
 from llmaestro.tools.core import ToolParams
 
 # Import tool modules
 from llmaestro.tools import sql_tools
 
 
-# Get the registry instance
-registry = get_registry()
+# Create a default registry instance
+registry = ToolRegistry()
 
 
 def register_sql_tools(
@@ -147,20 +153,24 @@ def register_placeholder_tools() -> None:
     for module_name, module_info in placeholder_tools.items():
         category = module_info["category"]
         for tool_name, description in module_info["tools"]:
-            # Create a placeholder function
-            def placeholder_function(*args, **kwargs):
-                module_path = f"llmaestro.tools.{module_name}"
-                raise NotImplementedError(
-                    f"The tool '{tool_name}' in module '{module_path}' is not yet implemented. "
-                    f"It is registered as a placeholder for future implementation."
-                )
+            # Create a placeholder function with proper variable binding
+            def make_placeholder(mod_name: str, t_name: str, desc: str):
+                def placeholder_function(*args, **kwargs):
+                    module_path = f"llmaestro.tools.{mod_name}"
+                    raise NotImplementedError(
+                        f"The tool '{t_name}' in module '{module_path}' is not yet implemented. "
+                        f"It is registered as a placeholder for future implementation."
+                    )
 
-            # Set the function name and docstring
-            placeholder_function.__name__ = tool_name
-            placeholder_function.__doc__ = description
+                placeholder_function.__doc__ = desc
+                return placeholder_function
+
+            # Create and configure the placeholder function
+            func = make_placeholder(module_name, tool_name, description)
+            func.__name__ = tool_name
 
             # Register the placeholder function as a tool
-            registry.register_tool(tool_name, placeholder_function, category=category)
+            registry.register_tool(tool_name, func, category=category)
 
 
 def register_all_tools(

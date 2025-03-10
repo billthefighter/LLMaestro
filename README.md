@@ -130,6 +130,7 @@ The system is built around these main concepts:
 3. **Tools**: Type-safe function execution with safety guards
 4. **Agent Pool**: Manages a pool of LLM agents that can be assigned subtasks
 5. **Storage Manager**: Handles efficient storage and retrieval of intermediate results
+6. **Persistence**: Automatic database persistence for models and graph structures
 
 ### Core Components
 
@@ -141,6 +142,7 @@ The system is built around these main concepts:
 - `Agent`: Represents an LLM instance that can process subtasks
 - `StorageManager`: Manages intermediate results using disk-based storage
 - `Validator`: Ensures data consistency using Pydantic models
+- `PersistentModel`: Base class providing automatic database persistence for models
 
 ### Key Features
 
@@ -152,6 +154,38 @@ The system is built around these main concepts:
 - Model-agnostic design supporting different LLM providers
 - Disk-based storage for handling large datasets
 - Strong type validation using Pydantic
+- Automatic database persistence for models and graph structures
+- Resumable operations through persistent state management
+
+## Persistence
+
+The system uses a persistence layer built on Pydantic models to automatically handle database storage and retrieval:
+
+```python
+from llmaestro.core.persistence import PersistentModel
+from llmaestro.chains.chains import ChainGraph, ChainMetadata
+
+# Create a chain with metadata
+chain = ChainGraph()
+metadata = ChainMetadata(
+    description="Example chain",
+    tags={"example", "demo"},
+    version="1.0"
+)
+
+# All models inheriting from PersistentModel are automatically persisted
+# This includes:
+# - Chain graphs and their components
+# - Conversation graphs and nodes
+# - Chain metadata and state
+# - Execution history and results
+
+# The persistence layer allows for:
+# - Resuming interrupted operations
+# - Loading saved chain configurations
+# - Tracking execution history
+# - Managing long-running conversations
+```
 
 ## Conversations
 

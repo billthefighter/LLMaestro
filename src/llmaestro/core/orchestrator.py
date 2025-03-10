@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union, Callable, Awaitable
 from uuid import uuid4
 
-from pydantic import BaseModel
+from llmaestro.core.persistence import PersistentModel
 
 from llmaestro.core.conversations import ConversationGraph, ConversationNode
 from llmaestro.core.models import LLMResponse
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from llmaestro.agents.agent_pool import AgentPool
 
 
-class ExecutionMetadata(BaseModel):
+class ExecutionMetadata(PersistentModel):
     """Metadata for tracking execution status of nodes."""
 
     status: str = "pending"  # pending, running, completed, failed

@@ -8,24 +8,27 @@ from llmaestro.tools.core import BasicFunctionGuard, ToolParams
 from llmaestro.tools.registry import ToolRegistry, get_registry, create_tool_discovery_tool
 
 
-class TestRegistrySingleton:
-    """Tests for the singleton behavior of ToolRegistry."""
+class TestRegistryInstantiation:
+    """Tests for the instantiation behavior of ToolRegistry."""
 
-    def test_singleton_pattern(self):
-        """Test that ToolRegistry follows the singleton pattern."""
-        registry1 = ToolRegistry.get_instance()
-        registry2 = ToolRegistry.get_instance()
-        assert registry1 is registry2
+    def test_instance_creation(self):
+        """Test that ToolRegistry creates separate instances."""
+        registry1 = ToolRegistry()
+        registry2 = ToolRegistry()
+        # Each instance should be unique
+        assert registry1 is not registry2
 
-        # Direct instantiation should also return the singleton
-        registry3 = ToolRegistry()
-        assert registry1 is registry3
+        # The create class method should also return a new instance
+        registry3 = ToolRegistry.create()
+        assert registry1 is not registry3
+        assert registry2 is not registry3
 
     def test_get_registry_function(self):
-        """Test that get_registry() returns the singleton instance."""
-        registry = ToolRegistry.get_instance()
-        registry_from_func = get_registry()
-        assert registry is registry_from_func
+        """Test that get_registry() returns a new instance."""
+        registry1 = get_registry()
+        registry2 = get_registry()
+        # Each call should return a new instance
+        assert registry1 is not registry2
 
 
 class TestRegistryRegistration:

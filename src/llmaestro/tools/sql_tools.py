@@ -167,10 +167,10 @@ class SQLReadOnlyGuard(BasicFunctionGuard):
 
             return return_value
 
-        except SQLAlchemyError as e:
+        except SQLAlchemyError as err:
             if conn_is_from_engine:
                 conn.close()
-            raise ValueError(f"Error executing SQL query: {str(e)}")
+            raise ValueError(f"Error executing SQL query: {str(err)}") from err
 
 
 class SQLReadWriteGuard(SQLReadOnlyGuard):
@@ -294,12 +294,12 @@ class SQLReadWriteGuard(SQLReadOnlyGuard):
 
             return return_value
 
-        except SQLAlchemyError as e:
+        except SQLAlchemyError as err:
             if needs_commit:
                 conn.rollback()
             if conn_is_from_engine:
                 conn.close()
-            raise ValueError(f"Error executing SQL query: {str(e)}")
+            raise ValueError(f"Error executing SQL query: {str(err)}") from err
 
 
 def create_sql_read_only_tool(

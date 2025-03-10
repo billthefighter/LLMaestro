@@ -5,6 +5,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from llmaestro.core.persistence import PersistentModel
+
 
 class APIKeyFormat(BaseModel):
     """Defines the format and validation rules for an API key."""
@@ -27,7 +29,7 @@ class APIKeyFormat(BaseModel):
         return bool(re.match(self.pattern, key))
 
 
-class APIKey(BaseModel):
+class APIKey(PersistentModel):
     """Represents a single API key with metadata."""
 
     key: str = Field(..., description="The actual API key value")

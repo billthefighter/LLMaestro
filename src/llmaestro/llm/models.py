@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from pydantic import BaseModel, ConfigDict, Field
 
 from llmaestro.config.base import RateLimitConfig
+from llmaestro.core.persistence import PersistentModel
 from llmaestro.llm.capabilities import LLMCapabilities, ProviderCapabilities, VisionCapabilities
 from llmaestro.llm.credentials import APIKey
 
@@ -45,7 +46,7 @@ class LLMMetadata(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class Provider(BaseModel):
+class Provider(PersistentModel):
     """Configuration for an LLM provider."""
 
     family: str
@@ -87,7 +88,7 @@ class Provider(BaseModel):
             raise ValueError(f"Invalid API base URL: {str(err)}") from err
 
 
-class LLMProfile(BaseModel):
+class LLMProfile(PersistentModel):
     """Complete profile of an LLM's capabilities and metadata."""
 
     name: str
@@ -127,7 +128,7 @@ class LLMProfile(BaseModel):
         return True, None
 
 
-class LLMRuntimeConfig(BaseModel):
+class LLMRuntimeConfig(PersistentModel):
     """Runtime configuration for LLM instances."""
 
     max_tokens: int = Field(default=2048, description="Maximum number of tokens to generate")
@@ -139,7 +140,7 @@ class LLMRuntimeConfig(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class LLMState(BaseModel):
+class LLMState(PersistentModel):
     """Complete state container for LLM instances."""
 
     profile: LLMProfile = Field(description="Model profile containing capabilities and metadata")
@@ -167,7 +168,7 @@ else:
     InterfaceType = Any
 
 
-class LLMInstance(BaseModel):
+class LLMInstance(PersistentModel):
     """Runtime container that combines interface, state and credentials for an LLM."""
 
     # Core components

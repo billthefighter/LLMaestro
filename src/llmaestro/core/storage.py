@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 import aiofiles
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+from llmaestro.core.persistence import PersistentModel
 from sqlalchemy import JSON, Column, DateTime, String, create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, declarative_base
@@ -62,7 +63,7 @@ class ArtifactModel(Base):
         )
 
 
-class Artifact(BaseModel):
+class Artifact(PersistentModel):
     """Base model for all artifacts in the system."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -92,7 +93,7 @@ class Artifact(BaseModel):
         return ArtifactModel.from_pydantic(self)
 
 
-class ArtifactStorage(BaseModel):
+class ArtifactStorage(PersistentModel):
     """Base class defining the interface for artifact storage implementations."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -183,7 +184,7 @@ class DatabaseArtifactStorage(ArtifactStorage):
             return []
 
 
-class StorageConfig(BaseModel):
+class StorageConfig(PersistentModel):
     """Configuration for artifact storage. This is pretty barebones right now, but will be expanded in the future."""
 
     base_path: Path

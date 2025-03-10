@@ -4,10 +4,11 @@ from datetime import datetime
 from typing import Any, Dict, Generic, List, Optional, Set, TypeVar
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+from llmaestro.core.persistence import PersistentModel
 
 
-class BaseNode(BaseModel):
+class BaseNode(PersistentModel):
     """Base class for all graph nodes."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -17,7 +18,7 @@ class BaseNode(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class BaseEdge(BaseModel):
+class BaseEdge(PersistentModel):
     """Base class for all graph edges."""
 
     source_id: str = Field(..., description="ID of the source node")
@@ -32,7 +33,7 @@ NodeType = TypeVar("NodeType", bound=BaseNode)
 EdgeType = TypeVar("EdgeType", bound=BaseEdge)
 
 
-class BaseGraph(BaseModel, Generic[NodeType, EdgeType]):
+class BaseGraph(PersistentModel, Generic[NodeType, EdgeType]):
     """Base graph implementation that can be used for both chains and conversations."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
@@ -148,7 +149,7 @@ class BaseGraph(BaseModel, Generic[NodeType, EdgeType]):
             edge
             for edge in self.edges
             if edge.source_id not in nodes_to_remove and edge.target_id not in nodes_to_remove
-        ]
+        ]  # type: List[EdgeType]
 
         # Remove the nodes
         for node_id in nodes_to_remove:

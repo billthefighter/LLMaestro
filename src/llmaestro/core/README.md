@@ -12,18 +12,30 @@ Defines the base data models used throughout the system:
 - `ContextMetrics`: Monitors context window usage and limits
 - `BaseResponse`: Abstract base class for all response types
 - `LLMResponse`: Represents a response from an LLM model with content and usage metrics
+- `PersistentModel`: Base class for all models that need database persistence, providing automatic serialization and storage capabilities
+
+### [persistence.py](./persistence.py)
+
+Provides the foundation for model persistence:
+
+- `PersistentModel`: Base Pydantic model that adds database persistence capabilities
+  - Automatic serialization/deserialization
+  - Database storage integration
+  - Used by core components like nodes, edges, and graphs
+  - Inherited by models that need persistence (e.g., ChainMetadata, ChainState)
 
 ### [graph.py](./graph.py)
 
 Implements a generic graph data structure for representing relationships between components:
 
-- `BaseNode`: Foundation for all graph nodes with ID, creation timestamp, and metadata
-- `BaseEdge`: Represents directed connections between nodes with source, target, and relationship type
-- `BaseGraph`: Generic graph implementation with methods for:
+- `BaseNode`: Foundation for all graph nodes with ID, creation timestamp, and metadata (inherits from PersistentModel)
+- `BaseEdge`: Represents directed connections between nodes with source, target, and relationship type (inherits from PersistentModel)
+- `BaseGraph`: Generic graph implementation with methods for: (inherits from PersistentModel)
   - Adding/retrieving nodes and edges
   - Analyzing dependencies and execution order
   - Pruning nodes based on age or count
   - Generating graph summaries
+  - Automatic persistence of graph structures
 
 ### [conversations.py](./conversations.py)
 

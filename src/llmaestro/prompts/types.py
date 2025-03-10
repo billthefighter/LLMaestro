@@ -3,10 +3,11 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+from llmaestro.core.persistence import PersistentModel
 
 
-class VersionInfo(BaseModel):
+class VersionInfo(PersistentModel):
     """Version information for a prompt."""
 
     number: str
@@ -23,7 +24,7 @@ class VersionInfo(BaseModel):
         return json.dumps(data, **kwargs)
 
 
-class PromptMetadata(BaseModel):
+class PromptMetadata(PersistentModel):
     """Enhanced metadata for prompts."""
 
     type: str

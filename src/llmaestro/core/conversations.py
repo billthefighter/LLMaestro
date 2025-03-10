@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+from llmaestro.core.persistence import PersistentModel
 
 from llmaestro.core.graph import BaseEdge, BaseGraph, BaseNode
 from llmaestro.core.models import LLMResponse, TokenUsage
@@ -96,7 +97,7 @@ class ConversationGraph(BaseGraph[ConversationNode, ConversationEdge]):
         }
 
 
-class ConversationContext(BaseModel):
+class ConversationContext(PersistentModel):
     """Represents the current conversation context with graph-based history tracking."""
 
     graph: ConversationGraph = Field(

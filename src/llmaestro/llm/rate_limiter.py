@@ -3,12 +3,13 @@ import time
 from datetime import datetime, date, timedelta
 from typing import Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from llmaestro.config.base import RateLimitConfig
+from llmaestro.core.persistence import PersistentModel
 
 
-class TokenBucket(BaseModel):
+class TokenBucket(PersistentModel):
     """Token bucket implementation for rate limiting and quota tracking.
 
     This model maintains token usage data and provides methods for checking

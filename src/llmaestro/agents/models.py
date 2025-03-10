@@ -4,10 +4,11 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from llmaestro.core.models import BaseResponse, ContextMetrics, TokenUsage
 from llmaestro.llm.capabilities import LLMCapabilities
+from llmaestro.core.persistence import PersistentModel
 
 
 class AgentResponse(BaseResponse):
@@ -17,7 +18,7 @@ class AgentResponse(BaseResponse):
     agent_type: str = Field(..., description="Type of agent that generated the response")
 
 
-class AgentMetrics(BaseModel):
+class AgentMetrics(PersistentModel):
     """Metrics for agent performance and usage."""
 
     token_usage: TokenUsage
@@ -37,7 +38,7 @@ class AgentState(str, Enum):
     TERMINATED = "terminated"
 
 
-class Agent(BaseModel):
+class Agent(PersistentModel):
     """Base model for an agent instance."""
 
     id: str = Field(description="Unique identifier for this agent")

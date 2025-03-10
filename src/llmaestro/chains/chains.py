@@ -1,7 +1,6 @@
 """Graph-based chain system for LLM orchestration."""
 
 import asyncio
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Callable, Dict, Generic, Optional, Protocol, Set, Tuple, TypeVar, cast, List
 from uuid import uuid4
@@ -9,10 +8,11 @@ from uuid import uuid4
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.core.graph import BaseEdge, BaseGraph, BaseNode
 from llmaestro.core.models import LLMResponse
+from llmaestro.core.persistence import PersistentModel
 from llmaestro.prompts.base import BasePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormat
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 from llmaestro.llm.responses import ValidationResult
 
 T = TypeVar("T")
@@ -37,7 +37,7 @@ class AgentType(str, Enum):
     SPECIALIST = "specialist"
 
 
-class RetryStrategy(BaseModel):
+class RetryStrategy(PersistentModel):
     """Configuration for retry behavior."""
 
     max_retries: int = Field(default=3, ge=0)
@@ -48,7 +48,7 @@ class RetryStrategy(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class ChainMetadata(BaseModel):
+class ChainMetadata(PersistentModel):
     """Structured metadata for chain components."""
 
     description: Optional[str] = None
@@ -60,7 +60,7 @@ class ChainMetadata(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class ChainState(BaseModel):
+class ChainState(PersistentModel):
     """State management for chain execution."""
 
     status: str = Field(default="pending")
@@ -73,13 +73,14 @@ class ChainState(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
 
-@dataclass
-class ChainContext:
+class ChainContext(PersistentModel):
     """Context object passed between chain steps."""
 
-    metadata: ChainMetadata = field(default_factory=ChainMetadata)
-    state: ChainState = field(default_factory=ChainState)
-    variables: Dict[str, Any] = field(default_factory=dict)
+    metadata: ChainMetadata = Field(default_factory=ChainMetadata)
+    state: ChainState = Field(default_factory=ChainState)
+    variables: Dict[str, Any] = Field(default_factory=dict)
+
+    model_config = ConfigDict(validate_assignment=True)
 
 
 class InputTransform(Protocol):
@@ -92,7 +93,7 @@ class OutputTransform(Protocol, Generic[T]):
         ...
 
 
-class ChainStep(BaseModel, Generic[T]):
+class ChainStep(PersistentModel, Generic[T]):
     """Represents a single step in a chain."""
 
     id: str = Field(default_factory=lambda: str(uuid4()))
