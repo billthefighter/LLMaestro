@@ -1,6 +1,6 @@
 """Unified registry for managing LLM models."""
 import logging
-from typing import Dict, List, Type
+from typing import Dict, List, Type, Set, Optional
 from threading import Lock
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -10,56 +10,6 @@ from .credentials import APIKey
 from .interfaces.base import BaseLLMInterface
 
 logger = logging.getLogger(__name__)
-
-# TODO: Consider implementing a singleton pattern for LLMRegistry
-#
-# A singleton pattern would make sense for LLMRegistry for these reasons:
-# 1. Consistency: Ensures all parts of the application work with the same set of registered models
-# 2. Simplified Access: Components can access the registry without needing it to be passed explicitly
-# 3. Resource Sharing: Models and their interfaces can be shared across the application
-# 4. Architectural Alignment: Would align with the ToolRegistry design, creating a consistent pattern
-#
-# Potential implementation approaches:
-#
-# 1. Keep the Pydantic model benefits but add singleton behavior:
-#    ```python
-#    class LLMRegistry(BaseModel):
-#        _instance = None
-#
-#        # Pydantic fields as before
-#        model_states: Dict[str, LLMState] = Field(default_factory=dict)
-#        # ...other fields...
-#
-#        model_config = ConfigDict(arbitrary_types_allowed=True)
-#
-#        @classmethod
-#        def get_instance(cls) -> 'LLMRegistry':
-#            if cls._instance is None:
-#                cls._instance = cls()
-#            return cls._instance
-#    ```
-#
-# 2. Or use a more traditional singleton approach similar to ToolRegistry:
-#    ```python
-#    class LLMRegistry:
-#        _instance = None
-#
-#        def __new__(cls):
-#            if cls._instance is None:
-#                cls._instance = super(LLMRegistry, cls).__new__(cls)
-#            return cls._instance
-#
-#        def __init__(self):
-#            if not hasattr(self, 'initialized'):
-#                self.model_states = {}
-#                self.interface_classes = {}
-#                self.credentials = {}
-#                self.lock = Lock()
-#                self.initialized = True
-#    ```
-#
-# The first approach would maintain compatibility with Pydantic validation while adding singleton behavior,
-# which might be preferable if using Pydantic features extensively.
 
 
 class LLMRegistry(BaseModel):
@@ -178,3 +128,75 @@ class LLMRegistry(BaseModel):
         """Get list of registered model names."""
         with self.lock:
             return list(self.model_states.keys())
+
+    def find_cheapest_model_with_capabilities(self, required_capabilities: Set[str]) -> Optional[str]:
+        """Find the cheapest model that supports all the required capabilities.
+
+        Args:
+            required_capabilities: Set of capability flags that the model must support.
+                These should be valid capability flags from LLMCapabilities.VALID_CAPABILITY_FLAGS.
+
+        Returns:
+            The name of the cheapest model that supports all required capabilities,
+            or None if no model meets the requirements.
+
+        Raises:
+            ValueError: If any of the required capabilities are not valid.
+        """
+        from llmaestro.llm.capabilities import LLMCapabilities
+
+        # Validate the required capabilities
+        LLMCapabilities.validate_capability_flags(required_capabilities)
+
+        cheapest_model = None
+        lowest_cost = float("inf")
+
+        with self.lock:
+            for model_name, state in self.model_states.items():
+                # Check if the model supports all required capabilities
+                model_capabilities = state.profile.capabilities
+
+                # Skip if any required capability is not supported
+                if not all(getattr(model_capabilities, cap) for cap in required_capabilities):
+                    continue
+
+                # Calculate the total cost (input + output)
+                total_cost = model_capabilities.input_cost_per_1k_tokens + model_capabilities.output_cost_per_1k_tokens
+
+                # Update if this is the cheapest model so far
+                if total_cost < lowest_cost:
+                    lowest_cost = total_cost
+                    cheapest_model = model_name
+
+        return cheapest_model
+
+    def find_models_with_capabilities(self, required_capabilities: Set[str]) -> List[str]:
+        """Find all models that support the required capabilities.
+
+        Args:
+            required_capabilities: Set of capability flags that the model must support.
+                These should be valid capability flags from LLMCapabilities.VALID_CAPABILITY_FLAGS.
+
+        Returns:
+            List of model names that support all required capabilities.
+
+        Raises:
+            ValueError: If any of the required capabilities are not valid.
+        """
+        from llmaestro.llm.capabilities import LLMCapabilities
+
+        # Validate the required capabilities
+        LLMCapabilities.validate_capability_flags(required_capabilities)
+
+        matching_models = []
+
+        with self.lock:
+            for model_name, state in self.model_states.items():
+                # Check if the model supports all required capabilities
+                model_capabilities = state.profile.capabilities
+
+                # Add to list if all required capabilities are supported
+                if all(getattr(model_capabilities, cap) for cap in required_capabilities):
+                    matching_models.append(model_name)
+
+        return matching_models

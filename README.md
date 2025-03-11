@@ -81,6 +81,42 @@ For a complete working example with API key handling and model selection, see [e
 
 At this point, it's been most robustly tested with openAI models, and the [default library](src/llmaestro/default_library/defined_providers/openai/provider.py) has the most models support - working on claude and google support.
 
+## Capability-Based Model Selection
+
+LLMaestro provides a powerful capability-based model selection system that allows you to dynamically select the most appropriate model based on required capabilities rather than hardcoding specific model names.
+
+### Key Benefits
+
+1. **Cost Optimization**: Automatically select the cheapest model that meets your requirements
+2. **Future-Proofing**: Your code won't break when model names change or new models are introduced
+3. **Flexibility**: Easily adapt to different environments and available models
+4. **Testability**: Tests can run with any model that supports the required capabilities
+
+### Usage Examples
+
+```python
+from llmaestro.llm.llm_registry import LLMRegistry
+
+# Find the cheapest model that supports vision capabilities
+required_capabilities = {"supports_vision"}
+model_name = llm_registry.find_cheapest_model_with_capabilities(required_capabilities)
+
+# Create an instance of the selected model
+llm_instance = await llm_registry.create_instance(model_name)
+```
+
+You can also pass capabilities directly to the AgentPool:
+
+```python
+# Execute a prompt with specific capability requirements
+response = await agent_pool.execute_prompt(
+    prompt=formatted_prompt,
+    required_capabilities={"supports_function_calling", "supports_tools"}
+)
+```
+
+For more details, see the [Capability-Based Model Selection](docs/capability_based_model_selection.md) documentation.
+
 ## Model Status
 
 ### Anthropic Models

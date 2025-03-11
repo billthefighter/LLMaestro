@@ -30,13 +30,14 @@ from openai.types.chat.chat_completion_tool_param import ChatCompletionToolParam
 from openai.types.chat.chat_completion_content_part_param import ChatCompletionContentPartParam
 from openai.types.chat.chat_completion_content_part_image_param import ChatCompletionContentPartImageParam
 from openai.types.chat.chat_completion_content_part_text_param import ChatCompletionContentPartTextParam
+from pydantic import BaseModel
 
 # Add the src directory to the path so we can import the llmaestro modules
 sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 
 from llmaestro.llm.capabilities import LLMCapabilities, VisionCapabilities
 from llmaestro.llm.models import LLMState, LLMProfile, LLMMetadata, LLMRuntimeConfig
-from llmaestro.default_library.defined_providers.openai.provider import OPENAI_PROVIDER
+from llmaestro.default_library.defined_providers.openai.provider import PROVIDER
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -531,6 +532,8 @@ class ModelCapabilityTester:
             "supports_frequency_penalty": await self._test_frequency_penalty(model_id, token_usage),
             "supports_presence_penalty": await self._test_presence_penalty(model_id, token_usage),
             "supports_stop_sequences": await self._test_stop_sequences(model_id, token_usage),
+            "supports_direct_pydantic_parse": await self._test_direct_pydantic_parse(model_id, token_usage),
+            "supports_temperature": await self._test_temperature(model_id, token_usage),
             "supports_message_role": True,  # All OpenAI chat models support message roles
             "typical_speed": None,  # This would require more extensive testing
             "supported_languages": {"en"},  # Default to English, would need more testing for others
@@ -861,6 +864,65 @@ class ModelCapabilityTester:
             logger.warning(f"Model {model_id} does not support stop sequences: {e}")
             return False
 
+    async def _test_direct_pydantic_parse(self, model_id: str, token_usage: Dict[str, float]) -> bool:
+        """Test if a model supports direct Pydantic parsing.
+
+        This tests whether the model can reliably generate output that can be directly parsed
+        into a Pydantic model without additional processing.
+        """
+        # Define a simple Pydantic model for testing
+        class TestModel(BaseModel):
+            name: str
+            age: int
+            is_active: bool
+
+        # Test message that asks for structured data
+        PYDANTIC_TEST_MESSAGE = [
+            {"role": "user", "content": "Please provide information about a person with the following information: name (string), age (integer), and is_active (boolean)."}
+        ]
+
+        try:
+            # Create base kwargs with proper type annotation
+            kwargs: Dict[str, Any] = {
+                "messages": PYDANTIC_TEST_MESSAGE,
+            }
+
+            # Add the appropriate tokens parameter based on the model
+            if self.requires_completion_tokens(model_id):
+                kwargs["max_completion_tokens"] = 50
+            else:
+                kwargs["max_tokens"] = 50
+
+            # Try to use the beta.chat.completions.parse endpoint with the Pydantic model
+            try:
+                # Make the API call with direct Pydantic parsing
+                response = await self.client.beta.chat.completions.parse(
+                    model=model_id,
+                    response_format=TestModel,
+                    **kwargs
+                )
+
+                # If we get here, the model supports direct Pydantic parsing
+                # Track token usage from the API response
+                if hasattr(response, 'usage') and response.usage:
+                    token_usage["input_tokens"] += response.usage.prompt_tokens
+                    token_usage["output_tokens"] += response.usage.completion_tokens
+
+                return True
+            except (AttributeError, NotImplementedError):
+                # The beta.chat.completions.parse endpoint might not be available
+                # Fall back to the standard JSON object approach
+                logger.warning(f"Direct Pydantic parsing not available for model {model_id}, falling back to JSON mode")
+                return False
+            except Exception as e:
+                # Any other exception indicates the model doesn't support direct Pydantic parsing
+                logger.warning(f"Model {model_id} does not support direct Pydantic parsing: {e}")
+                return False
+
+        except Exception as e:
+            logger.warning(f"Error testing direct Pydantic parsing for model {model_id}: {e}")
+            return False
+
     async def _test_vision_capabilities(self, model_id: str, token_usage: Dict[str, float]) -> Dict[str, Any]:
         """Test vision-specific capabilities for a model."""
         try:
@@ -973,6 +1035,40 @@ class ModelCapabilityTester:
                 "cost_per_image": 0.002,
             }
 
+    async def _test_temperature(self, model_id: str, token_usage: Dict[str, float]) -> bool:
+        """Test if a model supports temperature parameter.
+
+        Args:
+            model_id: ID of the model to test
+            token_usage: Dictionary to track token usage
+
+        Returns:
+            True if the model supports temperature, False otherwise
+        """
+        try:
+            # Create base kwargs with proper type annotation
+            kwargs: Dict[str, Any] = {
+                "messages": BASIC_TEST_MESSAGE,
+                "temperature": 0.5  # Use a non-default temperature value
+            }
+
+            # Add the appropriate tokens parameter based on the model
+            if self.requires_completion_tokens(model_id):
+                kwargs["max_completion_tokens"] = 50
+            else:
+                kwargs["max_tokens"] = 50
+
+            # Make the API call
+            response = await self.client.chat.completions.create(model=model_id, **kwargs)
+            # Track token usage from the API response
+            if hasattr(response, 'usage') and response.usage:
+                token_usage["input_tokens"] += response.usage.prompt_tokens
+                token_usage["output_tokens"] += response.usage.completion_tokens
+            return True
+        except Exception as e:
+            logger.warning(f"Model {model_id} does not support temperature: {e}")
+            return False
+
     def generate_model_code(self, model_id: str) -> str:
         """Generate Python code for a model definition."""
         if model_id not in self.capability_results:
@@ -1016,6 +1112,15 @@ class ModelCapabilityTester:
         # For simplicity, we'll use the current timestamp
         release_timestamp = int(datetime.now().timestamp())
 
+        # Configure runtime config based on capabilities
+        # Only include temperature if the model supports it
+        supports_temperature = capabilities.get('supports_temperature', False)
+        if supports_temperature:
+            runtime_config = f"max_tokens=1024, temperature=0.7, max_context_tokens={capabilities['max_context_window']}, stream=True"
+        else:
+            runtime_config = f"max_tokens=1024, max_context_tokens={capabilities['max_context_window']}, stream=True"
+            logger.warning(f"Model {model_id} does not support temperature, excluding from runtime config")
+
         # Generate the method code
         method_code = f"""
     @staticmethod
@@ -1044,12 +1149,13 @@ class ModelCapabilityTester:
                     supports_frequency_penalty={str(capabilities['supports_frequency_penalty'])},
                     supports_presence_penalty={str(capabilities['supports_presence_penalty'])},
                     supports_stop_sequences={str(capabilities['supports_stop_sequences'])},
+                    supports_direct_pydantic_parse={str(capabilities['supports_direct_pydantic_parse'])},
+                    supports_temperature={str(supports_temperature)},
                     supports_message_role=True,
-                    supports_direct_pydantic_parse=False,
                     typical_speed=None,
                     supported_languages={{"en"}},
-                    input_cost_per_1k_tokens={self.pricing_data.get(model_id, {}).get('input_cost', 0.0)},
-                    output_cost_per_1k_tokens={self.pricing_data.get(model_id, {}).get('output_cost', 0.0)},
+                    input_cost_per_1k_tokens={capabilities['input_cost_per_1k_tokens']},
+                    output_cost_per_1k_tokens={capabilities['output_cost_per_1k_tokens']},
                 ),
                 metadata=LLMMetadata(
                     release_date=datetime.fromtimestamp({release_timestamp}),
@@ -1075,8 +1181,8 @@ class ModelCapabilityTester:
         # Close the method code
         method_code += f"""
             ),
-            provider=OPENAI_PROVIDER,
-            runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens={capabilities['max_context_window']}, stream=True),
+            provider=PROVIDER,
+            runtime_config=LLMRuntimeConfig({runtime_config}),
         )"""
 
         return method_code
@@ -1091,7 +1197,6 @@ class ModelCapabilityTester:
 
             # Generate code for each model
             new_methods = []
-            models_dict_entries = []
 
             for model_id in models_to_add:
                 # Skip deprecated models unless explicitly included
@@ -1108,55 +1213,46 @@ class ModelCapabilityTester:
                 method_code = self.generate_model_code(model_id)
                 new_methods.append(method_code)
 
-                # Format the model name for the method name and dictionary entry
-                method_name = model_id.replace("-", "_").replace(".", "_")
-                models_dict_entries.append(f'    "{model_id}": {method_name},')
+            # Find the end of the class definition to append new methods
+            class_pattern = r"class\s+OpenAIModels\s*:"
+            class_match = re.search(class_pattern, content)
 
-            # Find the MODELS dictionary in the file
-            models_dict_pattern = r"MODELS\s*:\s*Dict\[str,\s*Callable\[\[\],\s*LLMState\]\]\s*=\s*\{[^}]*\}"
-            models_dict_match = re.search(models_dict_pattern, content, re.DOTALL)
+            if not class_match:
+                logger.error("Could not find OpenAIModels class in the file")
+                return
 
-            if models_dict_match:
-                # Extract the existing dictionary entries
-                existing_dict = models_dict_match.group(0)
+            # Find the get_model method to insert new methods before it
+            get_model_pattern = r"@classmethod\s+def\s+get_model\s*\("
+            get_model_match = re.search(get_model_pattern, content)
 
-                # Create the new dictionary with both existing and new entries
-                new_dict = "MODELS: Dict[str, Callable[[], LLMState]] = {\n"
-                new_dict += "\n".join(models_dict_entries)
+            updated_content = content
 
-                # Add existing entries that aren't being replaced
-                for line in existing_dict.split("\n"):
-                    if ":" in line and not any(model_id in line for model_id in models_to_add):
-                        new_dict += f"\n{line}"
+            if get_model_match:
+                # Insert new methods before the get_model method
+                insert_position = get_model_match.start()
 
-                new_dict += "\n}"
-
-                # Replace the old dictionary with the new one
-                updated_content = content.replace(models_dict_match.group(0), new_dict)
-            else:
-                # If we couldn't find the dictionary, append it at the end
-                updated_content = content
+                # Add each new method
                 for method in new_methods:
-                    updated_content += f"\n{method}\n"
+                    # Check if the method already exists
+                    method_name_match = re.search(r"def\s+(\w+)\(\)", method)
+                    if method_name_match:
+                        method_name = method_name_match.group(1)
+                        method_pattern = rf"def\s+{method_name}\(\)"
 
-                updated_content += "\nMODELS: Dict[str, Callable[[], LLMState]] = {\n"
-                updated_content += "\n".join(models_dict_entries)
-                updated_content += "\n}\n"
+                        if not re.search(method_pattern, content):
+                            # Insert the new method
+                            updated_content = updated_content[:insert_position] + method + "\n\n" + updated_content[insert_position:]
+            else:
+                # If get_model method not found, append at the end of the file
+                updated_content += "\n\n"
+                for method in new_methods:
+                    method_name_match = re.search(r"def\s+(\w+)\(\)", method)
+                    if method_name_match:
+                        method_name = method_name_match.group(1)
+                        method_pattern = rf"def\s+{method_name}\(\)"
 
-            # Add the new methods before the MODELS dictionary
-            for method in new_methods:
-                # Check if the method already exists
-                method_name_match = re.search(r"def\s+(\w+)\(\)", method)
-                if method_name_match:
-                    method_name = method_name_match.group(1)
-                    method_pattern = rf"def\s+{method_name}\(\)"
-
-                    if not re.search(method_pattern, content):
-                        # Find the position to insert the new method (before the MODELS dictionary)
-                        models_dict_pos = updated_content.find("MODELS: Dict[str, Callable[[], LLMState]]")
-                        if models_dict_pos != -1:
-                            # Insert the method before the MODELS dictionary
-                            updated_content = updated_content[:models_dict_pos] + method + "\n\n" + updated_content[models_dict_pos:]
+                        if not re.search(method_pattern, content):
+                            updated_content += method + "\n\n"
 
             # Write the updated content back to the file
             with open(models_file_path, "w") as f:

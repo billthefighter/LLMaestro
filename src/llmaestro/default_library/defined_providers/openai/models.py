@@ -1,6 +1,5 @@
 """OpenAI-specific model implementations."""
 from datetime import datetime
-from typing import Dict, Callable
 
 from llmaestro.llm.capabilities import LLMCapabilities, VisionCapabilities
 from llmaestro.llm.models import LLMState, LLMProfile, LLMMetadata, LLMRuntimeConfig
@@ -818,36 +817,69 @@ class OpenAIModels:
             runtime_config=LLMRuntimeConfig(max_tokens=1024, temperature=0.7, max_context_tokens=4096, stream=True),
         )
 
-    MODELS: Dict[str, Callable[[], LLMState]] = {
-        "gpt-4o-2024-11-20": gpt_4o_2024_11_20,
-        "o1-mini-2024-09-12": o1_mini_2024_09_12,
-        "o1-mini": o1_mini,
-        "gpt-4-turbo": gpt_4_turbo,
-        "gpt-4": gpt_4,
-        "o1-2024-12-17": o1_2024_12_17,
-        "gpt-4o-mini": gpt_4o_mini,
-        "gpt-4o": gpt_4o,
-        "gpt-3.5-turbo-instruct": gpt_3_5_turbo_instruct,
-        "gpt-3.5-turbo-instruct-0914": gpt_3_5_turbo_instruct_0914,
-        "gpt-3.5-turbo-0125": gpt_3_5_turbo_0125,
-        "gpt-3.5-turbo": gpt_3_5_turbo,
-        "o3-mini": o3_mini,
-        "o3-mini-2025-01-31": o3_mini_2025_01_31,
-    }
-
     @classmethod
     def get_model(cls, model_name: str) -> LLMState:
         """Get a model state by name.
 
         Args:
-            model_name: Name of the model to retrieve
+            model_name: Name of the model to retrieve. Can be either the method name (with underscores)
+                       or the model name (with hyphens).
 
         Returns:
             LLMState: Configured state for the requested model
 
         Raises:
             KeyError: If model_name is not found
+            ValueError: If multiple models have the same name
         """
-        if model_name not in cls.MODELS:
+        # First, try direct method access (for method names with underscores)
+        if hasattr(cls, model_name) and model_name != "get_model" and not model_name.startswith("_"):
+            method = getattr(cls, model_name)
+            if callable(method):
+                try:
+                    return method()
+                except Exception:
+                    pass
+
+        # If not found as a method name, try to find by model name
+        # Convert model name to method name format for normalized comparison
+        normalized_name = model_name.replace("-", "_").replace(".", "_")
+
+        # Try exact match with normalized name
+        if hasattr(cls, normalized_name) and normalized_name != "get_model" and not normalized_name.startswith("_"):
+            method = getattr(cls, normalized_name)
+            if callable(method):
+                try:
+                    result = method()
+                    if isinstance(result, LLMState):
+                        return result
+                except Exception:
+                    pass
+
+        # If still not found, search through all methods
+        matching_models = []
+
+        for method_name in dir(cls):
+            if not method_name.startswith("_") and method_name != "get_model":
+                method = getattr(cls, method_name)
+                if callable(method):
+                    try:
+                        result = method()
+                        if isinstance(result, LLMState):
+                            # Check if this matches either by method name or model name
+                            if method_name == model_name or result.profile.name == model_name:
+                                matching_models.append((method_name, result))
+                    except Exception:
+                        # Skip methods that fail to execute
+                        continue
+
+        # Handle results
+        if not matching_models:
             raise KeyError(f"Model {model_name} not found in OpenAI models")
-        return cls.MODELS[model_name]()
+
+        if len(matching_models) > 1:
+            method_names = [name for name, _ in matching_models]
+            raise ValueError(f"Multiple models found for '{model_name}': {', '.join(method_names)}")
+
+        # Return the single matching model
+        return matching_models[0][1]

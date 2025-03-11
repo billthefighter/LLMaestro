@@ -25,6 +25,20 @@ from llmaestro.core.attachments import BaseAttachment
 
 logger = logging.getLogger(__name__)
 
+
+class CapabilityError(Exception):
+    """Exception raised when a model capability is required but not supported."""
+
+    def __init__(self, capability: str, model_name: str, parameter: Optional[str] = None):
+        self.capability = capability
+        self.model_name = model_name
+        self.parameter = parameter
+        message = f"Model '{model_name}' does not support capability '{capability}'"
+        if parameter:
+            message += f" required by parameter '{parameter}'"
+        super().__init__(message)
+
+
 # Type aliases
 ToolInputType = Union[Callable[..., Any], Type[BaseModel], ToolParams]
 ProcessedToolType = ToolParams
@@ -331,6 +345,64 @@ class BaseLLMInterface(BaseModel, ABC):
         """Template method for handling attachments."""
         return messages  # Base implementation does nothing
 
+    @abstractmethod
+    async def _handle_response(self, response: Any) -> LLMResponse:
+        """Handle provider-specific response and convert to standardized LLMResponse.
+
+        This method is responsible for converting provider-specific response formats into
+        the standardized LLMResponse type. It should handle all response types supported
+        by the provider including text, function calls, tool calls, and structured output.
+
+        Args:
+            response: Provider-specific response object (type varies by provider)
+
+        Returns:
+            LLMResponse: Standardized response object with content, token usage, and metadata
+
+        Implementation Requirements:
+            1. Extract content from provider-specific response format:
+               - Handle text responses
+               - Handle function/tool call responses
+               - Handle structured output responses
+            2. Process token usage information if available
+            3. Set appropriate metadata using self._create_response_metadata()
+            4. Use self._handle_error for error cases
+            5. Use self._calculate_context_metrics for context information
+            6. Handle provider-specific response validation
+            7. Parse and validate structured output if present
+
+        Example Implementation:
+            ```python
+            async def _handle_response(self, response):
+                try:
+                    # Extract content based on response type
+                    if hasattr(response, "text"):
+                        content = response.text
+                    elif hasattr(response, "function_call"):
+                        content = response.function_call.arguments
+                    else:
+                        content = str(response)
+
+                    # Create token usage info
+                    token_usage = TokenUsage(
+                        prompt_tokens=response.usage.prompt_tokens,
+                        completion_tokens=response.usage.completion_tokens,
+                        total_tokens=response.usage.total_tokens,
+                    )
+
+                    return LLMResponse(
+                        content=content,
+                        success=True,
+                        token_usage=token_usage,
+                        context_metrics=self._calculate_context_metrics(),
+                        metadata=self._create_response_metadata(),
+                    )
+                except Exception as e:
+                    return self._handle_error(e)
+            ```
+        """
+        pass
+
     def _check_capability(self, capability_name: str, raise_error: bool = False) -> bool:
         """Check if a specific capability is supported by the model.
 
@@ -359,66 +431,105 @@ class BaseLLMInterface(BaseModel, ABC):
 
         return is_supported
 
-    def _check_model_capabilities(self, **kwargs: Any) -> Dict[str, Any]:
-        """Check if the model supports specific capabilities and filter parameters accordingly.
+    def _check_model_capabilities(
+        self,
+        strict: bool = True,
+        prompt: Optional[Union[BasePrompt, str]] = None,
+        stream: Optional[bool] = None,
+        parallel_requests: Optional[bool] = None,
+        runtime_tools: Optional[List[ToolInputType]] = None,
+        temperature: Optional[float] = None,
+    ) -> bool:
+        """Check if the model supports the capabilities required by the prompt and runtime parameters.
 
-        This method examines the provided kwargs against the model's capabilities and removes
-        parameters that are not supported by the model.
+        This method introspects the prompt and LLMState to determine required capabilities,
+        rather than requiring all parameters to be passed explicitly.
 
         Args:
-            **kwargs: Parameters to check against model capabilities
+            strict: If True, raise exceptions for missing capabilities instead of returning False
+            prompt: The prompt to check capabilities for (extracts response format and tools)
+            stream: Whether streaming is required
+            parallel_requests: Whether parallel requests are required
+            runtime_tools: Tools provided at runtime (not from prompt)
+            temperature: Whether temperature control is required
 
         Returns:
-            Filtered parameters with unsupported options removed
+            True if all required capabilities are supported, False otherwise (in non-strict mode)
+
+        Raises:
+            CapabilityError: If strict=True and any required capability is not supported
         """
         if not self.state or not getattr(self.state.profile, "capabilities", None):
-            return kwargs
+            if not strict:
+                logger.warning("No capabilities defined for model, skipping capability checks")
+                return True
+            else:
+                raise CapabilityError("No capabilities defined for model", self.state.profile.name)
 
-        filtered_kwargs = kwargs.copy()
         capabilities = self.state.profile.capabilities
+        model_name = self.state.profile.name
 
-        # Map parameters to capability flags
-        capability_param_map = {
-            "temperature": "supports_temperature",
-            "stream": "supports_streaming",
-            "tools": "supports_tools",
-            "functions": "supports_function_calling",
-            "function_call": "supports_function_calling",
-            "response_format": "supports_json_mode",
-            "frequency_penalty": "supports_frequency_penalty",
-            "presence_penalty": "supports_presence_penalty",
-            "stop": "supports_stop_sequences",
-        }
+        # Extract prompt-level capabilities requirements
+        prompt_tools = None
+        response_format = None
 
-        # Check each parameter against capabilities
-        for param, capability in capability_param_map.items():
-            if param in filtered_kwargs and not getattr(capabilities, capability, False):
-                logger.warning(
-                    f"Parameter '{param}' is not supported by model '{self.state.profile.name}' "
-                    f"(missing capability: {capability}). Parameter will be ignored."
-                )
-                filtered_kwargs.pop(param, None)
+        if prompt is not None and isinstance(prompt, BasePrompt):
+            prompt_tools = prompt.tools if hasattr(prompt, "tools") else None
+            response_format = prompt.expected_response if hasattr(prompt, "expected_response") else None
 
-        # Special handling for system messages
-        if not getattr(capabilities, "supports_system_prompt", True) and "messages" in filtered_kwargs:
-            messages = filtered_kwargs["messages"]
-            if isinstance(messages, list) and any(msg.get("role") == "system" for msg in messages):
-                logger.warning(
-                    f"System messages are not supported by model '{self.state.profile.name}'. "
-                    "System messages will be converted to user messages."
-                )
-                # Convert system messages to user messages
-                new_messages = []
-                for msg in messages:
-                    if msg.get("role") == "system":
-                        new_messages.append(
-                            {"role": "user", "content": f"System instruction: {msg.get('content', '')}"}
-                        )
-                    else:
-                        new_messages.append(msg)
-                filtered_kwargs["messages"] = new_messages
+        # Check streaming capability
+        if stream and not getattr(capabilities, "supports_streaming", False):
+            if strict:
+                raise CapabilityError("supports_streaming", model_name, "stream")
+            return False
 
-        return filtered_kwargs
+        # Check parallel requests capability
+        if parallel_requests and not getattr(capabilities, "supports_parallel_requests", False):
+            if strict:
+                raise CapabilityError("supports_parallel_requests", model_name, "parallel requests")
+            return False
+
+        # Check temperature capability
+        if temperature is not None and not getattr(capabilities, "supports_temperature", False):
+            if strict:
+                raise CapabilityError("supports_temperature", model_name, "temperature")
+            return False
+
+        # Check tools capability
+        has_tools = (prompt_tools and len(prompt_tools) > 0) or (runtime_tools and len(runtime_tools) > 0)
+        if has_tools and not getattr(capabilities, "supports_tools", False):
+            if strict:
+                tool_source = []
+                if prompt_tools:
+                    tool_source.append("prompt")
+                if runtime_tools:
+                    tool_source.append("runtime")
+
+                source_str = " and ".join(tool_source)
+                raise CapabilityError("supports_tools", model_name, f"tools from {source_str}")
+            return False
+
+        # Check structured output capability
+        if response_format and not getattr(capabilities, "supports_json_mode", False):
+            format_type = response_format.format.value if hasattr(response_format, "format") else "structured"
+            if strict:
+                raise CapabilityError("supports_json_mode", model_name, f"structured output in {format_type} format")
+            return False
+
+        # Check direct Pydantic parsing capability
+        if (
+            response_format
+            and hasattr(response_format, "pydantic_model")
+            and response_format.pydantic_model
+            and not getattr(capabilities, "supports_direct_pydantic_parse", False)
+        ):
+            # This is always a warning rather than an error because we can fall back to JSON mode
+            logger.warning(
+                f"Model '{model_name}' does not support direct Pydantic parsing. "
+                f"Falling back to JSON mode for {response_format.pydantic_model.__name__}."
+            )
+
+        return True
 
     def count_tokens(self, messages: List[Dict[str, Any]]) -> int:
         """Basic token counting."""
@@ -468,9 +579,9 @@ class BaseLLMInterface(BaseModel, ABC):
 
         Implementation Requirements:
         1. Check capabilities before using features:
-           - Use self._check_capability('supports_tools') before processing tools
-           - Use self._check_capability('supports_streaming') before enabling streaming
-           - Use self._check_capability('supports_json_mode') before using structured output
+           - Use check_tool_support() to verify tool support
+           - Use check_structured_output_support() to verify structured output support
+           - Use check_required_capabilities() to verify other capabilities
         2. Process tools in order of precedence:
            - Runtime tools (from method argument)
            - Prompt-level tools (from BasePrompt.tools)
@@ -484,24 +595,23 @@ class BaseLLMInterface(BaseModel, ABC):
         Example Implementation:
             ```python
             async def process(self, prompt, variables=None, tools=None):
-                # Check capabilities
-                supports_tools = self._check_capability('supports_tools')
+                try:
+                    # Extract prompt-level tools and response format
+                    prompt_tools = []
+                    response_format = None
+                    if isinstance(prompt, BasePrompt):
+                        prompt_tools = prompt.tools
+                        response_format = prompt.expected_response
 
-                # Process tools if supported
-                final_tools = []
-                if supports_tools:
-                    # 1. Interface-level tools (lowest precedence)
-                    final_tools.extend(self.available_tools.values())
+                    # Check capabilities
+                    self.check_tool_support(prompt_tools, tools)
+                    self.check_structured_output_support(response_format)
 
-                    # 2. Prompt-level tools (medium precedence)
-                    if isinstance(prompt, BasePrompt) and prompt.tools:
-                        prompt_tools = self._process_tools(prompt.tools)
-                        final_tools.extend(prompt_tools)
-
-                    # 3. Runtime tools (highest precedence)
-                    if tools:
-                        runtime_tools = self._process_tools(tools)
-                        final_tools.extend(runtime_tools)
+                    # Process tools if supported
+                    final_tools = []
+                    if self._check_capability('supports_tools'):
+                        # Merge tools from different sources
+                        final_tools = await self._prepare_tools(prompt_tools, tools)
 
                     # Format for provider and make API call
                     api_tools = self._format_tools_for_provider(final_tools)
@@ -515,9 +625,10 @@ class BaseLLMInterface(BaseModel, ABC):
                                 call.arguments
                             )
                             # Process tool result...
-                else:
-                    # Make API call without tools
-                    response = await self._make_api_call(prompt)
+                except CapabilityError as e:
+                    return self._handle_error(e)
+                except Exception as e:
+                    return self._handle_error(e)
 
                 return LLMResponse(...)
             ```

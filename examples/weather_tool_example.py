@@ -6,6 +6,16 @@ This example demonstrates:
 1. Using the default LLM factory to initialize LLMs
 2. Creating a prompt with a tool
 3. Executing the prompt and handling the response
+4. Using capability-based model selection to choose the most appropriate model
+
+The capability-based model selection feature allows you to:
+- Dynamically select models based on required capabilities
+- Automatically use the cheapest model that meets your requirements
+- Future-proof your code against model name changes
+- Adapt to different environments and available models
+
+In this example, we require a model that supports function calling and tools,
+which are needed for the weather tool functionality.
 
 Usage:
     python weather_tool_example.py
@@ -82,10 +92,22 @@ async def main():
     # Create an agent pool with the LLM registry
     agent_pool = AgentPool(llm_registry=registry)
 
-    # Select a model for this example
-    model_name = "gpt-3.5-turbo"  # A good default that's cost-effective
-    provider_name = "openai"
-    print(f"\nUsing model: {provider_name}/{model_name}")
+    # Select a model based on required capabilities
+    # For this example, we need function calling and tools support for the weather tool
+    # The find_cheapest_model_with_capabilities method will:
+    # 1. Find all models that support both capabilities
+    # 2. Select the cheapest one based on token costs
+    # 3. Return None if no model meets the requirements
+    required_capabilities = {"supports_function_calling", "supports_tools"}
+    model_name = registry.find_cheapest_model_with_capabilities(required_capabilities)
+
+    if not model_name:
+        print("\nError: No model found that supports the required capabilities.")
+        print("Required capabilities:", required_capabilities)
+        return
+
+    print(f"\nUsing model: {model_name}")
+    print(f"Selected based on required capabilities: {required_capabilities}")
 
     # Create a prompt with a tool and define the 'location' variable
     weather_prompt = MemoryPrompt(
@@ -126,8 +148,13 @@ async def main():
         )
 
         # Execute the prompt with the agent pool
+        # Passing required_capabilities to execute_prompt will:
+        # 1. Find a suitable model that supports these capabilities
+        # 2. Create an agent with that model
+        # 3. Use the agent to process the prompt
         response = await agent_pool.execute_prompt(
-            prompt=formatted_prompt
+            prompt=formatted_prompt,
+            required_capabilities=required_capabilities  # Pass the required capabilities
         )
 
         # Handle the response

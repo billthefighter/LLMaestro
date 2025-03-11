@@ -1,9 +1,11 @@
 """Test configuration and fixtures."""
 
 import pytest
-from pathlib import Path
+import os
 import json
-from typing import Dict, List, Set, Any, Optional, Union, AsyncIterator
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, List, Set, Optional, Any, Union, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, Mock
 from io import BytesIO
 
@@ -21,6 +23,8 @@ from llmaestro.llm.models import LLMState, LLMProfile, LLMRuntimeConfig, Provide
 from llmaestro.llm.capabilities import LLMCapabilities, ProviderCapabilities
 from llmaestro.config.base import RateLimitConfig
 import json
+from llmaestro.llm.llm_registry import LLMRegistry
+from pydantic import BaseModel, Field
 
 
 # Test constants
@@ -178,3 +182,23 @@ def llm_interface() -> BaseLLMInterface:
         )
     )
     return MockLLMInterface(state=state)
+
+def find_cheapest_model_with_capabilities(llm_registry: LLMRegistry, required_capabilities: Set[str]) -> str:
+    """Utility function to find the cheapest model with required capabilities.
+
+    Args:
+        llm_registry: The LLM registry to search in
+        required_capabilities: Set of capability flags that the model must support
+
+    Returns:
+        The name of the cheapest model that supports all required capabilities
+
+    Raises:
+        pytest.skip: If no model with the required capabilities is available
+    """
+    model_name = llm_registry.find_cheapest_model_with_capabilities(required_capabilities)
+
+    if not model_name:
+        pytest.skip(f"No model with required capabilities {required_capabilities} is available")
+
+    return model_name  # This will always be a string since we skip if it's None

@@ -140,6 +140,38 @@ class BaseCapabilityTester(ABC):
         """
         pass
 
+    @abstractmethod
+    async def _test_temperature(self, model_id: str, token_usage: Dict[str, float]) -> bool:
+        """Test if a model supports temperature parameter.
+
+        Args:
+            model_id: ID of the model to test
+            token_usage: Dictionary to track token usage
+
+        Returns:
+            True if the model supports temperature, False otherwise
+        """
+        pass
+
+    @abstractmethod
+    async def _test_direct_pydantic_parse(self, model_id: str, token_usage: Dict[str, float]) -> bool:
+        """Test if a model supports direct Pydantic parsing.
+
+        This method tests whether the model can reliably generate output that can be directly parsed
+        into a Pydantic model without additional processing. For OpenAI models, this should use the
+        beta.chat.completions.parse endpoint with a Pydantic model as the response_format parameter.
+        For other providers, this should test if the model can generate valid JSON that conforms to
+        a Pydantic model schema.
+
+        Args:
+            model_id: ID of the model to test
+            token_usage: Dictionary to track token usage
+
+        Returns:
+            True if the model supports direct Pydantic parsing, False otherwise
+        """
+        pass
+
     def is_model_deprecated(self, model_id: str) -> bool:
         """Check if a model is deprecated.
 
@@ -205,6 +237,12 @@ class BaseCapabilityTester(ABC):
 
         Returns:
             Generated code as a string
+
+        Implementation Notes:
+            - The generated code should include the model's capabilities
+            - If the model doesn't support temperature (supports_temperature=False),
+              the LLMRuntimeConfig should not include a temperature parameter
+            - The code should be formatted for inclusion in the models.py file
         """
         pass
 

@@ -291,6 +291,29 @@ class LLMDefaultFactory(BaseModel):
                                         logger.warning(f"Failed to create model {model_name}: {str(err)}")
                                         raise ValueError(f"Failed to create model {model_name}") from err
 
+                        # Case 4: Class with static methods that return LLMState objects
+                        else:
+                            # Look for static methods that return LLMState objects
+                            for method_name in dir(obj):
+                                if not method_name.startswith("_") and method_name != "get_model":
+                                    try:
+                                        method = getattr(obj, method_name)
+                                        if callable(method):
+                                            state = method()
+                                            if isinstance(state, LLMState):
+                                                # Ensure the state is valid
+                                                if not state.profile or not state.provider or not state.runtime_config:
+                                                    logger.warning(
+                                                        "Invalid LLMState for model "
+                                                        f"{state.profile.name}: missing required fields"
+                                                    )
+                                                    continue
+                                                models[state.profile.name] = state
+                                    except Exception as err:
+                                        # Skip methods that fail to execute
+                                        logger.debug(f"Skipping method {method_name}: {str(err)}")
+                                        continue
+
                     except Exception as err:
                         logger.warning(f"Failed to process class {obj_name}: {str(err)}")
                         raise ValueError(f"Failed to process class {obj_name}") from err

@@ -132,7 +132,9 @@ class LLMRuntimeConfig(PersistentModel):
     """Runtime configuration for LLM instances."""
 
     max_tokens: int = Field(default=2048, description="Maximum number of tokens to generate")
-    temperature: float = Field(default=0.7, description="Sampling temperature")
+    temperature: Optional[float] = Field(
+        default=None, description="Sampling temperature (None means use model default)"
+    )
     max_context_tokens: int = Field(default=4096, description="Maximum context window size")
     stream: bool = Field(default=False, description="Whether to stream the response")
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limiting configuration")
