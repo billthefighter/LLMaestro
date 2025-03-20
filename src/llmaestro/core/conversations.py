@@ -9,14 +9,22 @@ from llmaestro.core.persistence import PersistentModel
 
 from llmaestro.core.graph import BaseEdge, BaseGraph, BaseNode
 from llmaestro.core.models import LLMResponse, TokenUsage
-from llmaestro.prompts.base import BasePrompt
+from llmaestro.prompts.implementations import SimplePrompt
+import enum
+
+
+class ConversationNodeType(enum.Enum):
+    """Represents the type of node in the conversation graph."""
+
+    PROMPT = "prompt"
+    RESPONSE = "response"
 
 
 class ConversationNode(BaseNode):
     """Represents a single node in the conversation graph."""
 
-    content: Union[BasePrompt, LLMResponse] = Field(..., description="The prompt or response content")
-    node_type: str = Field(..., description="Type of node (prompt/response)")
+    content: Union[SimplePrompt, LLMResponse] = Field(..., description="The prompt or response content")
+    node_type: ConversationNodeType = Field(..., description="Type of node (prompt/response)")
 
     @property
     def token_usage(self) -> Optional[TokenUsage]:
@@ -32,7 +40,7 @@ class ConversationEdge(BaseEdge[ConversationNode]):
     model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
 
-class ConversationGraph(BaseGraph[ConversationNode, ConversationEdge]):
+class ConversationGraph(BaseGraph[ConversationNode, ConversationEdge, SimplePrompt]):
     """A graph-based representation of an LLM conversation."""
 
     @property
@@ -65,8 +73,11 @@ class ConversationGraph(BaseGraph[ConversationNode, ConversationEdge]):
         return TokenUsage(completion_tokens=completion, prompt_tokens=prompt, total_tokens=total)
 
     def add_conversation_node(
-        self, content: Union[BasePrompt, LLMResponse], node_type: str, metadata: Optional[Dict[str, Any]] = None
-    ) -> str:
+        self,
+        content: Union[SimplePrompt, LLMResponse],
+        node_type: ConversationNodeType,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ConversationNode:
         """Add a new node to the conversation graph."""
         node = ConversationNode(content=content, node_type=node_type, metadata=metadata or {})
         return self.add_node(node)
@@ -115,26 +126,24 @@ class ConversationContext(PersistentModel):
     graph: ConversationGraph = Field(
         default_factory=lambda: ConversationGraph(id=str(uuid4())), description="The underlying conversation graph"
     )
-    current_message: Optional[str] = Field(default=None, description="ID of the current node being processed")
+    current_message: Optional[ConversationNode] = Field(default=None, description="Current node being processed")
     max_nodes: Optional[int] = Field(
         default=None, description="Maximum number of nodes before auto-pruning. None means no auto-pruning."
     )
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
     @property
     def current_node(self) -> Optional[ConversationNode]:
         """Get the current conversation node."""
-        if self.current_message:
-            return self.graph.nodes.get(self.current_message)
-        return None
+        return self.current_message
 
     @property
     def messages(self) -> List[ConversationNode]:
         """Get the history of nodes leading to the current node."""
         if not self.current_message:
             return []
-        return self.graph.get_node_history(self.current_message)
+        return self.graph.get_node_history(self.current_message.id)
 
     @property
     def message_count(self) -> int:
@@ -142,14 +151,14 @@ class ConversationContext(PersistentModel):
         return len(self.messages)
 
     @property
-    def initial_task(self) -> Optional[BasePrompt]:
+    def initial_task(self) -> Optional[SimplePrompt]:
         """Get the root prompt that started this conversation."""
         if not self.messages:
             return None
 
         # Find the first prompt node
         for node in reversed(self.messages):
-            if node.node_type == "prompt" and isinstance(node.content, BasePrompt):
+            if node.node_type == "prompt" and isinstance(node.content, SimplePrompt):
                 return node.content
         return None
 
@@ -183,32 +192,33 @@ class ConversationContext(PersistentModel):
         return TokenUsage(completion_tokens=completion, prompt_tokens=prompt, total_tokens=total)
 
     def add_node(
-        self, content: Union[BasePrompt, LLMResponse], node_type: str, metadata: Optional[Dict[str, Any]] = None
-    ) -> str:
+        self,
+        content: Union[SimplePrompt, LLMResponse],
+        node_type: ConversationNodeType,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ConversationNode:
         """Add a new node to the conversation graph and optionally set it as current."""
         # Add the node
-        node_id = self.graph.add_conversation_node(content, node_type, metadata)
-        node = self.graph.nodes[node_id]
+        node = self.graph.add_conversation_node(content, node_type, metadata)
 
         # If this is the first node, set it as current
         if not self.current_message:
-            self.current_message = node_id
+            self.current_message = node
         # Add edge from current message if it exists
-        elif self.current_message != node_id:
-            current_node = self.graph.nodes[self.current_message]
-            self.graph.connect(current_node, node, edge_type="next")
+        elif self.current_message.id != node.id:
+            self.graph.connect(self.current_message, node, edge_type="next")
 
         # Auto-prune if max_nodes is set
         if self.max_nodes and len(self.graph.nodes) > self.max_nodes:
             self.graph.prune_nodes(max_nodes=self.max_nodes)
 
-        return node_id
+        return node
 
-    def set_node(self, node_id: str) -> None:
-        """Set the current message to a specific node ID."""
-        if node_id not in self.graph.nodes:
-            raise ValueError(f"Node {node_id} not found in conversation graph")
-        self.current_message = node_id
+    def set_node(self, node: ConversationNode) -> None:
+        """Set the current message to a specific node."""
+        if node.id not in self.graph.nodes:
+            raise ValueError(f"Node {node.id} not found in conversation graph")
+        self.current_message = node
 
 
 def get_detailed_conversation_dump(conversation: ConversationGraph) -> Dict[str, Any]:

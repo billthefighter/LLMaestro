@@ -94,12 +94,12 @@ class BaseGraph(PersistentModel, Generic[NodeType, EdgeType, PromptType]):
 
         return self.prompt_type(**kwargs)
 
-    def add_node(self, node: NodeType) -> str:
+    def add_node(self, node: NodeType) -> NodeType:
         """Add a node to the graph."""
         node_id = str(node.id)
         self.nodes[node_id] = node
         self.updated_at = datetime.now()
-        return node_id
+        return node
 
     def add_edge(self, edge: EdgeType) -> None:
         """Add an edge to the graph."""

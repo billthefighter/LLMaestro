@@ -7,9 +7,9 @@ from uuid import uuid4
 
 from llmaestro.core.persistence import PersistentModel
 
-from llmaestro.core.conversations import ConversationGraph, ConversationNode
+from llmaestro.core.conversations import ConversationGraph, ConversationNode, ConversationNodeType
 from llmaestro.core.models import LLMResponse
-from llmaestro.prompts.base import BasePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 
 if TYPE_CHECKING:
     from llmaestro.agents.agent_pool import AgentPool
@@ -145,14 +145,16 @@ class Orchestrator:
         return self.active_conversations.get(self.active_conversation_id)
 
     async def create_conversation(
-        self, name: str, initial_prompt: BasePrompt, metadata: Optional[Dict[str, Any]] = None
+        self, name: str, initial_prompt: SimplePrompt, metadata: Optional[Dict[str, Any]] = None
     ) -> ConversationGraph:
         """Create a new conversation with an initial prompt."""
         conversation = ConversationGraph(id=str(uuid4()), metadata={"name": name, **(metadata or {})})
 
         # Add initial prompt node
         node_id = conversation.add_conversation_node(
-            content=initial_prompt, node_type="prompt", metadata={"execution": ExecutionMetadata().model_dump()}
+            content=initial_prompt,
+            node_type=ConversationNodeType.PROMPT,
+            metadata={"execution": ExecutionMetadata().model_dump()},
         )
 
         self.active_conversations[conversation.id] = conversation
@@ -164,7 +166,7 @@ class Orchestrator:
 
         return conversation
 
-    async def execute_prompt_in_active(self, prompt: BasePrompt, dependencies: Optional[List[str]] = None) -> str:
+    async def execute_prompt_in_active(self, prompt: SimplePrompt, dependencies: Optional[List[str]] = None) -> str:
         """Execute prompt in active conversation with built-in validation."""
         conversation = self._get_conversation()
         return await self.execute_prompt(conversation.id, prompt, dependencies)
@@ -172,7 +174,7 @@ class Orchestrator:
     async def execute_prompt(
         self,
         conversation: Union[str, ConversationGraph, ConversationNode],
-        prompt: BasePrompt,
+        prompt: SimplePrompt,
         dependencies: Optional[List[str]] = None,
         parallel_group: Optional[str] = None,
     ) -> str:
@@ -186,7 +188,7 @@ class Orchestrator:
 
         # Add prompt node
         prompt_node_id = conversation.add_conversation_node(
-            content=prompt, node_type="prompt", metadata={"execution": exec_metadata.model_dump()}
+            content=prompt, node_type=ConversationNodeType.PROMPT, metadata={"execution": exec_metadata.model_dump()}
         )
         await self._notify_node_added(conversation.id, prompt_node_id)
 
@@ -210,7 +212,7 @@ class Orchestrator:
             # Add response node
             response_node_id = conversation.add_conversation_node(
                 content=response,
-                node_type="response",
+                node_type=ConversationNodeType.RESPONSE,
                 metadata={
                     "execution": ExecutionMetadata(
                         status="completed", started_at=datetime.now(), completed_at=datetime.now()
@@ -242,7 +244,7 @@ class Orchestrator:
             raise
 
     async def execute_parallel_in_active(
-        self, prompts: List[BasePrompt], max_parallel: Optional[int] = None
+        self, prompts: List[SimplePrompt], max_parallel: Optional[int] = None
     ) -> List[str]:
         """Execute multiple prompts in parallel in active conversation."""
         conversation = self._get_conversation()
@@ -251,7 +253,7 @@ class Orchestrator:
     async def execute_parallel(
         self,
         conversation: Union[str, ConversationGraph, ConversationNode],
-        prompts: List[BasePrompt],
+        prompts: List[SimplePrompt],
         max_parallel: Optional[int] = None,
     ) -> List[str]:
         """Execute multiple prompts in parallel."""
@@ -322,8 +324,8 @@ class Orchestrator:
 
     def add_node_to_conversation(
         self,
-        content: Union[BasePrompt, LLMResponse],
-        node_type: str,
+        content: Union[SimplePrompt, LLMResponse],
+        node_type: ConversationNodeType,
         metadata: Optional[Dict[str, Any]] = None,
         parent_id: Optional[str] = None,
         conversation: Optional[Union[str, ConversationGraph, ConversationNode]] = None,
