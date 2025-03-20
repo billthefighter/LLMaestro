@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
 from llmaestro.default_library.defined_providers.openai.interface import OpenAIInterface

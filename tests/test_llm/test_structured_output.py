@@ -4,7 +4,7 @@ import json
 import pytest
 from typing import List, Optional
 from pydantic import BaseModel, field_validator
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormatType
 from llmaestro.llm.llm_registry import LLMRegistry

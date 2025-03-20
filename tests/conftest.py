@@ -17,7 +17,7 @@ from llmaestro.llm.models import (
 )
 from llmaestro.llm.capabilities import RangeConfig
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.base import PromptVariable, SerializableType
 from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.llm.credentials import APIKey

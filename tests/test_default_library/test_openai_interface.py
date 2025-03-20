@@ -30,7 +30,7 @@ from llmaestro.prompts.types import (
     PromptMetadata,
 )
 from llmaestro.llm.enums import MediaType
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.core.attachments import FileAttachment
 from llmaestro.llm.responses import ResponseFormatType
 from llmaestro.llm.responses import ResponseFormat

@@ -11,7 +11,7 @@ import asyncio
 from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.prompts.base import PromptVariable
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.prompts.types import SerializableType
 
@@ -326,7 +326,7 @@ Tools can be attached to prompts, allowing LLMs to decide when and how to call t
 
 ```python
 from llmaestro.prompts.base import PromptVariable
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.prompts.types import SerializableType
 

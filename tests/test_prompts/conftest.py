@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType, VersionedPrompt
 from llmaestro.prompts.types import PromptMetadata, VersionInfo
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.llm.responses import ResponseFormat
 
 @pytest.fixture

@@ -10,7 +10,7 @@ from llmaestro.core.graph import BaseEdge, BaseGraph, BaseNode
 from llmaestro.core.models import LLMResponse
 from llmaestro.core.persistence import PersistentModel
 from llmaestro.prompts.base import BasePrompt
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormat
 from pydantic import ConfigDict, Field
@@ -275,7 +275,7 @@ class ValidationNode(ChainNode):
             to instantiate. If no valid prompt_type is provided, it will use SimplePrompt.
         """
         # Import our concrete prompt implementation
-        from llmaestro.prompts.memory import SimplePrompt
+        from llmaestro.prompts.implementations import SimplePrompt
 
         # Use the provided prompt_type if valid (not None and not the abstract BasePrompt)
         concrete_type = prompt_type if (prompt_type and prompt_type is not BasePrompt) else SimplePrompt

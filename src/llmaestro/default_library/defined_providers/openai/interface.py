@@ -19,7 +19,7 @@ from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.llm.interfaces.base import BaseLLMInterface, ToolInputType, ProcessedToolType
 from llmaestro.core.attachments import BaseAttachment, AttachmentConverter, FileAttachment
 from llmaestro.prompts.base import BasePrompt
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormatType, ResponseFormat, StructuredOutputConfig
 

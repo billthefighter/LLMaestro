@@ -256,7 +256,7 @@ async def create_tool_call_example(
 # from llmaestro.core.orchestrator import Orchestrator
 # from llmaestro.agents.agent_pool import AgentPool
 # from llmaestro.prompts.base import BasePrompt
-# from llmaestro.prompts.memory import SimplePrompt
+# from llmaestro.prompts.implementations import SimplePrompt
 # from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
 #
 # # Create orchestrator and agent pool

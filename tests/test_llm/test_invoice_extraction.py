@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 from typing import cast, Dict, Any
 from llmaestro.core.attachments import FileAttachment, BaseAttachment
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics

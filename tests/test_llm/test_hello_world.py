@@ -4,7 +4,7 @@ from typing import Dict, Any
 
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
 

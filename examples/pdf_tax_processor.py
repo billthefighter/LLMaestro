@@ -17,7 +17,7 @@ from pdf2image.exceptions import PDFPageCountError
 from llmaestro.core.attachments import FileAttachment
 from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
 from llmaestro.llm.enums import MediaType
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.llm_registry import LLMRegistry, LLMInstance
 from llmaestro.core.models import LLMResponse

@@ -15,7 +15,7 @@ from llmaestro.visualization.cytoscape_renderer import CytoscapeRenderer, Cytosc
 from llmaestro.llm.credentials import APIKey
 from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.visualization.base_visualizer import BaseVisualizer, CytoscapeNode, CytoscapeEdge, CytoscapeGraph
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.core.models import LLMResponse
 from llmaestro.core.orchestrator import Orchestrator

@@ -8,7 +8,7 @@ from llmaestro.session.session import Session
 from llmaestro.core.models import BaseResponse, LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.core.storage import Artifact, FileSystemArtifactStorage
 from llmaestro.prompts.base import BasePrompt, FileAttachment
-from llmaestro.prompts.memory import SimplePrompt
+from llmaestro.prompts.implementations import SimplePrompt
 from llmaestro.llm.models import LLMProfile, LLMCapabilities
 from llmaestro.prompts.types import PromptMetadata, VersionInfo
 from llmaestro.llm.responses import ResponseFormat
