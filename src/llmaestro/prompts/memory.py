@@ -4,7 +4,7 @@ from typing import Optional
 from llmaestro.prompts.base import BasePrompt
 
 
-class MemoryPrompt(BasePrompt):
+class SimplePrompt(BasePrompt):
     """A non-persistent prompt implementation that exists only in memory.
 
     This implementation is useful for temporary prompts or testing scenarios
@@ -21,13 +21,13 @@ class MemoryPrompt(BasePrompt):
         return True
 
     @classmethod
-    async def load(cls, identifier: str) -> Optional["MemoryPrompt"]:
+    async def load(cls, identifier: str) -> Optional["SimplePrompt"]:
         """No-op load implementation.
 
         Args:
             identifier: Unused identifier string
 
         Returns:
-            Optional[MemoryPrompt]: Always returns None since this is a memory-only implementation
+            Optional[SimplePrompt]: Always returns None since this is a memory-only implementation
         """
         return None

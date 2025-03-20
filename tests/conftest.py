@@ -17,7 +17,7 @@ from llmaestro.llm.models import (
 )
 from llmaestro.llm.capabilities import RangeConfig
 from llmaestro.llm.llm_registry import LLMRegistry
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.base import PromptVariable, SerializableType
 from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.llm.credentials import APIKey
@@ -150,11 +150,11 @@ def sample_variables() -> List[PromptVariable]:
 
 
 @pytest.fixture
-def base_prompt(sample_variables) -> MemoryPrompt:
+def base_prompt(sample_variables) -> SimplePrompt:
     """Create a base prompt for testing."""
     print(f"In base_prompt, sample_variables type: {type(sample_variables)}")  # Debug print
     print(f"In base_prompt, sample_variables content: {sample_variables}")  # Debug print
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="test_prompt",
         description="Test prompt",
         system_prompt="You are a test assistant. Context: {context}",

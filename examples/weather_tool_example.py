@@ -32,7 +32,7 @@ from typing import Dict, Any, Optional
 from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.llm.credentials import APIKey
 from llmaestro.llm.llm_registry import LLMRegistry
@@ -110,7 +110,7 @@ async def main():
     print(f"Selected based on required capabilities: {required_capabilities}")
 
     # Create a prompt with a tool and define the 'location' variable
-    weather_prompt = MemoryPrompt(
+    weather_prompt = SimplePrompt(
         name="weather_query",
         description="Query weather information using tools",
         system_prompt="You are a helpful weather assistant. Use the provided tools to get weather information.",
@@ -139,7 +139,7 @@ async def main():
         system_prompt, user_prompt, _, tools = weather_prompt.render(location=location)
 
         # Create a new prompt with the rendered content
-        formatted_prompt = MemoryPrompt(
+        formatted_prompt = SimplePrompt(
             name=weather_prompt.name,
             description=weather_prompt.description,
             system_prompt=system_prompt,

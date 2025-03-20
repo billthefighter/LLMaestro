@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
 from llmaestro.default_library.defined_providers.openai.interface import OpenAIInterface
@@ -30,7 +30,7 @@ def get_weather():
 @pytest.fixture
 async def openai_prompt(get_weather) -> BasePrompt:
     """Create a prompt for testing OpenAI tool usage."""
-    return MemoryPrompt(
+    return SimplePrompt(
         name="weather_query",
         description="Query weather information using tools",
         system_prompt="You are a weather assistant.",
@@ -113,7 +113,7 @@ async def test_tool_call_response_handling(test_settings, llm_registry: LLMRegis
         raise ValueError(f"Unsupported operation: {operation}")
 
     # Create a prompt with the calculator tool
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="calculator",
         description="Test calculator tool",
         system_prompt="You are a calculator assistant.",
@@ -200,7 +200,7 @@ async def test_openai_token_parameter_failover(test_settings, llm_registry: LLMR
         pytest.skip("Skipping test that requires LLM API tokens")
 
     # Create a prompt with parameters that might not be supported
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="token_test",
         description="Test token parameter handling",
         system_prompt="You are a helpful assistant.",

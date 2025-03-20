@@ -4,7 +4,7 @@ import json
 import pytest
 from typing import List, Optional
 from pydantic import BaseModel, field_validator
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormatType
 from llmaestro.llm.llm_registry import LLMRegistry
@@ -40,9 +40,9 @@ class NestedStructure(BaseModel):
 
 
 @pytest.fixture
-def person_prompt() -> MemoryPrompt:
+def person_prompt() -> SimplePrompt:
     """Create a prompt for testing simple structured output."""
-    return MemoryPrompt(
+    return SimplePrompt(
         name="person_extractor",
         description="Extract person information",
         system_prompt="""You are an expert at extracting structured information about people.
@@ -62,9 +62,9 @@ Make sure to include all required fields and validate against the provided schem
 
 
 @pytest.fixture
-def nested_prompt() -> MemoryPrompt:
+def nested_prompt() -> SimplePrompt:
     """Create a prompt for testing nested structured output."""
-    return MemoryPrompt(
+    return SimplePrompt(
         name="team_extractor",
         description="Extract team information with nested person objects",
         system_prompt="""You are an expert at extracting structured information about teams and their members.
@@ -104,7 +104,7 @@ def schema():
 @pytest.fixture
 def test_prompt(schema):
     """Test prompt fixture."""
-    return MemoryPrompt(
+    return SimplePrompt(
         name="schema_test",
         description="Test direct schema validation",
         system_prompt="You are a helpful assistant that provides structured data.",
@@ -128,7 +128,7 @@ def mock_chat_completion():
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_simple_structured_output(test_settings, llm_registry: LLMRegistry, person_prompt: MemoryPrompt):
+async def test_simple_structured_output(test_settings, llm_registry: LLMRegistry, person_prompt: SimplePrompt):
     """Test simple structured output with a Person model."""
     if not test_settings.use_real_tokens:
         pytest.skip("Skipping test that requires LLM API tokens")
@@ -163,7 +163,7 @@ async def test_simple_structured_output(test_settings, llm_registry: LLMRegistry
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_nested_structured_output(test_settings, llm_registry: LLMRegistry, nested_prompt: MemoryPrompt):
+async def test_nested_structured_output(test_settings, llm_registry: LLMRegistry, nested_prompt: SimplePrompt):
     """Test nested structured output with a NestedStructure model."""
     if not test_settings.use_real_tokens:
         pytest.skip("Skipping test that requires LLM API tokens")
@@ -293,7 +293,7 @@ async def test_pydantic_model_direct_parse(test_settings, llm_registry: LLMRegis
     llm_instance = await llm_registry.create_instance(model_name)
 
     # Create a simple prompt that expects a Person response
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="person_direct",
         description="Create a person profile",
         system_prompt="Create a profile for a fictional person.",
@@ -342,7 +342,7 @@ async def test_nested_pydantic_model_direct_parse(test_settings, llm_registry: L
     llm_instance = await llm_registry.create_instance(model_name)
 
     # Create a prompt that expects a NestedStructure response
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="team_direct",
         description="Create a development team profile",
         system_prompt="""Create a profile for a software development team.
@@ -400,7 +400,7 @@ async def test_pydantic_model_validation_error_handling(test_settings, llm_regis
     llm_instance = await llm_registry.create_instance(model_name)
 
     # Create a prompt that's likely to generate invalid data
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="person_invalid",
         description="Create an invalid person profile",
         system_prompt="Create a profile for a person, but make some fields invalid.",

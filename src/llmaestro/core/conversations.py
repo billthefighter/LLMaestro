@@ -26,10 +26,10 @@ class ConversationNode(BaseNode):
         return None
 
 
-class ConversationEdge(BaseEdge):
+class ConversationEdge(BaseEdge[ConversationNode]):
     """Represents a directed edge between conversation nodes."""
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
 
 class ConversationGraph(BaseGraph[ConversationNode, ConversationEdge]):
@@ -71,11 +71,23 @@ class ConversationGraph(BaseGraph[ConversationNode, ConversationEdge]):
         node = ConversationNode(content=content, node_type=node_type, metadata=metadata or {})
         return self.add_node(node)
 
+    def create_edge(
+        self,
+        source: ConversationNode,
+        target: ConversationNode,
+        edge_type: str,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> ConversationEdge:
+        """Create a new conversation edge."""
+        return ConversationEdge(source=source, target=target, edge_type=edge_type, metadata=metadata or {})
+
     def add_conversation_edge(
         self, source_id: str, target_id: str, edge_type: str, metadata: Optional[Dict[str, Any]] = None
     ) -> None:
         """Add a new edge between nodes in the conversation graph."""
-        edge = ConversationEdge(source_id=source_id, target_id=target_id, edge_type=edge_type, metadata=metadata or {})
+        source = self.nodes[source_id]
+        target = self.nodes[target_id]
+        edge = self.create_edge(source, target, edge_type, metadata or {})
         self.add_edge(edge)
 
     def get_conversation_summary(self) -> Dict[str, Any]:
@@ -109,6 +121,13 @@ class ConversationContext(PersistentModel):
     )
 
     model_config = ConfigDict(validate_assignment=True)
+
+    @property
+    def current_node(self) -> Optional[ConversationNode]:
+        """Get the current conversation node."""
+        if self.current_message:
+            return self.graph.nodes.get(self.current_message)
+        return None
 
     @property
     def messages(self) -> List[ConversationNode]:
@@ -169,14 +188,15 @@ class ConversationContext(PersistentModel):
         """Add a new node to the conversation graph and optionally set it as current."""
         # Add the node
         node_id = self.graph.add_conversation_node(content, node_type, metadata)
+        node = self.graph.nodes[node_id]
 
         # If this is the first node, set it as current
         if not self.current_message:
             self.current_message = node_id
-
         # Add edge from current message if it exists
-        if self.current_message and self.current_message != node_id:
-            self.graph.add_conversation_edge(source_id=self.current_message, target_id=node_id, edge_type="next")
+        elif self.current_message != node_id:
+            current_node = self.graph.nodes[self.current_message]
+            self.graph.connect(current_node, node, edge_type="next")
 
         # Auto-prune if max_nodes is set
         if self.max_nodes and len(self.graph.nodes) > self.max_nodes:

@@ -2,7 +2,7 @@
 
 import asyncio
 from enum import Enum
-from typing import Any, Callable, Dict, Generic, Optional, Protocol, Set, Tuple, TypeVar, cast, List
+from typing import Any, Callable, Dict, Generic, Optional, Protocol, Set, Tuple, TypeVar, cast, List, Type
 from uuid import uuid4
 
 from llmaestro.agents.agent_pool import AgentPool
@@ -10,6 +10,7 @@ from llmaestro.core.graph import BaseEdge, BaseGraph, BaseNode
 from llmaestro.core.models import LLMResponse
 from llmaestro.core.persistence import PersistentModel
 from llmaestro.prompts.base import BasePrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormat
 from pydantic import ConfigDict, Field
@@ -131,7 +132,7 @@ class ChainStep(PersistentModel, Generic[T]):
         if self.input_transform:
             transformed_data = self.input_transform(context, kwargs)
             # Update prompt with transformed data
-            self.prompt = BasePrompt(
+            self.prompt = SimplePrompt(
                 name=self.prompt.name,
                 description=self.prompt.description,
                 system_prompt=self.prompt.system_prompt.format(**transformed_data),
@@ -159,13 +160,13 @@ class ChainNode(BaseNode):
     model_config = ConfigDict(validate_assignment=True)
 
 
-class ChainEdge(BaseEdge):
+class ChainEdge(BaseEdge[ChainNode]):
     """Represents a directed edge between chain nodes."""
 
     id: str = Field(default_factory=lambda: str(uuid4()), description="Unique identifier for the edge")
     condition: Optional[str] = Field(default=None, description="Optional condition for edge traversal")
 
-    model_config = ConfigDict(validate_assignment=True)
+    model_config = ConfigDict(validate_assignment=True, arbitrary_types_allowed=True)
 
 
 class ChainExecutor:
@@ -197,16 +198,30 @@ class ValidationNode(ChainNode):
         response_format: ResponseFormat,
         retry_strategy: Optional[RetryStrategy] = None,
         error_handler: Optional[Callable[[ValidationResult], Dict[str, Any]]] = None,
+        prompt_type: Optional[Type[BasePrompt]] = None,
     ):
-        super().__init__(
-            node_type=NodeType.VALIDATION,
-            step=ChainStep(
-                prompt=self._create_retry_prompt(),
-                retry_strategy=retry_strategy or RetryStrategy(),
-            ),
-        )
+        """Initialize a validation node.
+
+        Args:
+            response_format: Format specification for validating responses
+            retry_strategy: Configuration for retry behavior
+            error_handler: Optional handler for validation errors
+            prompt_type: The prompt type to use (must inherit from BasePrompt)
+        """
+        # Set response_format first since _create_retry_prompt needs it
         self.response_format = response_format
         self.error_handler = error_handler
+
+        # Create step with appropriate prompt type
+        step = ChainStep(
+            prompt=self._create_retry_prompt(prompt_type),
+            retry_strategy=retry_strategy or RetryStrategy(),
+        )
+
+        super().__init__(
+            node_type=NodeType.VALIDATION,
+            step=step,
+        )
 
     async def validate_and_retry(
         self,
@@ -246,9 +261,26 @@ class ValidationNode(ChainNode):
         # Validate retry response
         return await self.validate_and_retry(retry_response, agent_pool, context)
 
-    def _create_retry_prompt(self) -> BasePrompt:
-        """Create a prompt for retry attempts."""
-        return BasePrompt(
+    def _create_retry_prompt(self, prompt_type: Optional[Type[BasePrompt]]) -> BasePrompt:
+        """Create a prompt for retry attempts using the specified prompt type.
+
+        Args:
+            prompt_type: The prompt type to instantiate
+
+        Returns:
+            A prompt of the specified type
+
+        Note:
+            Since BasePrompt is an abstract class, this method needs a concrete implementation
+            to instantiate. If no valid prompt_type is provided, it will use SimplePrompt.
+        """
+        # Import our concrete prompt implementation
+        from llmaestro.prompts.memory import SimplePrompt
+
+        # Use the provided prompt_type if valid (not None and not the abstract BasePrompt)
+        concrete_type = prompt_type if (prompt_type and prompt_type is not BasePrompt) else SimplePrompt
+
+        return concrete_type(
             name="validation_retry",
             description="Retry prompt for invalid responses",
             system_prompt=(
@@ -281,7 +313,7 @@ class ConditionalNode(ChainNode):
         super().__init__(
             id=id or str(uuid4()),
             step=ChainStep(
-                prompt=BasePrompt(
+                prompt=SimplePrompt(
                     name="conditional_node",
                     description="Evaluates conditions to determine execution path",
                     system_prompt="",
@@ -334,7 +366,7 @@ class DynamicPromptNode(ChainNode):
         variables = self.transform_func(dependency_results)
 
         # Update the prompt with the variables
-        updated_prompt = BasePrompt(
+        updated_prompt = SimplePrompt(
             name=self.step.prompt.name,
             description=self.step.prompt.description,
             system_prompt=self.step.prompt.system_prompt,
@@ -347,7 +379,7 @@ class DynamicPromptNode(ChainNode):
         return await agent_pool.execute_prompt(updated_prompt)
 
 
-class ChainGraph(BaseGraph[ChainNode, ChainEdge]):
+class ChainGraph(BaseGraph[ChainNode, ChainEdge, BasePrompt]):
     """A graph-based representation of an LLM chain."""
 
     context: ChainContext = Field(default_factory=ChainContext)
@@ -366,6 +398,19 @@ class ChainGraph(BaseGraph[ChainNode, ChainEdge]):
         # Verify the graph is acyclic by default if specified
         if should_verify and self.nodes and self.edges:
             self.verify_acyclic_graph()
+
+    def create_edge(
+        self,
+        source: ChainNode,
+        target: ChainNode,
+        edge_type: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        condition: Optional[str] = None,
+    ) -> ChainEdge:
+        """Create a new chain edge."""
+        return ChainEdge(
+            source=source, target=target, edge_type=edge_type, metadata=metadata or {}, condition=condition
+        )
 
     def verify_acyclic_graph(self) -> None:
         """Verify that the graph is acyclic (contains no cycles).
@@ -474,7 +519,7 @@ class ChainGraph(BaseGraph[ChainNode, ChainEdge]):
                 continue
 
             # Check if dependencies are satisfied
-            dependencies = self.get_node_dependencies(node_id)
+            dependencies = [edge.source_id for edge in self.edges if edge.target_id == node_id]
             if not all(dep_id in executed_nodes for dep_id in dependencies):
                 # Put back in queue if dependencies not met
                 execution_queue.append(node_id)

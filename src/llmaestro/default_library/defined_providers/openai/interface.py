@@ -19,7 +19,7 @@ from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.llm.interfaces.base import BaseLLMInterface, ToolInputType, ProcessedToolType
 from llmaestro.core.attachments import BaseAttachment, AttachmentConverter, FileAttachment
 from llmaestro.prompts.base import BasePrompt
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormatType, ResponseFormat, StructuredOutputConfig
 
@@ -110,9 +110,9 @@ class OpenAIInterface(BaseLLMInterface):
         - processed_tools: Processed tools from the prompt
         - response_format: Response format configuration
         """
-        # Convert string prompt to MemoryPrompt if needed
+        # Convert string prompt to SimplePrompt if needed
         if isinstance(prompt, str):
-            prompt = MemoryPrompt(
+            prompt = SimplePrompt(
                 name="direct_prompt",
                 description="Direct string prompt",
                 system_prompt="",

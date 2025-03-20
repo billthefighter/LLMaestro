@@ -4,15 +4,15 @@ from typing import Dict, Any
 
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
 
 
 @pytest.fixture
-async def hello_world_prompt() -> MemoryPrompt:
+async def hello_world_prompt() -> SimplePrompt:
     """Create a simple hello world prompt for testing."""
-    return MemoryPrompt(
+    return SimplePrompt(
         name="hello_world",
         description="Simple hello world test prompt",
         system_prompt="You are a helpful AI assistant.",
@@ -28,7 +28,7 @@ async def hello_world_prompt() -> MemoryPrompt:
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_basic_llm_response(test_settings, llm_registry: LLMRegistry, hello_world_prompt: MemoryPrompt):
+async def test_basic_llm_response(test_settings, llm_registry: LLMRegistry, hello_world_prompt: SimplePrompt):
     """Test that we can get a basic response from the LLM."""
     if not test_settings.use_real_tokens:
         pytest.skip("Skipping test that requires LLM API tokens")
@@ -49,7 +49,7 @@ async def test_basic_llm_response(test_settings, llm_registry: LLMRegistry, hell
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_llm_streaming_response(test_settings, llm_registry: LLMRegistry, hello_world_prompt: MemoryPrompt):
+async def test_llm_streaming_response(test_settings, llm_registry: LLMRegistry, hello_world_prompt: SimplePrompt):
     """Test that we can stream responses from the LLM."""
     if not test_settings.use_real_tokens:
         pytest.skip("Skipping test that requires LLM API tokens")
@@ -106,7 +106,7 @@ async def test_llm_with_variables(test_settings, llm_registry: LLMRegistry):
     model_name = llm_registry.get_registered_models()[0]
     llm_instance = await llm_registry.create_instance(model_name)
 
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="greeting",
         description="Test prompt with variables",
         system_prompt="You are a friendly assistant.",

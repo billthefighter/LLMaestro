@@ -6,7 +6,7 @@ from typing import Dict, List
 
 from llmaestro.prompts.base import BasePrompt, PromptVariable, VersionedPrompt
 from llmaestro.prompts.types import PromptMetadata, VersionInfo
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.llm.responses import ResponseFormat
 
 def test_version_info_fixture(version_info: VersionInfo):
@@ -40,10 +40,10 @@ def test_sample_variable_values_fixture(sample_variable_values: Dict):
     assert isinstance(sample_variable_values, dict)
 
 
-def test_base_prompt_fixture(base_prompt: MemoryPrompt):
+def test_base_prompt_fixture(base_prompt: SimplePrompt):
     """Test that base_prompt fixture instantiates without error."""
     assert base_prompt is not None
-    assert isinstance(base_prompt, MemoryPrompt)
+    assert isinstance(base_prompt, SimplePrompt)
 
 
 def test_versioned_prompt_fixture(versioned_prompt: VersionedPrompt):

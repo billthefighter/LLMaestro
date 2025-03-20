@@ -1,9 +1,9 @@
 """Base classes for prompts."""
 import re
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union, TypeVar
 
 from llmaestro.llm.enums import MediaType
 from llmaestro.prompts.mixins import VersionMixin
@@ -75,11 +75,13 @@ class PromptVariable(PersistentModel):
         return self.string_conversion_template(value)
 
 
-class BasePrompt(BaseModel):
-    """Base class for all prompts.
+ContentType = TypeVar("ContentType")
 
-    This class handles the core prompt functionality without version control.
-    For versioning support, use VersionedPrompt instead.
+
+class BasePrompt(BaseModel, ABC):
+    """Base class for all prompts with generic type support.
+
+    This allows type-specialization based on the content type of the prompt.
     """
 
     name: str

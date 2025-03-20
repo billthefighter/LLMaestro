@@ -30,7 +30,7 @@ from llmaestro.prompts.types import (
     PromptMetadata,
 )
 from llmaestro.llm.enums import MediaType
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.core.attachments import FileAttachment
 from llmaestro.llm.responses import ResponseFormatType
 from llmaestro.llm.responses import ResponseFormat
@@ -38,7 +38,7 @@ from llmaestro.llm.responses import ResponseFormat
 @pytest.fixture
 def test_prompt() -> BasePrompt:
     """Create a test prompt instance with variables."""
-    return MemoryPrompt(
+    return SimplePrompt(
         name="test_prompt",
         description="Test prompt",
         system_prompt="You are helping {role} with {task}",
@@ -406,7 +406,7 @@ async def test_file_handling(openai_interface: OpenAIInterface, mock_openai_resp
     )
 
     # Create a prompt with the file attachment
-    test_prompt = MemoryPrompt(
+    test_prompt = SimplePrompt(
         name="test_prompt",
         description="Test prompt with file",
         system_prompt="Process this file",

@@ -4,7 +4,7 @@ from typing import Dict, List, Optional
 
 from llmaestro.prompts.base import BasePrompt, PromptVariable, SerializableType, VersionedPrompt
 from llmaestro.prompts.types import PromptMetadata, VersionInfo
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.llm.responses import ResponseFormat
 
 @pytest.fixture
@@ -109,11 +109,11 @@ def sample_variable_values() -> Dict:
 
 
 @pytest.fixture
-def base_prompt(valid_prompt_data: Dict, sample_variables: List[PromptVariable]) -> MemoryPrompt:
+def base_prompt(valid_prompt_data: Dict, sample_variables: List[PromptVariable]) -> SimplePrompt:
     """Test prompt without versioning."""
     data = valid_prompt_data.copy()
     data["variables"] = sample_variables
-    return MemoryPrompt(**data)
+    return SimplePrompt(**data)
 
 
 @pytest.fixture
@@ -133,7 +133,7 @@ def versioned_prompt(valid_versioned_prompt_data: Dict, sample_variables: List[P
 
 
 @pytest.fixture
-def variables_model(base_prompt: MemoryPrompt):
+def variables_model(base_prompt: SimplePrompt):
     """Get the variables model for the test prompt."""
     return base_prompt.get_variables_model()
 

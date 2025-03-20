@@ -17,7 +17,7 @@ from pdf2image.exceptions import PDFPageCountError
 from llmaestro.core.attachments import FileAttachment
 from llmaestro.llm.responses import ResponseFormat, ResponseFormatType
 from llmaestro.llm.enums import MediaType
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.llm_registry import LLMRegistry, LLMInstance
 from llmaestro.core.models import LLMResponse
@@ -274,7 +274,7 @@ class PDFTaxProcessor:
         all_items: List[TaxableItem] = []
 
         # Create initial prompt
-        initial_prompt = MemoryPrompt(
+        initial_prompt = SimplePrompt(
             name="tax_extraction_init",
             description="Initialize tax document processing",
             system_prompt="You are processing a multi-page tax document. Maintain context across pages.",
@@ -346,9 +346,9 @@ class PDFTaxProcessor:
         response_format: ResponseFormat,
         page_number: int,
         total_pages: int
-    ) -> MemoryPrompt:
-        """Create a MemoryPrompt for PDF tax data extraction with conversation context."""
-        return MemoryPrompt(
+    ) -> SimplePrompt:
+        """Create a SimplePrompt for PDF tax data extraction with conversation context."""
+        return SimplePrompt(
             name="tax_extractor",
             description="Extract tax-related purchase data from PDF",
             system_prompt=f"""You are an expert at extracting financial and tax-related data from receipts and invoices.

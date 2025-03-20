@@ -1,7 +1,7 @@
 """Conversation-aware chain system for LLM orchestration."""
 
 import asyncio
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, cast, Type, TypeVar, Generic
 from uuid import uuid4
 from pydantic import Field
 
@@ -9,6 +9,8 @@ from llmaestro.chains.chains import ChainEdge, ChainGraph, ChainNode, NodeType, 
 from llmaestro.core.conversations import ConversationGraph
 from llmaestro.core.orchestrator import ExecutionMetadata, Orchestrator
 from llmaestro.prompts.base import BasePrompt
+
+P = TypeVar("P", bound=BasePrompt)
 
 
 class ConversationChainNode(ChainNode):
@@ -44,11 +46,21 @@ class ConversationChainNode(ChainNode):
         )
 
 
-class ConversationChain(ChainGraph):
-    """A chain that integrates with the conversation system."""
+class ConversationChain(ChainGraph, Generic[P]):
+    """A chain that integrates with the conversation system.
 
-    def __init__(self, orchestrator: Orchestrator):
-        super().__init__()
+    Generic Parameters:
+        P: The type of prompt to use in this chain (must inherit from BasePrompt)
+    """
+
+    def __init__(self, orchestrator: Orchestrator, prompt_type: Optional[Type[P]] = None):
+        """Initialize the conversation chain.
+
+        Args:
+            orchestrator: The orchestrator to use for execution
+            prompt_type: The type of prompt to use for this chain (must inherit from BasePrompt)
+        """
+        super().__init__(prompt_type=prompt_type)
         self.orchestrator = orchestrator
         self.conversation: Optional[ConversationGraph] = None
 
@@ -67,7 +79,20 @@ class ConversationChain(ChainGraph):
         retry_strategy: Optional[RetryStrategy] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Add a prompt node to both the chain and conversation."""
+        """Add a prompt node to both the chain and conversation.
+
+        Args:
+            prompt: The prompt to add (can be any prompt type that inherits from BasePrompt)
+            dependencies: Optional list of node IDs that this node depends on
+            retry_strategy: Optional configuration for retry behavior
+            metadata: Optional metadata for the node
+
+        Returns:
+            The ID of the new node
+
+        Raises:
+            ValueError: If the chain is not initialized with a conversation
+        """
         if not self.conversation:
             raise ValueError("Chain not initialized with conversation")
 
@@ -80,7 +105,14 @@ class ConversationChain(ChainGraph):
         # Add dependencies
         if dependencies:
             for dep_id in dependencies:
-                self.add_edge(ChainEdge(source_id=dep_id, target_id=node_id, edge_type="depends_on"))
+                # Get the source node
+                source_node = self.nodes.get(dep_id)
+                if source_node is None:
+                    raise ValueError(f"Dependency node {dep_id} not found")
+
+                # Create and add the edge
+                edge = ChainEdge(source=source_node, target=node, edge_type="depends_on")
+                self.add_edge(edge)
 
         return node_id
 

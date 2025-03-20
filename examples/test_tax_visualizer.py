@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from llmaestro.core.conversations import ConversationGraph, ConversationNode, ConversationEdge
 from llmaestro.core.models import LLMResponse, TokenUsage
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 
 # Import the LiveTaxProcessorVisualizer using a relative import
@@ -62,7 +62,7 @@ class MockTaxConversationGenerator:
         prompt_text = random.choice(self.sample_prompts)
 
         # Create a proper prompt object
-        prompt_content = MemoryPrompt(
+        prompt_content = SimplePrompt(
             name="tax_extraction",
             description="Extract tax information",
             system_prompt="You are processing a tax document.",
@@ -134,7 +134,7 @@ class MockTaxConversationGenerator:
             prompt_text = random.choice(self.sample_prompts)
 
             # Create a proper prompt object
-            prompt_content = MemoryPrompt(
+            prompt_content = SimplePrompt(
                 name="tax_extraction",
                 description="Extract tax information",
                 system_prompt="You are processing a tax document.",

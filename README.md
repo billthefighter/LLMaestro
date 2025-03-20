@@ -11,7 +11,7 @@ import asyncio
 from llmaestro.default_library.default_llm_factory import LLMDefaultFactory
 from llmaestro.agents.agent_pool import AgentPool
 from llmaestro.prompts.base import PromptVariable
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.prompts.types import SerializableType
 
@@ -29,7 +29,7 @@ async def main():
     agent_pool = AgentPool(llm_registry=registry)
 
     # Create a prompt with a tool
-    weather_prompt = MemoryPrompt(
+    weather_prompt = SimplePrompt(
         name="weather_query",
         description="Query weather information using tools",
         system_prompt="You are a helpful weather assistant. Use the provided tools to get weather information.",
@@ -49,7 +49,7 @@ async def main():
     system_prompt, user_prompt, _, tools = weather_prompt.render(location=location)
 
     # Create a new prompt with the rendered content
-    formatted_prompt = MemoryPrompt(
+    formatted_prompt = SimplePrompt(
         name=weather_prompt.name,
         description=weather_prompt.description,
         system_prompt=system_prompt,
@@ -326,7 +326,7 @@ Tools can be attached to prompts, allowing LLMs to decide when and how to call t
 
 ```python
 from llmaestro.prompts.base import PromptVariable
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.tools.core import ToolParams, BasicFunctionGuard
 from llmaestro.prompts.types import SerializableType
 
@@ -336,7 +336,7 @@ def get_weather(location: str) -> str:
     return f"The weather in {location} is always sunny."
 
 # Create a prompt with the tool
-weather_prompt = MemoryPrompt(
+weather_prompt = SimplePrompt(
     name="weather_query",
     description="Query weather information using tools",
     system_prompt="You are a weather assistant.",
@@ -358,7 +358,7 @@ location = "New York"
 system_prompt, user_prompt, _, tools = weather_prompt.render(location=location)
 
 # Create a new prompt with the rendered content
-formatted_prompt = MemoryPrompt(
+formatted_prompt = SimplePrompt(
     name=weather_prompt.name,
     description=weather_prompt.description,
     system_prompt=system_prompt,

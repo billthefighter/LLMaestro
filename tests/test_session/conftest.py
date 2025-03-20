@@ -8,7 +8,7 @@ from llmaestro.session.session import Session
 from llmaestro.core.models import BaseResponse, LLMResponse, TokenUsage, ContextMetrics
 from llmaestro.core.storage import Artifact, FileSystemArtifactStorage
 from llmaestro.prompts.base import BasePrompt, FileAttachment
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.llm.models import LLMProfile, LLMCapabilities
 from llmaestro.prompts.types import PromptMetadata, VersionInfo
 from llmaestro.llm.responses import ResponseFormat
@@ -23,7 +23,7 @@ def mock_storage_path(tmp_path) -> Path:
     return storage_dir
 
 @pytest.fixture
-def mock_prompt() -> MemoryPrompt:
+def mock_prompt() -> SimplePrompt:
     """Create a mock prompt for testing."""
     version_info = VersionInfo(
         number="1.0.0",
@@ -33,7 +33,7 @@ def mock_prompt() -> MemoryPrompt:
         change_type="initial"
     )
 
-    return MemoryPrompt(
+    return SimplePrompt(
         name="test_prompt",
         description="Test prompt",
         system_prompt="You are a test assistant",

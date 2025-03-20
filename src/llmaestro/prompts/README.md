@@ -56,7 +56,7 @@ Provides mechanisms for loading and saving prompts:
 
 Implements in-memory prompt storage:
 
-- `MemoryPrompt`: Non-persistent prompt implementation for testing and temporary use
+- `SimplePrompt`: Non-persistent prompt implementation for testing and temporary use
 
 ## Integration with ResponseFormat
 

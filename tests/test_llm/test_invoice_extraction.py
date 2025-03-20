@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 from typing import cast, Dict, Any
 from llmaestro.core.attachments import FileAttachment, BaseAttachment
-from llmaestro.prompts.memory import MemoryPrompt
+from llmaestro.prompts.memory import SimplePrompt
 from llmaestro.prompts.types import PromptMetadata
 from llmaestro.llm.llm_registry import LLMRegistry
 from llmaestro.core.models import LLMResponse, TokenUsage, ContextMetrics
@@ -141,9 +141,9 @@ def invoice_response_format() -> ResponseFormat:
     )
 
 @pytest.fixture
-def invoice_prompt(invoice_attachment: FileAttachment, invoice_response_format: ResponseFormat) -> MemoryPrompt:
-    """Create a MemoryPrompt for invoice data extraction."""
-    return MemoryPrompt(
+def invoice_prompt(invoice_attachment: FileAttachment, invoice_response_format: ResponseFormat) -> SimplePrompt:
+    """Create a SimplePrompt for invoice data extraction."""
+    return SimplePrompt(
         name="invoice_extractor",
         description="Extract financial data from invoice",
         system_prompt="""You are an expert at extracting financial data from invoices.
@@ -201,9 +201,9 @@ def invoice_png_attachment(sample_invoice_png_path: Path) -> FileAttachment:
     )
 
 @pytest.fixture
-def invoice_png_prompt(invoice_png_attachment: FileAttachment, invoice_response_format: ResponseFormat) -> MemoryPrompt:
-    """Create a MemoryPrompt for PNG invoice data extraction."""
-    return MemoryPrompt(
+def invoice_png_prompt(invoice_png_attachment: FileAttachment, invoice_response_format: ResponseFormat) -> SimplePrompt:
+    """Create a SimplePrompt for PNG invoice data extraction."""
+    return SimplePrompt(
         name="invoice_png_extractor",
         description="Extract financial data from PNG invoice",
         system_prompt="""You are an expert at extracting financial data from invoices.
@@ -221,9 +221,9 @@ Do not wrap the response in ```json``` or any other markdown.""",
     )
 
 @pytest.fixture
-def invoice_pydantic_prompt(invoice_png_attachment: FileAttachment) -> MemoryPrompt:
-    """Create a MemoryPrompt for invoice data extraction using Pydantic model."""
-    return MemoryPrompt(
+def invoice_pydantic_prompt(invoice_png_attachment: FileAttachment) -> SimplePrompt:
+    """Create a SimplePrompt for invoice data extraction using Pydantic model."""
+    return SimplePrompt(
         name="invoice_pydantic_extractor",
         description="Extract financial data from PNG invoice using Pydantic model",
         system_prompt="""You are an expert at extracting financial data from invoices.
@@ -286,7 +286,7 @@ def test_invoice_response_format_creation(invoice_response_format: ResponseForma
     assert "vat_total" in schema_dict["properties"]
     assert "gross_total" in schema_dict["properties"]
 
-def test_invoice_prompt_creation(invoice_prompt: MemoryPrompt):
+def test_invoice_prompt_creation(invoice_prompt: SimplePrompt):
     """Test that the invoice prompt is created correctly."""
     assert invoice_prompt is not None
     assert invoice_prompt.name == "invoice_extractor"
@@ -306,7 +306,7 @@ def test_invoice_prompt_creation(invoice_prompt: MemoryPrompt):
 )
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_invoice_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_prompt: MemoryPrompt, sample_invoice_response: str):
+async def test_invoice_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_prompt: SimplePrompt, sample_invoice_response: str):
     """Test extracting data from a sample invoice.
 
     Note: This test is currently marked as xfail due to PDF processing issues.
@@ -355,7 +355,7 @@ async def test_invoice_data_extraction(test_settings, llm_registry: LLMRegistry,
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_invoice_png_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_png_prompt: MemoryPrompt, sample_invoice_response: str):
+async def test_invoice_png_data_extraction(test_settings, llm_registry: LLMRegistry, invoice_png_prompt: SimplePrompt, sample_invoice_response: str):
     """Test extracting data from a sample PNG invoice."""
     if not test_settings.use_real_tokens:
         # Create a mock response using the fixture
@@ -398,7 +398,7 @@ async def test_invoice_png_data_extraction(test_settings, llm_registry: LLMRegis
 
 @pytest.mark.asyncio
 @pytest.mark.integration
-async def test_invoice_pydantic_extraction(test_settings, llm_registry: LLMRegistry, invoice_pydantic_prompt: MemoryPrompt, sample_invoice_response: str, caplog):
+async def test_invoice_pydantic_extraction(test_settings, llm_registry: LLMRegistry, invoice_pydantic_prompt: SimplePrompt, sample_invoice_response: str, caplog):
     """Test extracting data from a sample invoice using direct Pydantic model."""
     # Set logging level to DEBUG to capture debug messages
     caplog.set_level("DEBUG")
@@ -455,7 +455,7 @@ async def test_pattern_validator_warning(test_settings, llm_registry: LLMRegistr
     caplog.set_level("DEBUG")
 
     # Create a prompt with the original InvoiceData model that has pattern validators
-    prompt = MemoryPrompt(
+    prompt = SimplePrompt(
         name="invoice_pattern_validator_test",
         description="Test pattern validator warning",
         system_prompt="Extract invoice data",
